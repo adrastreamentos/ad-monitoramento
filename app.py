@@ -3,12 +3,7 @@ import sqlite3
 import pandas as pd
 from datetime import datetime
 import urllib.parse
-import io
-
-try:
-    from fpdf import FPDF
-except ImportError:
-    FPDF = None
+import base64
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="AD Rastreamento Veicular", page_icon="🛡️", layout="wide")
@@ -32,11 +27,8 @@ st.markdown("""
     
     /* Ajuste para pastas (expanders) */
     div[data-testid="stExpander"] { border-left: 4px solid #4a0e4e; }
-    
-    /* Ajuste botões de rádio (Ações) */
     div[role="radiogroup"] { flex-wrap: wrap; gap: 15px; }
     
-    /* Estilo Ficha de Atendimento */
     .ficha-box { border: 2px solid #4a0e4e; padding: 20px; border-radius: 10px; background-color: #fafafa; margin-top: 15px;}
 </style>
 """, unsafe_allow_html=True)
@@ -79,44 +71,48 @@ def registrar_auditoria(acao, modulo, detalhes):
     execute_query("INSERT INTO auditoria (data_hora, acao, modulo, detalhes, usuario) VALUES (?,?,?,?,?)", 
                   (agora, acao, modulo, detalhes, usuario))
 
-# --- GERADOR DE PDF ESPECÍFICO ---
-def gerar_pdf_individual(dados_relatorio, empresa_nome):
-    if FPDF is None:
-        return None
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt=f"Relatório de Atendimento Oficial", ln=True, align='C')
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt=f"Emitido por: {empresa_nome}", ln=True, align='C')
-    pdf.ln(10)
-    
-    pdf.set_font("Arial", 'B', 11)
-    pdf.cell(50, 10, "Detalhes da Ocorrência:", ln=True)
-    pdf.set_font("Arial", '', 10)
-    
-    pdf.cell(40, 10, "Data/Hora:", border=1)
-    pdf.cell(150, 10, str(dados_relatorio['data_hora']), border=1, ln=True)
-    
-    pdf.cell(40, 10, "Cliente:", border=1)
-    pdf.cell(150, 10, str(dados_relatorio['cliente']), border=1, ln=True)
-    
-    pdf.cell(40, 10, "Placa:", border=1)
-    pdf.cell(150, 10, str(dados_relatorio['placa']), border=1, ln=True)
-    
-    pdf.cell(40, 10, "Tipo de Serviço:", border=1)
-    pdf.cell(150, 10, str(dados_relatorio['tipo']), border=1, ln=True)
-    
-    pdf.cell(40, 10, "Status Atual:", border=1)
-    pdf.cell(150, 10, str(dados_relatorio['status']), border=1, ln=True)
-    
-    pdf.ln(5)
-    pdf.set_font("Arial", 'B', 11)
-    pdf.cell(50, 10, "Descrição / Ações Tomadas:", ln=True)
-    pdf.set_font("Arial", '', 10)
-    pdf.multi_cell(0, 8, txt=str(dados_relatorio['detalhes']))
-    
-    return bytes(pdf.output(dest='S').encode('latin-1'))
+# --- GERADOR DE RELATÓRIO HTML (100% Compatível e Pronto para PDF) ---
+def gerar_relatorio_html(dados_relatorio, empresa_nome):
+    html_content = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Relatório de Ocorrência - AD Rastreamento</title>
+        <style>
+            body {{ font-family: Arial, sans-serif; color: #333; margin: 40px; }}
+            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 15px; margin-bottom: 30px; }}
+            .header h1 {{ color: #4a0e4e; margin: 0; }}
+            .header h3 {{ color: #8b0000; margin: 5px 0 0 0; }}
+            .content {{ background: #f9f9f9; border: 1px solid #ddd; padding: 25px; border-radius: 8px; }}
+            .field {{ margin-bottom: 15px; }}
+            .label {{ font-weight: bold; color: #4a0e4e; }}
+            .footer {{ margin-top: 40px; text-align: center; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🛡️ AD RASTREAMENTO VEICULAR</h1>
+            <h3>Relatório Oficial de Atendimento Operacional</h3>
+        </div>
+        <div class="content">
+            <div class="field"><span class="label">Empresa Responsável:</span> {empresa_nome}</div>
+            <div class="field"><span class="label">ID do Registro:</span> {dados_relatorio['id']}</div>
+            <div class="field"><span class="label">Data e Hora:</span> {dados_relatorio['data_hora']}</div>
+            <div class="field"><span class="label">Cliente:</span> {dados_relatorio['cliente']}</div>
+            <div class="field"><span class="label">Placa do Veículo:</span> {dados_relatorio['placa']}</div>
+            <div class="field"><span class="label">Tipo de Ocorrência:</span> {dados_relatorio['tipo']}</div>
+            <div class="field"><span class="label">Status Atual:</span> {dados_relatorio['status']}</div>
+            <hr style="border: 0; border-top: 1px solid #ccc; margin: 20px 0;">
+            <div class="field"><span class="label">Detalhes / Dinâmica / Desfecho:</span><br><p>{dados_relatorio['detalhes']}</p></div>
+        </div>
+        <div class="footer">
+            Documento gerado automaticamente pela Central AD Rastreamento 24h.
+        </div>
+    </body>
+    </html>
+    """
+    b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
+    return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
 # --- CONTROLE DE SESSÃO ---
 if 'logged_in' not in st.session_state:
@@ -174,9 +170,9 @@ else:
         st.markdown("### 🛡️ Missão AD")
         st.markdown("**Foco total na segurança, agilidade e comprometimento.** Nossa missão é garantir proteção máxima e resposta rápida para a nossa frota e a de nossos parceiros.")
 
-    abas = ["👤 Clientes", "📖 Relatórios & PDF"]
+    abas = ["👤 Clientes", "📖 Relatórios"]
     if st.session_state.is_admin:
-        abas = ["🚨 Central 24h", "👤 Clientes", "📖 Relatórios & PDF", "🏢 Empresas", "💰 Financeiro", "🕵️ Auditoria"]
+        abas = ["🚨 Central 24h", "👤 Clientes", "📖 Relatórios", "🏢 Empresas", "💰 Financeiro", "🕵️ Auditoria"]
         
     tabs = st.tabs(abas)
     tab_idx = 0
@@ -201,39 +197,23 @@ else:
                         info_veic = next(item for item in resultados if item["placa"] == placa_sel)
                         
                         st.markdown("---")
-                        tipo_servico = st.radio("📋 **Ação na Central:**", ["Abertura de Furto/Roubo", "Finalizar Ocorrência Ativa", "Monitoramento Técnico"], horizontal=True)
+                        tipo_servico = st.radio("📋 **Ação na Central:**", ["Abertura de Furto/Roubo", "Monitoramento Técnico"], horizontal=True)
                         
                         if tipo_servico == "Abertura de Furto/Roubo":
                             with st.form("form_furto", clear_on_submit=True):
-                                st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo (Início)</h3>", unsafe_allow_html=True)
+                                st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo (Início Automático)</h3>", unsafe_allow_html=True)
                                 tipo_oc = st.selectbox("Natureza", ["Furto", "Roubo"])
                                 local_oc = st.text_input("Localização do Fato")
                                 desc_oc = st.text_area("Descrição / Dinâmica")
-                                st.info("ℹ️ Status automático: EM ANDAMENTO.")
+                                st.info("ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO.")
                                 
                                 if st.form_submit_button("Salvar Ocorrência"):
                                     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
-                                    st.success(f"Salvo! Limpando tela...")
+                                    st.success(f"Salvo e enviado para relatórios como EM ANDAMENTO!")
                                     st.rerun()
-                        
-                        elif tipo_servico == "Finalizar Ocorrência Ativa":
-                            pendentes = fetch_data("SELECT * FROM historico WHERE placa=? AND status='EM ANDAMENTO'", (placa_sel,))
-                            if pendentes:
-                                with st.form("form_finalizar", clear_on_submit=True):
-                                    id_pendente = pendentes[0]['id']
-                                    st.write(f"**Pendente:** {pendentes[0]['tipo']} em {pendentes[0]['data_hora']}")
-                                    conclusao_oc = st.text_area("Desfecho (Recuperado, etc.)")
-                                    if st.form_submit_button("Finalizar Ocorrência"):
-                                        novo_detalhe = pendentes[0]['detalhes'] + f" | DESFECHO: {conclusao_oc}"
-                                        execute_query("UPDATE historico SET status='FINALIZADO', detalhes=? WHERE id=?", (novo_detalhe, id_pendente))
-                                        registrar_auditoria("Atualização", "Operação", f"Ocorrência ID {id_pendente} FINALIZADA.")
-                                        st.success("Finalizada! Limpando tela...")
-                                        st.rerun()
-                            else:
-                                st.warning("Não há ocorrências em andamento para este veículo.")
                         
                         elif tipo_servico == "Monitoramento Técnico":
                             with st.form("form_monitoramento", clear_on_submit=True):
@@ -245,7 +225,7 @@ else:
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}")
-                                    st.success("Salvo! Limpando tela...")
+                                    st.success("Salvo com sucesso!")
                                     st.rerun()
                 else:
                     st.warning("Nenhum veículo encontrado com este termo.")
@@ -305,7 +285,7 @@ else:
                             st.error("Nome e Placa são obrigatórios.")
                             
         elif acao_clientes == "Importação em Lote":
-            st.info("📥 Funcionalidade de Importação em Lote (CSV) estará disponível na próxima atualização estrutural.")
+            st.info("📥 Funcionalidade de Importação em Lote (CSV) disponível em breve.")
             
         elif acao_clientes in ["Editar", "Excluir"]:
             busca = st.text_input("🔍 Buscar Cliente na Lista (Nome, Placa ou CPF):")
@@ -346,82 +326,152 @@ else:
                     st.warning("Nenhum cliente encontrado com esse termo.")
     tab_idx += 1
 
-    # --- ABA: HISTÓRICO & PDF ---
+    # --- ABA: RELATÓRIOS (SEPARADA EM FURTO/ROUBO E MONITORAMENTO) ---
     with tabs[tab_idx]:
-        st.header("📖 Relatórios & PDF")
+        st.header("📖 Relatórios Operacionais")
         
-        col_f1, col_f2 = st.columns(2)
-        filtro_busca_hist = col_f1.text_input("🔍 Filtrar por Placa, Nome ou CPF")
-        filtro_periodo = col_f2.text_input("📅 Filtrar por Data (Ex: 24/07/2026)")
+        sub_tab_fr, sub_tab_mon = st.tabs(["🚨 Relatórios de Furto e Roubo", "📡 Relatórios de Monitoramento Técnico"])
         
-        conn = sqlite3.connect(DB_PATH)
-        if st.session_state.is_admin:
-            query_h = "SELECT * FROM historico WHERE 1=1"
-            params_h = []
-        else:
-            query_h = "SELECT * FROM historico WHERE empresa=?"
-            params_h = [st.session_state.nome_empresa]
+        # 1. SUB-ABA: FURTO E ROUBO
+        with sub_tab_fr:
+            st.subheader("Controle de Ocorrências de Furto e Roubo")
+            col_f1, col_f2 = st.columns(2)
+            b_fr = col_f1.text_input("🔍 Buscar por Placa, Nome ou CPF (Furto/Roubo)", key="b_fr")
+            p_fr = col_f2.text_input("📅 Filtrar por Data (Furto/Roubo)", key="p_fr")
             
-        if filtro_busca_hist:
-            query_h += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
-            params_h.extend([f"%{filtro_busca_hist.lower()}%", f"%{filtro_busca_hist.lower()}%"])
-        if filtro_periodo:
-            query_h += " AND data_hora LIKE ?"
-            params_h.append(f"%{filtro_periodo}%")
+            conn = sqlite3.connect(DB_PATH)
+            q_fr = "SELECT * FROM historico WHERE tipo IN ('Furto', 'Roubo')"
+            p_list_fr = []
+            if not st.session_state.is_admin:
+                q_fr += " AND empresa=?"
+                p_list_fr.append(st.session_state.nome_empresa)
+            if b_fr:
+                q_fr += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
+                p_list_fr.extend([f"%{b_fr.lower()}%", f"%{b_fr.lower()}%"])
+            if p_fr:
+                q_fr += " AND data_hora LIKE ?"
+                p_list_fr.append(f"%{p_fr}%")
+            q_fr += " ORDER BY id DESC"
             
-        query_h += " ORDER BY id DESC"
-        res_historico = fetch_data(query_h, params=params_h)
-        df_hist = pd.DataFrame(res_historico)
-        conn.close()
-        
-        # Tabela reduzida (Resumo)
-        if not df_hist.empty:
-            df_resumo = df_hist[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']]
-            st.dataframe(df_resumo, use_container_width=True)
+            res_fr = fetch_data(q_fr, tuple(p_list_fr))
+            conn.close()
             
-            st.markdown("---")
-            st.markdown("### 🔎 Visualizar Ficha de Atendimento")
-            lista_hist = [f"{h['id']} - {h['placa']} ({h['data_hora']})" for h in res_historico]
-            rel_selecionado = st.selectbox("Selecione um registro da lista acima para ver detalhes ou baixar o PDF:", [""] + lista_hist)
-            
-            if rel_selecionado:
-                id_rel = int(rel_selecionado.split(" - ")[0])
-                dados_rel = next(item for item in res_historico if item["id"] == id_rel)
+            if res_fr:
+                df_fr = pd.DataFrame(res_fr)
+                st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                 
-                # Exibir os detalhes visualmente na tela
-                st.markdown(f"""
-                <div class="ficha-box">
-                    <h4 style="color:#8b0000; text-align:center;">Ficha de Ocorrência nº {dados_rel['id']}</h4>
-                    <hr>
-                    <p><b>Data/Hora:</b> {dados_rel['data_hora']}</p>
-                    <p><b>Cliente:</b> {dados_rel['cliente']}</p>
-                    <p><b>Placa:</b> {dados_rel['placa']}</p>
-                    <p><b>Tipo de Serviço:</b> {dados_rel['tipo']}</p>
-                    <p><b>Status:</b> {dados_rel['status']}</p>
-                    <hr>
-                    <p><b>Detalhes / Ações Tomadas:</b></p>
-                    <p>{dados_rel['detalhes']}</p>
-                </div>
-                """, unsafe_allow_html=True)
+                st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
+                lista_sel_fr = [f"{h['id']} - {h['placa']} ({h['tipo']} - {h['status']})" for h in res_fr]
+                reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", [""] + lista_sel_fr, key="sel_fr")
                 
-                # Opção de baixar o PDF desta ficha específica
-                if FPDF is not None:
-                    pdf_bytes = gerar_pdf_individual(dados_rel, st.session_state.nome_empresa)
-                    if pdf_bytes:
-                        st.download_button(label="📄 Baixar esta Ficha em PDF", data=pdf_bytes, file_name=f"Ocorrencia_{dados_rel['placa']}.pdf", mime="application/pdf")
-                else:
-                    st.error("⚠️ Biblioteca 'fpdf' ausente no servidor. Configure o requirements.txt.")
-        else:
-            st.info("Nenhum histórico encontrado.")
-        
-        if st.session_state.is_admin and not df_hist.empty:
-            st.markdown("---")
-            with st.expander("⚙️ Excluir Registro do Histórico (Admin)"):
-                id_del_hist = st.selectbox("ID do Histórico para remover:", [""] + list(df_hist['id'].astype(str)))
-                if id_del_hist and st.button("🗑️ Excluir Registro Selecionado"):
-                    execute_query("DELETE FROM historico WHERE id=?", (int(id_del_hist),))
-                    registrar_auditoria("Exclusão", "Histórico", f"Registro ID {id_del_hist} removido.")
-                    st.rerun()
+                if reg_sel_fr:
+                    id_ r = int(reg_sel_fr.split(" - ")[0])
+                    dados_fr = next(item for item in res_fr if item["id"] == id_r)
+                    
+                    st.markdown(f"""
+                    <div class="ficha-box">
+                        <h4 style="color:#8b0000; text-align:center;">Ficha de Ocorrência nº {dados_fr['id']} ({dados_fr['tipo']})</h4>
+                        <hr>
+                        <p><b>Data/Hora de Abertura:</b> {dados_fr['data_hora']}</p>
+                        <p><b>Cliente:</b> {dados_fr['cliente']}</p>
+                        <p><b>Placa:</b> {dados_fr['placa']}</p>
+                        <p><b>Status Atual:</b> <b>{dados_fr['status']}</b></p>
+                        <hr>
+                        <p><b>Detalhes / Dinâmica:</b></p>
+                        <p>{dados_fr['detalhes']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # Botão para Finalizar se estiver em andamento
+                    if dados_fr['status'] == 'EM ANDAMENTO':
+                        st.markdown("---")
+                        with st.form(f"form_finalizar_reg_{id_r}"):
+                            st.write("🟢 **Finalizar Atendimento:**")
+                            desfecho = st.text_area("Informe o desfecho do caso (ex: Veículo recuperado com sucesso)")
+                            if st.form_submit_button("✅ Concluir e Finalizar Ocorrência"):
+                                novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho}"
+                                execute_query("UPDATE historico SET status='FINALIZADO', detalhes=? WHERE id=?", (novo_detalhe, id_r))
+                                registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada.")
+                                st.success("Ocorrência finalizada com sucesso!")
+                                st.rerun()
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown(gerar_relatorio_html(dados_fr, st.session_state.nome_empresa), unsafe_allow_html=True)
+            else:
+                st.info("Nenhum registro de Furto ou Roubo encontrado.")
+                
+            if st.session_state.is_admin and res_fr:
+                st.markdown("---")
+                with st.expander("⚙️ Excluir Registro (Admin - Furto/Roubo)"):
+                    del_fr = st.selectbox("ID para remover:", [""] + [str(h['id']) for h in res_fr], key="del_fr_box")
+                    if del_fr and st.button("🗑️ Excluir Registro", key="btn_del_fr"):
+                        execute_query("DELETE FROM historico WHERE id=?", (int(del_fr),))
+                        registrar_auditoria("Exclusão", "Histórico", f"Registro ID {del_fr} removido.")
+                        st.rerun()
+
+        # 2. SUB-ABA: MONITORAMENTO TÉCNICO
+        with sub_tab_mon:
+            st.subheader("Eventos de Monitoramento Técnico")
+            col_m1, col_m2 = st.columns(2)
+            b_mon = col_m1.text_input("🔍 Buscar por Placa, Nome ou CPF (Monitoramento)", key="b_mon")
+            p_mon = col_m2.text_input("📅 Filtrar por Data (Monitoramento)", key="p_mon")
+            
+            conn = sqlite3.connect(DB_PATH)
+            q_mon = "SELECT * FROM historico WHERE tipo='Monitoramento'"
+            p_list_mon = []
+            if not st.session_state.is_admin:
+                q_mon += " AND empresa=?"
+                p_list_mon.append(st.session_state.nome_empresa)
+            if b_mon:
+                q_mon += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
+                p_list_mon.extend([f"%{b_mon.lower()}%", f"%{b_mon.lower()}%"])
+            if p_mon:
+                q_mon += " AND data_hora LIKE ?"
+                p_list_mon.append(f"%{p_mon}%")
+            q_mon += " ORDER BY id DESC"
+            
+            res_mon = fetch_data(q_mon, tuple(p_list_mon))
+            conn.close()
+            
+            if res_mon:
+                df_mon = pd.DataFrame(res_mon)
+                st.dataframe(df_mon[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
+                
+                st.markdown("### 🔎 Ficha de Monitoramento")
+                lista_sel_mon = [f"{h['id']} - {h['placa']} ({h['data_hora']})" for h in res_mon]
+                reg_sel_mon = st.selectbox("Selecione um registro para visualizar:", [""] + lista_sel_mon, key="sel_mon")
+                
+                if reg_sel_mon:
+                    id_m = int(reg_sel_mon.split(" - ")[0])
+                    dados_mon = next(item for item in res_mon if item["id"] == id_m)
+                    
+                    st.markdown(f"""
+                    <div class="ficha-box">
+                        <h4 style="color:#4a0e4e; text-align:center;">Ficha de Monitoramento nº {dados_mon['id']}</h4>
+                        <hr>
+                        <p><b>Data/Hora:</b> {dados_mon['data_hora']}</p>
+                        <p><b>Cliente:</b> {dados_mon['cliente']}</p>
+                        <p><b>Placa:</b> {dados_mon['placa']}</p>
+                        <p><b>Status:</b> {dados_mon['status']}</p>
+                        <hr>
+                        <p><b>Detalhes / Ação da Central:</b></p>
+                        <p>{dados_mon['detalhes']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown(gerar_relatorio_html(dados_mon, st.session_state.nome_empresa), unsafe_allow_html=True)
+            else:
+                st.info("Nenhum registro de monitoramento encontrado.")
+                
+            if st.session_state.is_admin and res_mon:
+                st.markdown("---")
+                with st.expander("⚙️ Excluir Registro (Admin - Monitoramento)"):
+                    del_mon = st.selectbox("ID para remover:", [""] + [str(h['id']) for h in res_mon], key="del_mon_box")
+                    if del_mon and st.button("🗑️ Excluir Registro", key="btn_del_mon"):
+                        execute_query("DELETE FROM historico WHERE id=?", (int(del_mon),))
+                        registrar_auditoria("Exclusão", "Histórico", f"Registro ID {del_mon} removido.")
+                        st.rerun()
     tab_idx += 1
 
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
