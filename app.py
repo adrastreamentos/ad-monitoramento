@@ -320,7 +320,6 @@ else:
                 st.markdown("---")
                 st.subheader("🔍 Visualizar Ficha Completa do Cliente")
                 
-                # Consulta otimizada garantindo que só apareçam clientes que possuem veículos ativos válidos
                 q_clientes_validos = f"""
                     SELECT DISTINCT c.id, c.nome, c.documento, c.empresa 
                     FROM clientes c 
@@ -369,7 +368,8 @@ else:
             else:
                 st.subheader("📝 Cadastro de Novo Cliente e Seus Veículos")
                 
-                with st.form("form_cadastro_multiplo"):
+                # Formulário com clear_on_submit=True garante que limpa tudo após salvar
+                with st.form("form_cadastro_multiplo", clear_on_submit=True):
                     c1, c2 = st.columns(2)
                     nome_cli = c1.text_input("Nome do Cliente *")
                     doc_cli = c2.text_input("CPF / CNPJ *")
@@ -421,8 +421,7 @@ else:
                             
                             st.session_state.num_veiculos_form = 1
                             registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome_cli} cadastrado com múltiplos veículos.")
-                            st.success("Cliente e veículos cadastrados com sucesso!")
-                            st.rerun()
+                            st.success("Cliente e veículos cadastrados com sucesso e tela limpa!")
                         else:
                             st.error("Preencha o Nome, CPF/CNPJ e pelo menos a Placa de um veículo.")
                             
@@ -810,6 +809,7 @@ else:
                     st.info("Nenhuma empresa parceira cadastrada.")
             
             elif acao_parceiros == "Incluir Nova":
+                # clear_on_submit=True garante que limpa tudo ao registrar a empresa
                 with st.form("nova_empresa", clear_on_submit=True):
                     e_nome = st.text_input("Nome da Empresa (Será o Login) *")
                     e_cnpj = st.text_input("CNPJ (Será a Senha) *")
@@ -825,7 +825,7 @@ else:
                             execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento) VALUES (?,?,?,?,?,?,?,?)", 
                                           (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.")
-                            st.rerun()
+                            st.success("Empresa cadastrada com sucesso e tela limpa!")
                         else:
                             st.error("Nome e CNPJ são obrigatórios.")
                             
@@ -861,6 +861,7 @@ else:
                                     execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=?, valor_veiculo=?, dia_vencimento=? WHERE id=?", 
                                                   (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
                                     registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}")
+                                    st.success("Alterações salvas com sucesso!")
                                     st.rerun()
                         
                         elif acao_parceiros == "Excluir":
@@ -868,6 +869,7 @@ else:
                             if st.button("🗑️ Excluir Parceiro"):
                                 execute_query("DELETE FROM empresas WHERE id=?", (id_emp,))
                                 registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.")
+                                st.success("Empresa excluída com sucesso!")
                                 st.rerun()
                 else:
                     st.warning("Nenhuma empresa encontrada.")
