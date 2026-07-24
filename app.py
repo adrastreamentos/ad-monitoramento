@@ -131,9 +131,6 @@ if 'logged_in' not in st.session_state:
         st.session_state.is_admin = False
         st.session_state.nome_empresa = ""
 
-if 'acao_clientes' not in st.session_state:
-    st.session_state.acao_clientes = "Listar"
-
 # ==========================================
 # 1. TELA DE LOGIN
 # ==========================================
@@ -261,7 +258,7 @@ else:
     with tabs[tab_idx]:
         st.header("👤 Gerenciamento de Clientes (Frotas e Veículos)")
         
-        acao_clientes = st.radio("Ação Clientes:", ["Listar", "Incluir Novo", "Importação em Lote", "Editar", "Excluir"], horizontal=True, key="acao_clientes")
+        acao_clientes = st.radio("Ação Clientes:", ["Listar", "Incluir Novo", "Importação em Lote", "Editar", "Excluir"], horizontal=True)
         st.markdown("---")
         
         empresas_disp = fetch_data("SELECT nome FROM empresas")
@@ -308,7 +305,6 @@ else:
                                 execute_query("INSERT INTO clientes (nome, documento, endereco, telefone, tipo_veic, placa, modelo, cor, empresa, status, ultima_atualizacao) VALUES (?,?,?,?,?,?,?,?,?,'Ativo',?)", 
                                           (nome, doc, end, tel, tipo, placa, mod, cor, emp, agora))
                                 registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome} adicionado na pasta {emp}.")
-                                st.session_state.acao_clientes = "Listar"
                                 st.rerun()
                             else:
                                 st.error("Nome e Placa são obrigatórios.")
@@ -334,7 +330,6 @@ else:
                                         execute_query("INSERT INTO clientes (nome, documento, endereco, telefone, tipo_veic, placa, modelo, cor, empresa, status, ultima_atualizacao) VALUES (?,?,?,?,?,?,?,?,?,'Ativo',?)", 
                                                   (dados_cli_existente['nome'], dados_cli_existente['documento'], dados_cli_existente['endereco'], dados_cli_existente['telefone'], tipo, placa, mod, cor, dados_cli_existente['empresa'], agora))
                                         registrar_auditoria("Cadastro", "Frotas", f"Veículo {placa} vinculado ao cliente {dados_cli_existente['nome']}.")
-                                        st.session_state.acao_clientes = "Listar"
                                         st.rerun()
                                     else:
                                         st.error("A Placa é obrigatória.")
@@ -377,16 +372,15 @@ else:
                                     execute_query("UPDATE clientes SET nome=?, placa=?, status=? WHERE id=?", (en_nome, en_placa, en_status, id_sel))
                                     registrar_auditoria("Edição", "Clientes", f"Cliente ID {id_sel} alterado.")
                                     st.session_state["termo_cli_ativo"] = ""
-                                    st.session_state.acao_clientes = "Listar"
                                     st.rerun()
                         
                         elif acao_clientes == "Excluir":
                             st.warning(f"Tem certeza que deseja excluir o cliente/veículo **{dados_c['nome']} (Placa: {dados_c['placa']})**?")
-                            if st.button("🗑️ Excluir Registro (Irreversível)"):
+                            if st.button("🗑️ Excluir Registro (Irreversível)", key=f"btn_del_{id_sel}"):
                                 execute_query("DELETE FROM clientes WHERE id=?", (id_sel,))
                                 registrar_auditoria("Exclusão", "Clientes", f"Cliente ID {id_sel} excluído.")
                                 st.session_state["termo_cli_ativo"] = ""
-                                st.session_state.acao_clientes = "Listar"
+                                st.success("Registro excluído com sucesso!")
                                 st.rerun()
                 else:
                     st.warning("Nenhum cliente encontrado com esse termo.")
