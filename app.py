@@ -120,7 +120,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
-# --- CONTROLE DE SESSÃO SEGURO (PRIMEIRO DE TUDO) ---
+# --- CONTROLE DE SESSÃO SEGURO ---
 if 'logged_in' not in st.session_state:
     if st.query_params.get("logged_in") == "true":
         st.session_state.logged_in = True
@@ -198,10 +198,17 @@ else:
     if st.session_state.is_admin:
         with tabs[tab_idx]:
             st.header("🚨 Central de Operações e Ocorrências 24h")
-            busca_op = st.text_input("🔍 Buscar veículo (Digite Nome, Placa ou CPF)", key="busca_op_input")
             
-            if busca_op and len(busca_op) >= 3:
-                q_busca = f"SELECT * FROM clientes WHERE status='Ativo' AND (lower(nome) LIKE '%{busca_op.lower()}%' OR lower(placa) LIKE '%{busca_op.lower()}%' OR lower(documento) LIKE '%{busca_op.lower()}%')"
+            with st.form("form_busca_veic", clear_on_submit=False):
+                busca_op = st.text_input("🔍 Buscar veículo (Digite Nome, Placa ou CPF)")
+                btn_buscar = st.form_submit_button("Pesquisar Veículo")
+            
+            if btn_buscar and busca_op and len(busca_op) >= 3:
+                st.session_state["termo_busca_ativo"] = busca_op
+                
+            if "termo_busca_ativo" in st.session_state and st.session_state["termo_busca_ativo"]:
+                termo = st.session_state["termo_busca_ativo"]
+                q_busca = f"SELECT * FROM clientes WHERE status='Ativo' AND (lower(nome) LIKE '%{termo.lower()}%' OR lower(placa) LIKE '%{termo.lower()}%' OR lower(documento) LIKE '%{termo.lower()}%')"
                 resultados = fetch_data(q_busca)
                 
                 if resultados:
@@ -229,7 +236,7 @@ else:
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
-                                    st.session_state["busca_op_input"] = ""
+                                    st.session_state["termo_busca_ativo"] = ""
                                     st.success(f"Salvo e enviado para relatórios como EM ANDAMENTO!")
                                     st.rerun()
                         
@@ -243,7 +250,7 @@ else:
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}")
-                                    st.session_state["busca_op_input"] = ""
+                                    st.session_state["termo_busca_ativo"] = ""
                                     st.success("Salvo com sucesso!")
                                     st.rerun()
                 else:
@@ -338,9 +345,16 @@ else:
             st.info("📥 Funcionalidade de Importação em Lote (CSV) disponível em breve.")
             
         elif acao_clientes in ["Editar", "Excluir"]:
-            busca = st.text_input("🔍 Buscar Cliente na Lista (Nome, Placa ou CPF):", key="busca_cli_input")
-            if busca and len(busca) >= 3:
-                q_busca_cli = f"SELECT * FROM clientes WHERE lower(nome) LIKE '%{busca.lower()}%' OR lower(placa) LIKE '%{busca.lower()}%' OR lower(documento) LIKE '%{busca.lower()}%'"
+            with st.form("form_busca_cliente", clear_on_submit=False):
+                busca = st.text_input("🔍 Buscar Cliente na Lista (Nome, Placa ou CPF):")
+                btn_busca_cli = st.form_submit_button("Pesquisar Cliente")
+                
+            if btn_busca_cli and busca and len(busca) >= 3:
+                st.session_state["termo_cli_ativo"] = busca
+                
+            if "termo_cli_ativo" in st.session_state and st.session_state["termo_cli_ativo"]:
+                termo_c = st.session_state["termo_cli_ativo"]
+                q_busca_cli = f"SELECT * FROM clientes WHERE lower(nome) LIKE '%{termo_c.lower()}%' OR lower(placa) LIKE '%{termo_c.lower()}%' OR lower(documento) LIKE '%{termo_c.lower()}%'"
                 if not st.session_state.is_admin:
                     q_busca_cli += f" AND empresa='{st.session_state.nome_empresa}'"
                 
@@ -362,7 +376,7 @@ else:
                                 if st.form_submit_button("💾 Salvar Alterações"):
                                     execute_query("UPDATE clientes SET nome=?, placa=?, status=? WHERE id=?", (en_nome, en_placa, en_status, id_sel))
                                     registrar_auditoria("Edição", "Clientes", f"Cliente ID {id_sel} alterado.")
-                                    st.session_state["busca_cli_input"] = "" 
+                                    st.session_state["termo_cli_ativo"] = ""
                                     st.session_state.acao_clientes = "Listar"
                                     st.rerun()
                         
@@ -371,7 +385,7 @@ else:
                             if st.button("🗑️ Excluir Registro (Irreversível)"):
                                 execute_query("DELETE FROM clientes WHERE id=?", (id_sel,))
                                 registrar_auditoria("Exclusão", "Clientes", f"Cliente ID {id_sel} excluído.")
-                                st.session_state["busca_cli_input"] = ""
+                                st.session_state["termo_cli_ativo"] = ""
                                 st.session_state.acao_clientes = "Listar"
                                 st.rerun()
                 else:
@@ -435,7 +449,6 @@ else:
                         st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
                         lista_sel_fr = [""] + [f"{h['id']} - {h['placa']} ({h['tipo']} - {h['status']})" for h in res_fr]
                         
-                        # Garante que o índice selecionado seja seguro
                         idx_sel_fr = 0
                         if "sel_fr_val" in st.session_state and st.session_state["sel_fr_val"] in lista_sel_fr:
                             idx_sel_fr = lista_sel_fr.index(st.session_state["sel_fr_val"])
@@ -528,6 +541,7 @@ else:
                             dados_mon = next(item for item in res_mon if item["id"] == id_m)
                             
                             if st.button("❌ Fechar Ficha", key="fechar_mon_btn"):
+                                st.session_state["sel_mon_val"] = ""
                                 st.rerun()
 
                             st.markdown(f'''
