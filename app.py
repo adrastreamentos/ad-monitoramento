@@ -294,7 +294,7 @@ else:
                         tipo = c2.selectbox("Tipo de Veículo", ["Carro", "Moto", "Caminhão", "Outro"])
                         placa = c1.text_input("Placa *")
                         mod = c2.text_input("Modelo")
-                        cor = c1.text_input("Cor")
+                        cor = c2.text_input("Cor")
                         if st.form_submit_button("Salvar Novo Cliente"):
                             if nome and placa:
                                 agora = datetime.now().strftime('%d/%m/%Y %H:%M')
@@ -433,14 +433,22 @@ else:
                         st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
-                        lista_sel_fr = [f"{h['id']} - {h['placa']} ({h['tipo']} - {h['status']})" for h in res_fr]
-                        reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", [""] + lista_sel_fr, key="sel_fr")
+                        lista_sel_fr = [""] + [f"{h['id']} - {h['placa']} ({h['tipo']} - {h['status']})" for h in res_fr]
                         
-                        if reg_sel_fr:
+                        # Garante que o índice selecionado seja seguro
+                        idx_sel_fr = 0
+                        if "sel_fr_val" in st.session_state and st.session_state["sel_fr_val"] in lista_sel_fr:
+                            idx_sel_fr = lista_sel_fr.index(st.session_state["sel_fr_val"])
+                            
+                        reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", lista_sel_fr, index=idx_sel_fr, key="sel_fr_selectbox")
+                        
+                        if reg_sel_fr != "":
+                            st.session_state["sel_fr_val"] = reg_sel_fr
                             id_r = int(reg_sel_fr.split(" - ")[0])
                             dados_fr = next(item for item in res_fr if item["id"] == id_r)
                             
-                            if st.button("❌ Fechar Ficha", key="fechar_fr"):
+                            if st.button("❌ Fechar Ficha", key="fechar_fr_btn"):
+                                st.session_state["sel_fr_val"] = ""
                                 st.rerun()
 
                             st.markdown(f'''
@@ -471,6 +479,8 @@ else:
                             
                             st.markdown("<br>", unsafe_allow_html=True)
                             st.markdown(gerar_relatorio_html(dados_fr, st.session_state.nome_empresa), unsafe_allow_html=True)
+                        else:
+                            st.session_state["sel_fr_val"] = ""
                     else:
                         st.info("Nenhum registro de Furto ou Roubo encontrado.")
                 idx_sub += 1
@@ -504,14 +514,20 @@ else:
                         st.dataframe(df_mon[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha de Monitoramento")
-                        lista_sel_mon = [f"{h['id']} - {h['placa']} ({h['data_hora']})" for h in res_mon]
-                        reg_sel_mon = st.selectbox("Selecione um registro para visualizar:", [""] + lista_sel_mon, key="sel_mon")
+                        lista_sel_mon = [""] + [f"{h['id']} - {h['placa']} ({h['data_hora']})" for h in res_mon]
                         
-                        if reg_sel_mon:
+                        idx_sel_mon = 0
+                        if "sel_mon_val" in st.session_state and st.session_state["sel_mon_val"] in lista_sel_mon:
+                            idx_sel_mon = lista_sel_mon.index(st.session_state["sel_mon_val"])
+                            
+                        reg_sel_mon = st.selectbox("Selecione um registro para visualizar:", lista_sel_mon, index=idx_sel_mon, key="sel_mon_selectbox")
+                        
+                        if reg_sel_mon != "":
+                            st.session_state["sel_mon_val"] = reg_sel_mon
                             id_m = int(reg_sel_mon.split(" - ")[0])
                             dados_mon = next(item for item in res_mon if item["id"] == id_m)
                             
-                            if st.button("❌ Fechar Ficha", key="fechar_mon"):
+                            if st.button("❌ Fechar Ficha", key="fechar_mon_btn"):
                                 st.rerun()
 
                             st.markdown(f'''
@@ -530,6 +546,8 @@ else:
                             
                             st.markdown("<br>", unsafe_allow_html=True)
                             st.markdown(gerar_relatorio_html(dados_mon, st.session_state.nome_empresa), unsafe_allow_html=True)
+                        else:
+                            st.session_state["sel_mon_val"] = ""
                     else:
                         st.info("Nenhum registro de monitoramento encontrado.")
                 idx_sub += 1
