@@ -1,9 +1,20 @@
+import sys
+import subprocess
+
+# --- INSTALAÇÃO AUTOMÁTICA DE DEPENDÊNCIAS ---
+# Força o servidor do Streamlit a instalar o Supabase e o Pandas automaticamente
+try:
+    from supabase import create_client, Client
+    import pandas as pd
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "supabase", "pandas"])
+    from supabase import create_client, Client
+    import pandas as pd
+
 import streamlit as st
 import sqlite3
-import pandas as pd
 from datetime import datetime
 import urllib.parse
-from supabase import create_client, Client
 
 # --- CONFIGURAÇÕES E CORES (AD RASTREAMENTO VEICULAR) ---
 st.set_page_config(page_title="AD Rastreamento Veicular", page_icon="🛡️", layout="wide")
@@ -20,7 +31,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- CHAVES DO SUPABASE (Mantidas conforme o original) ---
+# --- CHAVES DO SUPABASE ---
 SUPABASE_URL = "https://gfhgehiygflvkxqbbygt.supabase.co"
 SUPABASE_KEY = "sb_publishable_gw3fItEipuMZImIfNTJBjA_4nzrib9W"
 
@@ -244,7 +255,6 @@ else:
         
         st.dataframe(df_hist, use_container_width=True)
         
-        # Simulação simples de exportação de relatório PDF convertendo para CSV via botão nativo do Streamlit
         st.download_button(
             label="📄 Fazer Download do Relatório (CSV)",
             data=df_hist.to_csv(index=False).encode('utf-8'),
