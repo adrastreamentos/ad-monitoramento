@@ -1,7 +1,7 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import urllib.parse
 import base64
 import io
@@ -73,9 +73,14 @@ def execute_query(query, params=()):
     conn.commit()
     conn.close()
 
+# Função ajustada para o Horário Oficial do Brasil (UTC-3)
+def get_horario_brasil():
+    fuso_br = timezone(timedelta(hours=-3))
+    return datetime.now(fuso_br).strftime("%d/%m/%Y %H:%M:%S")
+
 def registrar_auditoria(acao, modulo, detalhes):
     usuario = st.session_state.get('nome_empresa', 'Sistema')
-    agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+    agora = get_horario_brasil()
     execute_query("INSERT INTO auditoria (data_hora, acao, modulo, detalhes, usuario) VALUES (?,?,?,?,?)", 
                   (agora, acao, modulo, detalhes, usuario))
 
@@ -136,7 +141,6 @@ if 'logged_in' not in st.session_state:
 if 'acao_clientes' not in st.session_state:
     st.session_state.acao_clientes = "Listar"
 
-# Inicializa o contador de veículos dinâmicos no cadastro
 if 'num_veiculos_form' not in st.session_state:
     st.session_state.num_veiculos_form = 1
 
@@ -193,9 +197,11 @@ else:
         st.markdown("### 🛡️ Missão AD")
         st.markdown("**Foco total na segurança, agilidade e comprometimento.** Nossa missão é garantir proteção máxima e resposta rápida para a nossa frota e a de nossos parceiros.")
 
-    abas = ["👤 Clientes", "📖 Relatórios"]
+    # Definição dinâmica das abas conforme o perfil (Admin vs Parceiro)
     if st.session_state.is_admin:
         abas = ["🚨 Central 24h", "👤 Clientes", "📖 Relatórios", "🏢 Empresas", "💰 Financeiro", "🕵️ Auditoria"]
+    else:
+        abas = ["👤 Clientes", "📖 Relatórios", "💰 Meu Faturamento"]
         
     tabs = st.tabs(abas)
     tab_idx = 0
@@ -242,7 +248,7 @@ else:
                                 st.info("ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO.")
                                 
                                 if st.form_submit_button("Salvar Ocorrência"):
-                                    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                                    agora = get_horario_brasil()
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
@@ -256,7 +262,7 @@ else:
                                 evento_mon = st.selectbox("Evento", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"])
                                 acao_mon = st.text_area("Ação da Central")
                                 if st.form_submit_button("Salvar Monitoramento"):
-                                    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+                                    agora = get_horario_brasil()
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}")
@@ -353,7 +359,6 @@ else:
                     st.markdown("---")
                     st.write("🚗 **Frota / Veículos do Cliente:**")
                     
-                    # Controle dinâmico de quantos veículos adicionar via botões na sessão
                     col_b1, col_b2 = st.columns([1, 4])
                     with col_b1:
                         if st.form_submit_button("➕ Adicionar Veículo"):
@@ -393,7 +398,7 @@ else:
                             conn.commit()
                             conn.close()
                             
-                            st.session_state.num_veiculos_form = 1 # Reseta o contador
+                            st.session_state.num_veiculos_form = 1
                             registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome_cli} cadastrado com múltiplos veículos.")
                             st.success("Cliente e veículos cadastrados com sucesso!")
                             st.rerun()
@@ -713,6 +718,50 @@ else:
 
     tab_idx += 1
 
+    # --- ABA: MEU FATURAMENTO (EXCLUSIVO PARA EMPRESAS PARCEIRAS) ---
+    if not st.session_state.is_admin and tab_idx < len(tabs):
+        with tabs[tab_idx]:
+            st.header("💰 Meu Faturamento e Frotas Ativas")
+            st.info("ℹ️ O cálculo do faturamento é baseado na quantidade total de veículos ativos vinculados à sua empresa na plataforma (R$ 3,00 por veículo).")
+            
+            # Conta quantos veículos estão cadastrados para esta empresa parceira específica
+            q_conta_veic = """
+                SELECT count(v.id) as total_veiculos 
+                FROM veiculos v 
+                JOIN clientes c ON v.cliente_id = c.id 
+                WHERE c.empresa = ? AND c.status = 'Ativo'
+            """
+            res_conta = fetch_data(q_conta_veic, (st.session_state.nome_empresa,))
+            total_veiculos = res_conta[0]['total_veiculos'] if res_conta else 0
+            
+            valor_por_veiculo = 3.00
+            valor_total_fatura = total_veiculos * valor_por_veiculo
+            
+            # Exibição moderna em métricas
+            col_m1, col_m2, col_m3 = st.columns(3)
+            col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
+            col_m2.metric("💵 Valor Unitário por Veículo", f"R$ {valor_por_veiculo:.2f}")
+            col_m3.metric("💳 Fatura Estimada (Próximo Vencimento)", f"R$ {valor_total_fatura:.2f}", delta="Vencimento todo último dia do mês", delta_color="off")
+            
+            st.markdown("---")
+            st.subheader("📋 Detalhamento da Frota Faturada")
+            
+            q_detalhe_frota = """
+                SELECT c.nome as cliente, c.documento, v.tipo_veic, v.placa, v.modelo, v.cor 
+                FROM veiculos v 
+                JOIN clientes c ON v.cliente_id = c.id 
+                WHERE c.empresa = ? AND c.status = 'Ativo'
+            """
+            df_frota_parceiro = pd.read_sql_query(q_detalhe_frota, sqlite3.connect(DB_PATH), params=(st.session_state.nome_empresa,))
+            
+            if not df_frota_parceiro.empty:
+                df_frota_parceiro.columns = ['Cliente', 'CPF/CNPJ', 'Tipo', 'Placa', 'Modelo', 'Cor']
+                st.dataframe(df_frota_parceiro, use_container_width=True)
+            else:
+                st.info("Nenhum veículo ativo registrado em sua base no momento.")
+                
+        tab_idx += 1
+
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
@@ -791,22 +840,29 @@ else:
     # --- ABA: FINANCEIRO (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
-            st.header("💰 Controle Financeiro")
-            mes_busca = st.text_input("🔍 Filtrar por Mês")
-            with st.expander("➕ Lançar Faturamento"):
-                with st.form("form_fin", clear_on_submit=True):
-                    f_mes = st.text_input("Mês (Ex: 07/2026)")
-                    f_emp = st.selectbox("Empresa", [e['nome'] for e in fetch_data("SELECT nome FROM empresas")])
-                    f_fat = st.number_input("Valor Faturado (R$)", min_value=0.0, format="%.2f")
-                    f_rec = st.number_input("Valor Recebido/Pago (R$)", min_value=0.0, format="%.2f")
-                    f_stat = st.selectbox("Status", ["Pendente", "Pago Parcial", "Pago Integral"])
-                    if st.form_submit_button("Salvar Lançamento"):
-                        execute_query("INSERT INTO financeiro (mes, empresa, faturado, recebido, status) VALUES (?,?,?,?,?)", 
-                                      (f_mes, f_emp, f_fat, f_rec, f_stat))
-                        st.rerun()
+            st.header("💰 Controle Financeiro Global de Parceiros")
             
-            q_fin = f"SELECT * FROM financeiro WHERE mes LIKE '%{mes_busca}%'" if mes_busca else "SELECT * FROM financeiro"
-            st.dataframe(pd.read_sql_query(q_fin, sqlite3.connect(DB_PATH)), use_container_width=True)
+            # Tabela resumo puxando o faturamento real automático de cada parceiro
+            empresas_cad = fetch_data("SELECT nome FROM empresas")
+            if empresas_cad:
+                dados_financeiro_global = []
+                for emp in empresas_cad:
+                    nome_emp = emp['nome']
+                    q_v = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = ? AND c.status = 'Ativo'"
+                    res_v = fetch_data(q_v, (nome_emp,))
+                    qtd_v = res_v[0]['qtd'] if res_v else 0
+                    valor_calc = qtd_v * 3.00
+                    dados_financeiro_global.append({
+                        "Empresa Parceira": nome_emp,
+                        "Veículos Ativos": qtd_v,
+                        "Valor por Veículo": "R$ 3,00",
+                        "Faturamento Estimado (Mês)": f"R$ {valor_calc:.2f}"
+                    })
+                
+                df_fin_global = pd.DataFrame(dados_financeiro_global)
+                st.dataframe(df_fin_global, use_container_width=True)
+            else:
+                st.info("Nenhuma empresa parceira cadastrada para faturamento.")
         tab_idx += 1
 
     # --- AUDITORIA ---
