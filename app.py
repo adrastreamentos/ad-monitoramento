@@ -136,6 +136,10 @@ if 'logged_in' not in st.session_state:
 if 'acao_clientes' not in st.session_state:
     st.session_state.acao_clientes = "Listar"
 
+# Inicializa o contador de veículos dinâmicos no cadastro
+if 'num_veiculos_form' not in st.session_state:
+    st.session_state.num_veiculos_form = 1
+
 # ==========================================
 # 1. TELA DE LOGIN
 # ==========================================
@@ -298,7 +302,6 @@ else:
                 st.markdown("---")
                 st.subheader("🔍 Visualizar Ficha Completa do Cliente")
                 
-                # Lista unificada de clientes para visualização de ficha
                 clientes_para_ficha = fetch_data(f"SELECT id, nome, documento, empresa FROM clientes " + ("" if st.session_state.is_admin else f"WHERE empresa='{st.session_state.nome_empresa}'"))
                 lista_ficha_op = [""] + [f"{cli['id']} - {cli['nome']} (CPF/CNPJ: {cli['documento']}) - [{cli['empresa']}]" for cli in clientes_para_ficha]
                 
@@ -337,72 +340,65 @@ else:
             if not opcoes_emp:
                 st.error("Nenhuma empresa parceira cadastrada! Cadastre a empresa primeiro.")
             else:
-                tipo_inclusao = st.radio("Como deseja cadastrar?", ["📝 Cadastrar Cliente e 1º Veículo", "🚗 Adicionar Veículo a Cliente Existente"], horizontal=True)
+                st.subheader("📝 Cadastro de Novo Cliente e Seus Veículos")
                 
-                if tipo_inclusao == "📝 Cadastrar Cliente e 1º Veículo":
-                    st.subheader("Cadastro de Novo Cliente e Veículo")
-                    with st.form("novo_cliente_completo", clear_on_submit=True):
-                        c1, c2 = st.columns(2)
-                        nome = c1.text_input("Nome do Cliente *")
-                        doc = c2.text_input("CPF/CNPJ *")
-                        end = c1.text_input("Endereço")
-                        tel = c2.text_input("Telefone")
-                        emp = c1.selectbox("Empresa (Pasta) *", opcoes_emp)
-                        
-                        st.markdown("---")
-                        st.write("🚗 **Dados do Veículo Inicial:**")
-                        tipo = c1.selectbox("Tipo de Veículo", ["Carro", "Moto", "Caminhão", "Outro"])
-                        placa = c2.text_input("Placa *")
-                        mod = c1.text_input("Modelo")
-                        cor = c2.text_input("Cor")
-                        
-                        if st.form_submit_button("Salvar Cliente e Veículo"):
-                            if nome and doc and placa:
-                                conn = sqlite3.connect(DB_PATH)
-                                cursor = conn.cursor()
-                                cursor.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status) VALUES (?,?,?,?,?,'Ativo')", 
-                                               (nome, doc, end, tel, emp))
-                                cliente_id = cursor.lastrowid
-                                cursor.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (?,?,?,?,?)", 
-                                               (cliente_id, tipo, placa, mod, cor))
-                                conn.commit()
-                                conn.close()
-                                
-                                registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome} e veículo {placa} cadastrados.")
-                                st.success("Cliente e veículo cadastrados com sucesso!")
+                with st.form("form_cadastro_multiplo"):
+                    c1, c2 = st.columns(2)
+                    nome_cli = c1.text_input("Nome do Cliente *")
+                    doc_cli = c2.text_input("CPF / CNPJ *")
+                    end_cli = c1.text_input("Endereço")
+                    tel_cli = c2.text_input("Telefone")
+                    emp_cli = c1.selectbox("Empresa (Pasta) *", opcoes_emp)
+                    
+                    st.markdown("---")
+                    st.write("🚗 **Frota / Veículos do Cliente:**")
+                    
+                    # Controle dinâmico de quantos veículos adicionar via botões na sessão
+                    col_b1, col_b2 = st.columns([1, 4])
+                    with col_b1:
+                        if st.form_submit_button("➕ Adicionar Veículo"):
+                            st.session_state.num_veiculos_form += 1
+                            st.rerun()
+                    with col_b2:
+                        if st.session_state.num_veiculos_form > 1:
+                            if st.form_submit_button("➖ Remover Último Veículo"):
+                                st.session_state.num_veiculos_form -= 1
                                 st.rerun()
-                            else:
-                                st.error("Nome, CPF/CNPJ e Placa são obrigatórios.")
-                                
-                elif tipo_inclusao == "🚗 Adicionar Veículo a Cliente Existente":
-                    if not df_clientes.empty:
-                        lista_clientes_op = [f"{c['id']} - {c['nome']} (Doc: {c['documento']})" for _, c in df_clientes.iterrows()]
-                        cli_sel_obj = st.selectbox("Selecione o Cliente:", [""] + lista_clientes_op)
-                        
-                        if cli_sel_obj != "":
-                            id_cliente_alvo = int(cli_sel_obj.split(" - ")[0])
-                            dados_cliente = df_clientes[df_clientes['id'] == id_cliente_alvo].iloc[0]
+
+                    veiculos_dados = []
+                    for i in range(st.session_state.num_veiculos_form):
+                        st.markdown(f"**Veículo {i+1}**")
+                        vc1, vc2, vc3, vc4 = st.columns(4)
+                        t_veic = vc1.selectbox(f"Tipo {i+1}", ["Carro", "Moto", "Caminhão", "Outro"], key=f"t_{i}")
+                        p_veic = vc2.text_input(f"Placa * {i+1}", key=f"p_{i}")
+                        m_veic = vc3.text_input(f"Modelo {i+1}", key=f"m_{i}")
+                        c_veic = vc4.text_input(f"Cor {i+1}", key=f"c_{i}")
+                        veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic})
+                        st.markdown("---")
+
+                    btn_salvar_tudo = st.form_submit_button("💾 Salvar Cadastro Completo do Cliente")
+                    
+                    if btn_salvar_tudo:
+                        if nome_cli and doc_cli and any(v['placa'] for v in veiculos_dados):
+                            conn = sqlite3.connect(DB_PATH)
+                            cursor = conn.cursor()
+                            cursor.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status) VALUES (?,?,?,?,?,'Ativo')", 
+                                           (nome_cli, doc_cli, end_cli, tel_cli, emp_cli))
+                            cliente_id = cursor.lastrowid
                             
-                            st.info(f"Adicionando novo veículo para: **{dados_cliente['nome']}** (Empresa: {dados_cliente['empresa']})")
+                            for v in veiculos_dados:
+                                if v['placa'].strip():
+                                    cursor.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (?,?,?,?,?)", 
+                                                   (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor']))
+                            conn.commit()
+                            conn.close()
                             
-                            with st.form("form_add_veiculo_extra", clear_on_submit=True):
-                                c1, c2 = st.columns(2)
-                                tipo = c1.selectbox("Tipo de Veículo", ["Carro", "Moto", "Caminhão", "Outro"])
-                                placa = c2.text_input("Placa do Novo Veículo *")
-                                mod = c1.text_input("Modelo")
-                                cor = c2.text_input("Cor")
-                                
-                                if st.form_submit_button("Vincular Veículo ao Cliente"):
-                                    if placa:
-                                        execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (?,?,?,?,?)", 
-                                                      (id_cliente_alvo, tipo, placa, mod, cor))
-                                        registrar_auditoria("Cadastro", "Frotas", f"Veículo placa {placa} adicionado à frota de {dados_cliente['nome']}.")
-                                        st.success(f"Veículo placa {placa} adicionado com sucesso para {dados_cliente['nome']}!")
-                                        st.rerun()
-                                    else:
-                                        st.error("A placa do veículo é obrigatória.")
-                    else:
-                        st.warning("Nenhum cliente cadastrado no sistema para adicionar veículos.")
+                            st.session_state.num_veiculos_form = 1 # Reseta o contador
+                            registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome_cli} cadastrado com múltiplos veículos.")
+                            st.success("Cliente e veículos cadastrados com sucesso!")
+                            st.rerun()
+                        else:
+                            st.error("Preencha o Nome, CPF/CNPJ e pelo menos a Placa de um veículo.")
                             
         elif acao_clientes == "Importação em Lote":
             st.subheader("📥 Importação Inteligente de Clientes e Frotas via CSV")
