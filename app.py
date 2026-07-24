@@ -106,6 +106,28 @@ def registrar_auditoria(acao, modulo, detalhes):
     execute_query("INSERT INTO auditoria (data_hora, acao, modulo, detalhes, usuario) VALUES (?,?,?,?,?)", 
                   (agora, acao, modulo, detalhes, usuario))
 
+# Função atualizada com a lógica de fechamento 2 dias antes do vencimento
+def calcular_status_fatura(status_banco, dia_venc):
+    if status_banco == "Pago":
+        return "🟢 Em Dias (Pago)"
+    
+    agora_dt = get_horario_brasil()
+    dia_atual = agora_dt.day
+    
+    # O fechamento ocorre 2 dias antes do vencimento
+    dia_fechamento = dia_venc - 2
+    if dia_fechamento < 1:
+        dia_fechamento = 1 # Proteção para vencimentos no dia 1 ou 2
+
+    if dia_atual == dia_venc:
+        return "🟠 Vence Hoje"
+    elif dia_atual > dia_venc:
+        return "🔴 Vencida / Atrasada"
+    elif dia_atual >= dia_fechamento and dia_atual < dia_venc:
+        return "🟡 Fatura Fechada (Próxima ao Vencimento)"
+    else:
+        return "🟢 Em Dias"
+
 # --- GERADOR DE RELATÓRIO HTML ---
 def gerar_relatorio_html(dados_relatorio, empresa_nome):
     html_content = f"""
@@ -757,42 +779,18 @@ else:
             dia_venc = res_emp_info[0]['dia_vencimento'] if (res_emp_info and res_emp_info[0]['dia_vencimento'] is not None) else 10
             status_pag = res_emp_info[0]['status_pagamento'] if (res_emp_info and res_emp_info[0]['status_pagamento'] is not None) else "Pendente"
             
-            # Lógica automatizada baseada na data atual e no dia de vencimento configurado
-            agora_dt = get_horario_brasil()
-            dia_atual = agora_dt.day
-            mes_atual = agora_dt.month
-            ano_atual = agora_dt.year
-            
-            # Determina o status inteligente baseado na data e no status do banco
-            if status_pag == "Pago":
-                status_visual = "🟢 Em Dias (Pago)"
-                alerta_ativo = False
-            else:
-                # Se não estiver marcado como pago, avalia pela data
-                if dia_atual == dia_venc:
-                    status_visual = "🟠 Vence Hoje"
-                    alerta_ativo = True
-                elif dia_atual > dia_venc:
-                    status_visual = "🔴 Vencida / Atrasada"
-                    alerta_ativo = True
-                elif dia_venc - dia_atual <= 2:
-                    status_visual = "🟡 Próximo ao Vencimento"
-                    alerta_ativo = False # Apenas aviso amigável, sem cortar serviço ainda
-                else:
-                    status_visual = "🟢 Em Dias"
-                    alerta_ativo = False
+            status_visual = calcular_status_fatura(status_pag, dia_venc)
 
-            # Exibe os avisos profissionais conforme o estado calculado
-            if alerta_ativo and status_visual == "🔴 Vencida / Atrasada":
+            if status_visual == "🔴 Vencida / Atrasada":
                 st.error("⚠️ **AVISO FINANCEIRO IMPORTANTE - FATURA ATRASADA:** Identificamos que sua fatura venceu e encontra-se em atraso. Seus serviços encontram-se temporariamente **interrompidos até a quitação do débito**. Por favor, regularize sua situação com o suporte financeiro da Central para o restabelecimento imediato das operações.")
             elif status_visual == "🟠 Vence Hoje":
                 st.warning("⚠️ **AVISO FINANCEIRO:** Sua fatura referente ao fechamento do último dia do mês **vence hoje**. Evite transtornos e o bloqueio dos serviços realizando o pagamento.")
-            elif status_visual == "🟡 Próximo ao Vencimento":
-                st.info(f"🔔 **Aviso Financeiro Importante:** Sua fatura está próxima do vencimento (dia {dia_venc}). Fique atento para manter seus serviços ativos.")
+            elif status_visual == "🟡 Fatura Fechada (Próxima ao Vencimento)":
+                st.info(f"🔔 **Aviso Financeiro Importante:** Sua fatura foi fechada (corte de 2 dias antes do vencimento dia {dia_venc}). Fique atento para manter seus serviços ativos.")
             else:
                 st.success("✅ **Situação Financeira Regularizada:** Suas faturas encontram-se em dia. Obrigado por manter sua parceria conosco!")
 
-            st.info(f"ℹ️ **Seu Pacote Contratado:** {servico_emp} | **Valor Unitário:** R$ {valor_por_veiculo:.2f} | **Vencimento:** Todo dia {dia_venc} do mês")
+            st.info(f"ℹ️ **Seu Pacote Contratado:** {servico_emp} | **Valor Unitário:** R$ {valor_por_veiculo:.2f} | **Vencimento:** Todo dia {dia_venc} do mês (Fechamento 2 dias antes)")
             
             q_conta_veic = """
                 SELECT count(v.id) as total_veiculos 
@@ -808,7 +806,7 @@ else:
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
             col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
             col_m2.metric("💵 Valor Unitário Aplicado", f"R$ {valor_por_veiculo:.2f}")
-            col_m3.metric("💳 Fatura (Fechamento último dia)", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
+            col_m3.metric("💳 Fatura Fechada", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
             col_m4.metric("📌 Status da Fatura", f"{status_visual}")
             
             st.markdown("---")
@@ -930,7 +928,7 @@ else:
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro Global de Parceiros")
-            st.info("ℹ️ O faturamento global calcula automaticamente a receita mensal de cada parceiro com base na quantidade de veículos ativos e no preço unitário contratado, informando também a data de vencimento e o status.")
+            st.info("ℹ️ O faturamento global calcula automaticamente a receita mensal de cada parceiro com base na quantidade de veículos ativos e no preço unitário contratado, informando também a data de vencimento e o status inteligente espelhado.")
             
             empresas_cad = fetch_data("SELECT id, nome, valor_veiculo, dia_vencimento, status_pagamento FROM empresas")
             if empresas_cad:
@@ -941,12 +939,12 @@ else:
                     dia_v = emp['dia_vencimento'] if emp['dia_vencimento'] is not None else 10
                     stat_p = emp['status_pagamento'] if emp['status_pagamento'] is not None else "Pendente"
                     
+                    status_calculado = calcular_status_fatura(stat_p, dia_v)
+                    
                     q_v = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = ? AND c.status = 'Ativo'"
                     res_v = fetch_data(q_v, (nome_emp,))
                     qtd_v = res_v[0]['qtd'] if res_v else 0
                     valor_calc = qtd_v * val_unit
-                    
-                    status_formatado = "🟢 Pago" if stat_p == "Pago" else "🔴 Pendente (Não Pago)"
                     
                     dados_financeiro_global.append({
                         "Empresa Parceira": nome_emp,
@@ -954,7 +952,7 @@ else:
                         "Valor Unitário": f"R$ {val_unit:.2f}",
                         "Vencimento": f"Dia {dia_v}",
                         "Faturamento Estimado": f"R$ {valor_calc:.2f}",
-                        "Status": status_formatado
+                        "Status": status_calculado
                     })
                 
                 df_fin_global = pd.DataFrame(dados_financeiro_global)
