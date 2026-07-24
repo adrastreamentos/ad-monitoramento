@@ -441,7 +441,6 @@ else:
                             dados_fr = next(item for item in res_fr if item["id"] == id_r)
                             
                             if st.button("❌ Fechar Ficha", key="fechar_fr"):
-                                st.session_state["sel_fr"] = ""
                                 st.rerun()
 
                             st.markdown(f'''
@@ -467,7 +466,6 @@ else:
                                         novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho}"
                                         execute_query("UPDATE historico SET status='FINALIZADO', detalhes=? WHERE id=?", (novo_detalhe, id_r))
                                         registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada.")
-                                        st.session_state["sel_fr"] = ""
                                         st.success("Ocorrência finalizada com sucesso!")
                                         st.rerun()
                             
@@ -482,7 +480,7 @@ else:
                     st.subheader("Eventos de Monitoramento Técnico")
                     col_m1, col_m2 = st.columns(2)
                     b_mon = col_m1.text_input("🔍 Buscar por Placa, Nome ou CPF (Monitoramento)", key="b_mon")
-                    p_mon = col_m2.text_input("📅 Filtrar por Date (Monitoramento)", key="p_mon")
+                    p_mon = col_m2.text_input("📅 Filtrar por Data (Monitoramento)", key="p_mon")
                     
                     conn = sqlite3.connect(DB_PATH)
                     q_mon = "SELECT * FROM historico WHERE tipo='Monitoramento'"
@@ -514,7 +512,6 @@ else:
                             dados_mon = next(item for item in res_mon if item["id"] == id_m)
                             
                             if st.button("❌ Fechar Ficha", key="fechar_mon"):
-                                st.session_state["sel_mon"] = ""
                                 st.rerun()
 
                             st.markdown(f'''
@@ -635,7 +632,7 @@ else:
             st.dataframe(pd.read_sql_query(q_fin, sqlite3.connect(DB_PATH)), use_container_width=True)
         tab_idx += 1
 
-    # --- ABA: AUDITORIA (SÓ ADMIN) ---
+    # --- AUDITORIA ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("🕵️ Auditoria e Rastreabilidade")
