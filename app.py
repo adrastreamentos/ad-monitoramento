@@ -80,7 +80,7 @@ def gerar_pdf_historico(df, empresa_nome):
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt=f"Relatório de Ocorrências - AD Rastreamento", ln=True, align='C')
+    pdf.cell(200, 10, txt=f"Relatório Oficial de Ocorrências - AD Rastreamento", ln=True, align='C')
     pdf.set_font("Arial", 'B', 12)
     pdf.cell(200, 10, txt=f"Empresa / Parceiro: {empresa_nome}", ln=True, align='C')
     pdf.ln(5)
@@ -154,9 +154,9 @@ else:
         st.markdown("### 🛡️ Missão AD")
         st.markdown("**Foco total na segurança, agilidade e comprometimento.** Nossa missão é garantir proteção máxima e resposta rápida para a nossa frota e a de nossos parceiros.")
 
-    abas = ["👤 Clientes e Frotas", "📖 Histórico em PDF"]
+    abas = ["👤 Clientes e Frotas", "📖 Histórico (PDF)"]
     if st.session_state.is_admin:
-        abas = ["🚨 Operação 24h", "👤 Clientes e Frotas", "📖 Histórico em PDF", "🏢 Parceiros", "💰 Financeiro", "🕵️ Auditoria"]
+        abas = ["🚨 Operação 24h", "👤 Clientes e Frotas", "📖 Histórico (PDF)", "🏢 Parceiros", "💰 Financeiro", "🕵️ Auditoria"]
         
     tabs = st.tabs(abas)
     tab_idx = 0
@@ -165,7 +165,7 @@ else:
     if st.session_state.is_admin:
         with tabs[tab_idx]:
             st.header("🚨 Central de Operações e Ocorrências 24h")
-            busca_op = st.text_input("🔍 Buscar veículo (Digite as 3 primeiras letras do Nome, Placa ou CPF)")
+            busca_op = st.text_input("🔍 Buscar veículo (Digite Nome, Placa ou CPF)")
             
             if busca_op and len(busca_op) >= 3:
                 q_busca = f"SELECT * FROM clientes WHERE status='Ativo' AND (lower(nome) LIKE '%{busca_op.lower()}%' OR lower(placa) LIKE '%{busca_op.lower()}%' OR lower(documento) LIKE '%{busca_op.lower()}%')"
@@ -181,25 +181,47 @@ else:
                         info_veic = next(item for item in resultados if item["placa"] == placa_sel)
                         
                         st.markdown("---")
-                        tipo_servico = st.radio("📋 **Selecione o tipo de serviço a ser registrado:**", ["Abertura de Furto/Roubo", "Monitoramento Técnico"], horizontal=True)
+                        tipo_servico = st.radio("📋 **Selecione a ação na Central:**", ["Abertura de Furto/Roubo", "Finalizar Ocorrência Ativa", "Monitoramento Técnico"], horizontal=True)
                         
+                        # 1. Abertura Furto/Roubo (Status Automático)
                         if tipo_servico == "Abertura de Furto/Roubo":
-                            with st.form("form_furto"):
-                                st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo</h3>", unsafe_allow_html=True)
+                            with st.form("form_furto", clear_on_submit=True):
+                                st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo (Início de Atendimento)</h3>", unsafe_allow_html=True)
                                 tipo_oc = st.selectbox("Natureza", ["Furto", "Roubo"])
                                 local_oc = st.text_input("Localização do Fato")
                                 desc_oc = st.text_area("Descrição / Dinâmica do Ocorrido")
-                                status_oc = st.selectbox("Status", ["INICIADO", "EM ANDAMENTO", "FINALIZADO"])
+                                st.info("ℹ️ Ao salvar, o status desta ocorrência constará automaticamente como EM ANDAMENTO no histórico.")
+                                
                                 if st.form_submit_button("Salvar Ocorrência"):
                                     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
-                                              (agora, info_veic['nome'], placa_sel, tipo_oc, status_oc, f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
-                                    registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} para {placa_sel}")
-                                    st.success(f"Ocorrência salva com sucesso! A tela será limpa.")
+                                              (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
+                                    registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
+                                    st.success(f"Ocorrência salva com sucesso! Tela sendo limpa...")
                                     st.rerun()
                         
+                        # 2. Finalizar Ocorrência (Mudar Status)
+                        elif tipo_servico == "Finalizar Ocorrência Ativa":
+                            pendentes = fetch_data("SELECT * FROM historico WHERE placa=? AND status='EM ANDAMENTO'", (placa_sel,))
+                            if pendentes:
+                                with st.form("form_finalizar", clear_on_submit=True):
+                                    st.markdown("<h3 style='color: #8b0000;'>Finalizar Ocorrência de Furto/Roubo</h3>", unsafe_allow_html=True)
+                                    id_pendente = pendentes[0]['id']
+                                    st.write(f"**Ocorrência Pendente:** {pendentes[0]['tipo']} registrada em {pendentes[0]['data_hora']}")
+                                    conclusao_oc = st.text_area("Desfecho do Atendimento (Recuperado, etc.)")
+                                    
+                                    if st.form_submit_button("Finalizar Ocorrência"):
+                                        novo_detalhe = pendentes[0]['detalhes'] + f" | DESFECHO: {conclusao_oc}"
+                                        execute_query("UPDATE historico SET status='FINALIZADO', detalhes=? WHERE id=?", (novo_detalhe, id_pendente))
+                                        registrar_auditoria("Atualização", "Operação", f"Ocorrência ID {id_pendente} FINALIZADA.")
+                                        st.success("Ocorrência Finalizada! Tela sendo limpa...")
+                                        st.rerun()
+                            else:
+                                st.warning("Não há ocorrências em andamento para este veículo.")
+                        
+                        # 3. Monitoramento Técnico
                         elif tipo_servico == "Monitoramento Técnico":
-                            with st.form("form_monitoramento"):
+                            with st.form("form_monitoramento", clear_on_submit=True):
                                 st.markdown("<h3 style='color: #4a0e4e;'>Monitoramento Técnico</h3>", unsafe_allow_html=True)
                                 evento_mon = st.selectbox("Evento Detectado", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"])
                                 acao_mon = st.text_area("Ação Tomada pela Central")
@@ -208,10 +230,8 @@ else:
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Monitoramento", f"Evento de {evento_mon} para {placa_sel}")
-                                    st.success("Monitoramento salvo com sucesso! A tela será limpa.")
+                                    st.success("Monitoramento salvo com sucesso! Tela sendo limpa...")
                                     st.rerun()
-                else:
-                    st.warning("Nenhum veículo encontrado com este termo.")
         tab_idx += 1
 
     # --- ABA: CLIENTES E FROTAS ---
@@ -221,7 +241,17 @@ else:
         empresas_disp = fetch_data("SELECT nome FROM empresas")
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
         
-        # 1. CADASTRO DE CLIENTE
+        q_clientes = "SELECT * FROM clientes" if st.session_state.is_admin else f"SELECT * FROM clientes WHERE empresa='{st.session_state.nome_empresa}'"
+        df_clientes = pd.read_sql_query(q_clientes, sqlite3.connect(DB_PATH))
+
+        # EXPORTAÇÃO INTELIGENTE (CSV) - Apenas dados necessários
+        if not df_clientes.empty:
+            df_export = df_clientes[['nome', 'documento', 'endereco', 'telefone', 'tipo_veic', 'placa', 'modelo', 'cor']]
+            df_export.columns = ['Nome', 'CPF/CNPJ', 'Endereço', 'Telefone', 'Tipo de Veículo', 'Placa', 'Modelo', 'Cor']
+            st.download_button(label="📥 Baixar Base de Clientes (CSV Inteligente)", data=df_export.to_csv(index=False).encode('utf-8'), file_name="Base_Clientes_AD.csv", mime="text/csv")
+            st.markdown("---")
+
+        # CADASTRO DE CLIENTE
         with st.expander("➕ Cadastrar Novo Cliente"):
             if not opcoes_emp:
                 st.error("Nenhuma empresa parceira cadastrada! Cadastre a empresa primeiro na aba de Parceiros.")
@@ -243,16 +273,12 @@ else:
                             execute_query("INSERT INTO clientes (nome, documento, endereco, telefone, tipo_veic, placa, modelo, cor, empresa, status, ultima_atualizacao) VALUES (?,?,?,?,?,?,?,?,?,'Ativo',?)", 
                                       (nome, doc, end, tel, tipo, placa, mod, cor, emp, agora))
                             registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome} adicionado na pasta {emp}.")
-                            st.success(f"Cliente cadastrado com sucesso na pasta {emp}!")
+                            st.success(f"Cliente cadastrado com sucesso! A tela foi limpa e o registro enviado para a pasta da {emp}.")
+                            st.rerun()
                         else:
                             st.error("Nome e Placa são obrigatórios.")
 
-        st.markdown("---")
-        st.subheader("📁 Base de Clientes (Organizada por Pastas)")
-        
-        q_clientes = "SELECT * FROM clientes" if st.session_state.is_admin else f"SELECT * FROM clientes WHERE empresa='{st.session_state.nome_empresa}'"
-        df_clientes = pd.read_sql_query(q_clientes, sqlite3.connect(DB_PATH))
-        
+        st.subheader("📁 Organização em Pastas (Por Parceiro)")
         if not df_clientes.empty:
             empresas_ativas = df_clientes['empresa'].unique()
             
@@ -261,32 +287,32 @@ else:
                     df_emp = df_clientes[df_clientes['empresa'] == emp_ativa]
                     st.dataframe(df_emp[['id', 'nome', 'documento', 'placa', 'modelo', 'status']], use_container_width=True)
                     
-                    st.markdown(f"**Gerenciar Clientes da Pasta ({emp_ativa}):**")
+                    st.markdown(f"**🛠️ Incluir / Editar / Excluir Cliente ({emp_ativa}):**")
                     lista_cli_emp = df_emp['id'].astype(str) + " - " + df_emp['nome'] + " (" + df_emp['placa'] + ")"
-                    cli_sel_pasta = st.selectbox(f"Selecionar cliente em {emp_ativa}:", [""] + list(lista_cli_emp), key=f"sel_cli_{emp_ativa}")
+                    cli_sel_pasta = st.selectbox(f"Selecione um cliente para edição:", [""] + list(lista_cli_emp), key=f"sel_cli_{emp_ativa}")
                     
                     if cli_sel_pasta:
                         id_cli_pasta = int(cli_sel_pasta.split(" - ")[0])
                         dados_c = df_emp[df_emp['id'] == id_cli_pasta].iloc[0]
                         
-                        with st.form(f"form_edit_cli_{id_cli_pasta}"):
-                            en_nome = st.text_input("Nome", value=dados_c['nome'], key=f"en_nome_{id_cli_pasta}")
-                            en_placa = st.text_input("Placa", value=dados_c['placa'], key=f"en_placa_{id_cli_pasta}")
-                            en_status = st.selectbox("Status", ["Ativo", "Inativo"], index=0 if dados_c['status']=='Ativo' else 1, key=f"en_st_{id_cli_pasta}")
+                        with st.form(f"form_edit_cli_{id_cli_pasta}", clear_on_submit=True):
+                            en_nome = st.text_input("Nome", value=dados_c['nome'])
+                            en_placa = st.text_input("Placa", value=dados_c['placa'])
+                            en_status = st.selectbox("Status", ["Ativo", "Inativo"], index=0 if dados_c['status']=='Ativo' else 1)
                             
                             col_ba, col_bb = st.columns(2)
                             if col_ba.form_submit_button("💾 Salvar Alterações"):
                                 execute_query("UPDATE clientes SET nome=?, placa=?, status=? WHERE id=?", (en_nome, en_placa, en_status, id_cli_pasta))
                                 registrar_auditoria("Edição", "Clientes", f"Cliente ID {id_cli_pasta} alterado.")
-                                st.success("Atualizado com sucesso!")
+                                st.success("Atualizado com sucesso! Tela limpa.")
                                 st.rerun()
                             if col_bb.form_submit_button("🗑️ Excluir Cliente"):
                                 execute_query("DELETE FROM clientes WHERE id=?", (id_cli_pasta,))
                                 registrar_auditoria("Exclusão", "Clientes", f"Cliente ID {id_cli_pasta} excluído.")
-                                st.warning("Cliente excluído!")
+                                st.warning("Cliente excluído! Tela limpa.")
                                 st.rerun()
         else:
-            st.info("Nenhum cliente cadastrado.")
+            st.info("Nenhum cliente cadastrado em pastas no momento.")
         
         if not st.session_state.is_admin:
             st.markdown("---")
@@ -298,35 +324,29 @@ else:
 
     # --- ABA: HISTÓRICO & PDF ---
     with tabs[tab_idx]:
-        st.header("📖 Histórico Operacional e Relatórios")
+        st.header("📖 Histórico Operacional (Emissão de PDF)")
         
         col_f1, col_f2 = st.columns(2)
         filtro_busca_hist = col_f1.text_input("🔍 Filtrar por Placa, Nome ou CPF")
-        filtro_periodo = col_f2.text_input("📅 Filtrar por Período / Data (Ex: 24/07/2026)")
+        filtro_periodo = col_f2.text_input("📅 Filtrar por Período / Data")
         
         conn = sqlite3.connect(DB_PATH)
         if st.session_state.is_admin:
             query_h = "SELECT * FROM historico WHERE 1=1"
             params_h = []
-            if filtro_busca_hist:
-                query_h += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
-                params_h.extend([f"%{filtro_busca_hist.lower()}%", f"%{filtro_busca_hist.lower()}%"])
-            if filtro_periodo:
-                query_h += " AND data_hora LIKE ?"
-                params_h.append(f"%{filtro_periodo}%")
-            query_h += " ORDER BY id DESC"
-            df_hist = pd.read_sql_query(query_h, conn, params=params_h)
         else:
             query_h = "SELECT * FROM historico WHERE empresa=?"
             params_h = [st.session_state.nome_empresa]
-            if filtro_busca_hist:
-                query_h += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
-                params_h.extend([f"%{filtro_busca_hist.lower()}%", f"%{filtro_busca_hist.lower()}%"])
-            if filtro_periodo:
-                query_h += " AND data_hora LIKE ?"
-                params_h.append(f"%{filtro_periodo}%")
-            query_h += " ORDER BY id DESC"
-            df_hist = pd.read_sql_query(query_h, conn, params=params_h)
+            
+        if filtro_busca_hist:
+            query_h += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
+            params_h.extend([f"%{filtro_busca_hist.lower()}%", f"%{filtro_busca_hist.lower()}%"])
+        if filtro_periodo:
+            query_h += " AND data_hora LIKE ?"
+            params_h.append(f"%{filtro_periodo}%")
+            
+        query_h += " ORDER BY id DESC"
+        df_hist = pd.read_sql_query(query_h, conn, params=params_h)
         conn.close()
         
         st.dataframe(df_hist, use_container_width=True)
@@ -336,17 +356,17 @@ else:
                 id_del_hist = st.selectbox("Selecione o ID do Histórico para remover:", [""] + list(df_hist['id'].astype(str)))
                 if id_del_hist and st.button("🗑️ Excluir Registro Selecionado"):
                     execute_query("DELETE FROM historico WHERE id=?", (int(id_del_hist),))
-                    registrar_auditoria("Exclusão", "Histórico", f"Registro de histórico ID {id_del_hist} removido.")
-                    st.success("Registro removido com sucesso!")
+                    registrar_auditoria("Exclusão", "Histórico", f"Registro ID {id_del_hist} removido.")
+                    st.success("Removido com sucesso!")
                     st.rerun()
 
         if not df_hist.empty:
             if FPDF is not None:
                 pdf_bytes = gerar_pdf_historico(df_hist, st.session_state.nome_empresa)
                 if pdf_bytes:
-                    st.download_button(label="📄 Baixar Relatório Oficial (PDF)", data=pdf_bytes, file_name=f"Relatorio_{st.session_state.nome_empresa}.pdf", mime="application/pdf")
+                    st.download_button(label="📄 Baixar Relatório Oficial (Exclusivo PDF)", data=pdf_bytes, file_name=f"Relatorio_Ocorrencias_{st.session_state.nome_empresa}.pdf", mime="application/pdf")
             else:
-                st.download_button(label="📄 Baixar Relatório (CSV)", data=df_hist.to_csv(index=False).encode('utf-8'), file_name="Relatorio.csv", mime="text/csv")
+                st.error("⚠️ Biblioteca 'fpdf' ausente no servidor. O PDF não pôde ser gerado.")
     tab_idx += 1
 
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
@@ -365,12 +385,13 @@ else:
                         if e_nome and e_cnpj:
                             execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel) VALUES (?,?,?,?,?)", (e_nome, e_cnpj, e_end, e_tel, e_resp))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada.")
-                            st.success(f"Empresa {e_nome} criada e organizada com sucesso!")
+                            st.success(f"Empresa {e_nome} criada com sucesso! Formulário limpo.")
+                            st.rerun()
                         else:
                             st.error("Nome e CNPJ são obrigatórios.")
 
             st.markdown("---")
-            st.subheader("📁 Base de Empresas Parceiras")
+            st.subheader("📁 Organização em Pastas (Parceiros)")
             df_empresas = pd.read_sql_query("SELECT * FROM empresas", sqlite3.connect(DB_PATH))
             
             if not df_empresas.empty:
@@ -380,22 +401,23 @@ else:
                         st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
                         
                         id_emp = emp['id']
-                        with st.form(f"form_edit_emp_{id_emp}"):
-                            ne_nome = st.text_input("Nome", value=emp['nome'], key=f"ne_nome_{id_emp}")
-                            ne_resp = st.text_input("Responsável", value=emp['responsavel'], key=f"ne_resp_{id_emp}")
-                            ne_tel = st.text_input("Telefone", value=emp['telefone'], key=f"ne_tel_{id_emp}")
-                            ne_end = st.text_input("Endereço", value=emp['endereco'], key=f"ne_end_{id_emp}")
+                        st.markdown("**🛠️ Editar / Excluir Parceiro:**")
+                        with st.form(f"form_edit_emp_{id_emp}", clear_on_submit=True):
+                            ne_nome = st.text_input("Nome", value=emp['nome'])
+                            ne_resp = st.text_input("Responsável", value=emp['responsavel'])
+                            ne_tel = st.text_input("Telefone", value=emp['telefone'])
+                            ne_end = st.text_input("Endereço", value=emp['endereco'])
                             
                             c_b1, c_b2 = st.columns(2)
                             if c_b1.form_submit_button("💾 Salvar Alterações"):
                                 execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=? WHERE id=?", (ne_nome, ne_resp, ne_tel, ne_end, id_emp))
                                 registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado.")
-                                st.success("Parceiro atualizado!")
+                                st.success("Parceiro atualizado! Tela limpa.")
                                 st.rerun()
                             if c_b2.form_submit_button("🗑️ Excluir Parceiro"):
                                 execute_query("DELETE FROM empresas WHERE id=?", (id_emp,))
                                 registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.")
-                                st.warning("Parceiro excluído!")
+                                st.warning("Parceiro excluído! Tela limpa.")
                                 st.rerun()
             else:
                 st.info("Nenhum parceiro cadastrado.")
@@ -418,6 +440,7 @@ else:
                         execute_query("INSERT INTO financeiro (mes, empresa, faturado, recebido, status) VALUES (?,?,?,?,?)", 
                                       (f_mes, f_emp, f_fat, f_rec, f_stat))
                         st.success("Lançamento salvo com sucesso!")
+                        st.rerun()
             
             q_fin = f"SELECT * FROM financeiro WHERE mes LIKE '%{mes_busca}%'" if mes_busca else "SELECT * FROM financeiro"
             df_fin = pd.read_sql_query(q_fin, sqlite3.connect(DB_PATH))
@@ -430,8 +453,12 @@ else:
             st.header("🕵️ Auditoria e Rastreabilidade do Sistema")
             
             mes_atual_padrao = datetime.now().strftime("%m/%Y")
-            filtro_mes_aud = st.text_input("🔍 Filtrar Auditoria por Mês/Ano (Ex: 07/2026)", value=mes_atual_padrao)
+            filtro_mes_aud = st.text_input("🔍 Filtrar Auditoria por Mês/Ano", value=mes_atual_padrao)
             
             q_aud = f"SELECT * FROM auditoria WHERE data_hora LIKE '%{filtro_mes_aud}%' ORDER BY id DESC" if filtro_mes_aud else "SELECT * FROM auditoria ORDER BY id DESC"
             df_auditoria = pd.read_sql_query(q_aud, sqlite3.connect(DB_PATH))
-            st.dataframe(df_auditoria, use_container_width=True)
+            
+            if df_auditoria.empty:
+                st.info(f"Nenhum registro de auditoria encontrado para o período '{filtro_mes_aud}'.")
+            else:
+                st.dataframe(df_auditoria, use_container_width=True)
