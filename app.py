@@ -42,7 +42,7 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT)''')
     
-    # Migrações seguras para colunas de serviços e valor unitário customizado
+    # Migrações seguras para colunas de serviços, valor unitário e dia de vencimento
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)'")
         conn.commit()
@@ -51,6 +51,12 @@ def init_db():
         
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN valor_veiculo REAL DEFAULT 3.00")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+
+    try:
+        c.execute("ALTER TABLE empresas ADD COLUMN dia_vencimento INTEGER DEFAULT 10")
         conn.commit()
     except sqlite3.OperationalError:
         pass
@@ -730,12 +736,12 @@ else:
         with tabs[tab_idx]:
             st.header("💰 Meu Faturamento e Frotas Ativas")
             
-            # Puxa o valor por veículo específico cadastrado para esta empresa
-            res_emp_info = fetch_data("SELECT servicos, valor_veiculo FROM empresas WHERE nome=?", (st.session_state.nome_empresa,))
+            res_emp_info = fetch_data("SELECT servicos, valor_veiculo, dia_vencimento FROM empresas WHERE nome=?", (st.session_state.nome_empresa,))
             servico_emp = res_emp_info[0]['servicos'] if res_emp_info else "Ambos"
             valor_por_veiculo = res_emp_info[0]['valor_veiculo'] if (res_emp_info and res_emp_info[0]['valor_veiculo'] is not None) else 3.00
+            dia_venc = res_emp_info[0]['dia_vencimento'] if (res_emp_info and res_emp_info[0]['dia_vencimento'] is not None) else 10
             
-            st.info(f"ℹ️ **Seu Pacote Contratado:** {servico_emp} | **Valor Unitário por Veículo:** R$ {valor_por_veiculo:.2f}")
+            st.info(f"ℹ️ **Seu Pacote Contratado:** {servico_emp} | **Valor Unitário:** R$ {valor_por_veiculo:.2f} | **Vencimento:** Todo dia {dia_venc} do mês")
             
             q_conta_veic = """
                 SELECT count(v.id) as total_veiculos 
@@ -751,7 +757,7 @@ else:
             col_m1, col_m2, col_m3 = st.columns(3)
             col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
             col_m2.metric("💵 Valor Unitário Aplicado", f"R$ {valor_por_veiculo:.2f}")
-            col_m3.metric("💳 Fatura Estimada (Próximo Vencimento)", f"R$ {valor_total_fatura:.2f}", delta="Vencimento todo último dia do mês", delta_color="off")
+            col_m3.metric("💳 Fatura (Fechamento último dia)", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
             
             st.markdown("---")
             st.subheader("📋 Detalhamento da Frota Faturada")
@@ -790,7 +796,8 @@ else:
                             st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
                             servico_vinculado = emp['servicos'] if 'servicos' in emp else "Ambos (Furto/Roubo + Monitoramento)"
                             valor_unit = emp['valor_veiculo'] if ('valor_veiculo' in emp and emp['valor_veiculo'] is not None) else 3.00
-                            st.write(f"**Pacote de Serviço:** {servico_vinculado} | **Preço por Veículo:** R$ {valor_unit:.2f}")
+                            dia_v = emp['dia_vencimento'] if ('dia_vencimento' in emp and emp['dia_vencimento'] is not None) else 10
+                            st.write(f"**Pacote:** {servico_vinculado} | **Preço/Veículo:** R$ {valor_unit:.2f} | **Vencimento:** Dia {dia_v}")
                 else:
                     st.info("Nenhuma empresa parceira cadastrada.")
             
@@ -803,12 +810,13 @@ else:
                     e_resp = st.text_input("Responsável")
                     e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
                     e_valor = st.number_input("Valor por Veículo (R$) *", min_value=0.0, value=3.00, format="%.2f")
+                    e_venc = st.number_input("Dia de Vencimento da Fatura *", min_value=1, max_value=31, value=10)
                     
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
-                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo) VALUES (?,?,?,?,?,?,?)", 
-                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor))
-                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada com pacote: {e_servicos} e valor R$ {e_valor:.2f}.")
+                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento) VALUES (?,?,?,?,?,?,?,?)", 
+                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc))
+                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.")
                             st.rerun()
                         else:
                             st.error("Nome e CNPJ são obrigatórios.")
@@ -838,10 +846,13 @@ else:
                                 val_atual = dados_e['valor_veiculo'] if ('valor_veiculo' in dados_e and dados_e['valor_veiculo'] is not None) else 3.00
                                 ne_valor = st.number_input("Valor por Veículo (R$)", min_value=0.0, value=float(val_atual), format="%.2f")
 
+                                venc_atual = dados_e['dia_vencimento'] if ('dia_vencimento' in dados_e and dados_e['dia_vencimento'] is not None) else 10
+                                ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
+
                                 if st.form_submit_button("💾 Salvar Alterações"):
-                                    execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=?, valor_veiculo=? WHERE id=?", 
-                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, id_emp))
-                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Serviço: {ne_servicos} | Valor: R$ {ne_valor:.2f}")
+                                    execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=?, valor_veiculo=?, dia_vencimento=? WHERE id=?", 
+                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
+                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}")
                                     st.rerun()
                         
                         elif acao_parceiros == "Excluir":
@@ -858,14 +869,15 @@ else:
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro Global de Parceiros")
-            st.info("ℹ️ O faturamento global abaixo calcula automaticamente a receita mensal de cada parceiro com base na quantidade de veículos ativos e no preço unitário contratado.")
+            st.info("ℹ️ O faturamento global calcula automaticamente a receita mensal de cada parceiro com base na quantidade de veículos ativos e no preço unitário contratado, informando também a data de vencimento.")
             
-            empresas_cad = fetch_data("SELECT nome, valor_veiculo FROM empresas")
+            empresas_cad = fetch_data("SELECT nome, valor_veiculo, dia_vencimento FROM empresas")
             if empresas_cad:
                 dados_financeiro_global = []
                 for emp in empresas_cad:
                     nome_emp = emp['nome']
                     val_unit = emp['valor_veiculo'] if emp['valor_veiculo'] is not None else 3.00
+                    dia_v = emp['dia_vencimento'] if emp['dia_vencimento'] is not None else 10
                     
                     q_v = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = ? AND c.status = 'Ativo'"
                     res_v = fetch_data(q_v, (nome_emp,))
@@ -876,6 +888,7 @@ else:
                         "Empresa Parceira": nome_emp,
                         "Veículos Ativos": qtd_v,
                         "Valor Unitário": f"R$ {val_unit:.2f}",
+                        "Vencimento": f"Dia {dia_v}",
                         "Faturamento Estimado (Mês)": f"R$ {valor_calc:.2f}"
                     })
                 
