@@ -120,7 +120,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
-# --- CONTROLE DE SESSÃO ANTES DE QUALQUER COMPONENTE ---
+# --- CONTROLE DE SESSÃO SEGURO (PRIMEIRO DE TUDO) ---
 if 'logged_in' not in st.session_state:
     if st.query_params.get("logged_in") == "true":
         st.session_state.logged_in = True
@@ -133,8 +133,6 @@ if 'logged_in' not in st.session_state:
 
 if 'acao_clientes' not in st.session_state:
     st.session_state.acao_clientes = "Listar"
-if 'acao_parceiros' not in st.session_state:
-    st.session_state.acao_parceiros = "Listar"
 
 # ==========================================
 # 1. TELA DE LOGIN
@@ -546,6 +544,10 @@ else:
         with tabs[tab_idx]:
             st.header("🏢 Gerenciamento de Empresas Parceiras")
             
+            # Inicialização segura exclusiva para esta aba
+            if 'acao_parceiros' not in st.session_state:
+                st.session_state.acao_parceiros = "Listar"
+                
             acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True, key="acao_parceiros")
             st.markdown("---")
             
