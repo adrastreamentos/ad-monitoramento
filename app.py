@@ -466,7 +466,7 @@ else:
                             
                             st.session_state.num_veiculos_form = 1
                             registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome_cli} cadastrado com múltiplos veículos.")
-                            st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso!"
+                            st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso e tela limpa!"
                             st.rerun()
                         else:
                             st.error("Preencha o Nome, CPF/CNPJ e pelo menos a Placa de um veículo.")
@@ -875,13 +875,12 @@ else:
                     e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
                     e_valor = st.number_input("Valor por Veículo (R$) *", min_value=0.0, value=3.00, format="%.2f")
                     e_venc = st.number_input("Dia de Vencimento da Fatura *", min_value=1, max_value=31, value=10)
-                    e_stat = st.selectbox("Status da Fatura Inicial", ["Pendente", "Pago"])
                     
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
                             execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento) VALUES (?,?,?,?,?,?,?,?,?)", 
-                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, e_stat))
-                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc} | Status: {e_stat}.")
+                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente'))
+                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.")
                             st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
                             st.rerun()
                         else:
@@ -891,6 +890,7 @@ else:
                 res_emp = fetch_data("SELECT * FROM empresas")
                 if res_emp:
                     lista_opcoes_e = [f"{e['id']} - {e['nome']}" for e in res_emp]
+                    
                     k_edit_emp = st.session_state.reset_keys['edit_emp']
                     emp_selecionada = st.selectbox("🔍 Selecione a Empresa na lista (ou digite para buscar):", [""] + lista_opcoes_e, key=f"sb_edit_emp_{k_edit_emp}")
                     
@@ -920,15 +920,10 @@ else:
                                 venc_atual = dados_e['dia_vencimento'] if ('dia_vencimento' in dados_e and dados_e['dia_vencimento'] is not None) else 10
                                 ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
 
-                                stat_atual = dados_e['status_pagamento'] if ('status_pagamento' in dados_e and dados_e['status_pagamento'] is not None) else "Pendente"
-                                opcoes_st = ["Pendente", "Pago"]
-                                idx_st = opcoes_st.index(stat_atual) if stat_atual in opcoes_st else 0
-                                ne_stat = st.selectbox("Status de Pagamento (Fatura)", opcoes_st, index=idx_st)
-
                                 if st.form_submit_button("💾 Salvar Alterações"):
-                                    execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=?, valor_veiculo=?, dia_vencimento=?, status_pagamento=? WHERE id=?", 
-                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, ne_stat, id_emp))
-                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Status Pagto: {ne_stat}")
+                                    execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=?, valor_veiculo=?, dia_vencimento=? WHERE id=?", 
+                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
+                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}")
                                     st.session_state.flash_msg = "Alterações salvas com sucesso!"
                                     st.session_state.reset_keys['edit_emp'] += 1
                                     st.rerun()
