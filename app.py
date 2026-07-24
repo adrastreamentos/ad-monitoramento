@@ -106,7 +106,7 @@ def registrar_auditoria(acao, modulo, detalhes):
     execute_query("INSERT INTO auditoria (data_hora, acao, modulo, detalhes, usuario) VALUES (?,?,?,?,?)", 
                   (agora, acao, modulo, detalhes, usuario))
 
-# Função atualizada com a lógica de fechamento 2 dias antes do vencimento
+# Função de status inteligente baseada na regra de corte de 2 dias antes
 def calcular_status_fatura(status_banco, dia_venc):
     if status_banco == "Pago":
         return "🟢 Em Dias (Pago)"
@@ -114,10 +114,9 @@ def calcular_status_fatura(status_banco, dia_venc):
     agora_dt = get_horario_brasil()
     dia_atual = agora_dt.day
     
-    # O fechamento ocorre 2 dias antes do vencimento
     dia_fechamento = dia_venc - 2
     if dia_fechamento < 1:
-        dia_fechamento = 1 # Proteção para vencimentos no dia 1 ou 2
+        dia_fechamento = 1
 
     if dia_atual == dia_venc:
         return "🟠 Vence Hoje"
@@ -924,15 +923,21 @@ else:
                     st.warning("Nenhuma empresa encontrada.")
         tab_idx += 1
 
-    # --- ABA: FINANCEIRO (SÓ ADMIN) ---
+    # --- ABA: FINANCEIRO (SÓ ADMIN COM PAINEL DE RESUMO EXECUTIVO) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro Global de Parceiros")
-            st.info("ℹ️ O faturamento global calcula automaticamente a receita mensal de cada parceiro com base na quantidade de veículos ativos e no preço unitário contratado, informando também a data de vencimento e o status inteligente espelhado.")
+            st.info("ℹ️ Painel executivo financeiro com o resumo consolidado a receber, valores atrasados e valores quitados de todos os parceiros.")
             
             empresas_cad = fetch_data("SELECT id, nome, valor_veiculo, dia_vencimento, status_pagamento FROM empresas")
+            
+            # Cálculo dos totais para os KPIs solicitados
+            total_a_receber = 0.0
+            total_atrasado = 0.0
+            total_pago = 0.0
+            
+            dados_financeiro_global = []
             if empresas_cad:
-                dados_financeiro_global = []
                 for emp in empresas_cad:
                     nome_emp = emp['nome']
                     val_unit = emp['valor_veiculo'] if emp['valor_veiculo'] is not None else 3.00
@@ -946,6 +951,14 @@ else:
                     qtd_v = res_v[0]['qtd'] if res_v else 0
                     valor_calc = qtd_v * val_unit
                     
+                    # Alimenta os totais com base no status calculado
+                    if "Pago" in status_calculado:
+                        total_pago += valor_calc
+                    elif "Vencida / Atrasada" in status_calculado or "Vence Hoje" in status_calculado:
+                        total_atrasado += valor_calc
+                    else:
+                        total_a_receber += valor_calc
+                    
                     dados_financeiro_global.append({
                         "Empresa Parceira": nome_emp,
                         "Veículos Ativos": qtd_v,
@@ -954,7 +967,16 @@ else:
                         "Faturamento Estimado": f"R$ {valor_calc:.2f}",
                         "Status": status_calculado
                     })
-                
+            
+            # Exibição dos KPIs Financeiros Exclusivos para o Administrador
+            col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+            col_kpi1.metric("💵 Valor a Receber (Em Dias / Próximos)", f"R$ {total_a_receber:.2f}")
+            col_kpi2.metric("🔴 Valor Atrasado / Vencido", f"R$ {total_atrasado:.2f}", delta_color="inverse")
+            col_kpi3.metric("🟢 Valor Pago (Quitado)", f"R$ {total_pago:.2f}")
+            
+            st.markdown("---")
+            
+            if empresas_cad:
                 df_fin_global = pd.DataFrame(dados_financeiro_global)
                 st.dataframe(df_fin_global, use_container_width=True)
                 
