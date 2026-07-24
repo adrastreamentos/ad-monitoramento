@@ -41,8 +41,16 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT)''')
+    
+    # Migrações seguras para colunas de serviços e valor unitário customizado
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)'")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass
+        
+    try:
+        c.execute("ALTER TABLE empresas ADD COLUMN valor_veiculo REAL DEFAULT 3.00")
         conn.commit()
     except sqlite3.OperationalError:
         pass
@@ -73,7 +81,7 @@ def execute_query(query, params=()):
     conn.commit()
     conn.close()
 
-# Função ajustada para o Horário Oficial do Brasil (UTC-3)
+# Horário Oficial do Brasil (UTC-3)
 def get_horario_brasil():
     fuso_br = timezone(timedelta(hours=-3))
     return datetime.now(fuso_br).strftime("%d/%m/%Y %H:%M:%S")
@@ -197,7 +205,6 @@ else:
         st.markdown("### 🛡️ Missão AD")
         st.markdown("**Foco total na segurança, agilidade e comprometimento.** Nossa missão é garantir proteção máxima e resposta rápida para a nossa frota e a de nossos parceiros.")
 
-    # Definição dinâmica das abas conforme o perfil (Admin vs Parceiro)
     if st.session_state.is_admin:
         abas = ["🚨 Central 24h", "👤 Clientes", "📖 Relatórios", "🏢 Empresas", "💰 Financeiro", "🕵️ Auditoria"]
     else:
@@ -722,9 +729,14 @@ else:
     if not st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Meu Faturamento e Frotas Ativas")
-            st.info("ℹ️ O cálculo do faturamento é baseado na quantidade total de veículos ativos vinculados à sua empresa na plataforma (R$ 3,00 por veículo).")
             
-            # Conta quantos veículos estão cadastrados para esta empresa parceira específica
+            # Puxa o valor por veículo específico cadastrado para esta empresa
+            res_emp_info = fetch_data("SELECT servicos, valor_veiculo FROM empresas WHERE nome=?", (st.session_state.nome_empresa,))
+            servico_emp = res_emp_info[0]['servicos'] if res_emp_info else "Ambos"
+            valor_por_veiculo = res_emp_info[0]['valor_veiculo'] if (res_emp_info and res_emp_info[0]['valor_veiculo'] is not None) else 3.00
+            
+            st.info(f"ℹ️ **Seu Pacote Contratado:** {servico_emp} | **Valor Unitário por Veículo:** R$ {valor_por_veiculo:.2f}")
+            
             q_conta_veic = """
                 SELECT count(v.id) as total_veiculos 
                 FROM veiculos v 
@@ -734,13 +746,11 @@ else:
             res_conta = fetch_data(q_conta_veic, (st.session_state.nome_empresa,))
             total_veiculos = res_conta[0]['total_veiculos'] if res_conta else 0
             
-            valor_por_veiculo = 3.00
             valor_total_fatura = total_veiculos * valor_por_veiculo
             
-            # Exibição moderna em métricas
             col_m1, col_m2, col_m3 = st.columns(3)
             col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
-            col_m2.metric("💵 Valor Unitário por Veículo", f"R$ {valor_por_veiculo:.2f}")
+            col_m2.metric("💵 Valor Unitário Aplicado", f"R$ {valor_por_veiculo:.2f}")
             col_m3.metric("💳 Fatura Estimada (Próximo Vencimento)", f"R$ {valor_total_fatura:.2f}", delta="Vencimento todo último dia do mês", delta_color="off")
             
             st.markdown("---")
@@ -765,7 +775,7 @@ else:
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
-            st.header("🏢 Gerenciamento de Empresas Parceiras")
+            st.header("🏢 Gerenciamento de Empresas Parceiras e Precificação")
             
             acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
             st.markdown("---")
@@ -779,7 +789,8 @@ else:
                             st.write(f"**CNPJ/Senha:** {emp['cnpj']} | **Responsável:** {emp['responsavel']}")
                             st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
                             servico_vinculado = emp['servicos'] if 'servicos' in emp else "Ambos (Furto/Roubo + Monitoramento)"
-                            st.write(f"**Pacote de Serviço:** {servico_vinculado}")
+                            valor_unit = emp['valor_veiculo'] if ('valor_veiculo' in emp and emp['valor_veiculo'] is not None) else 3.00
+                            st.write(f"**Pacote de Serviço:** {servico_vinculado} | **Preço por Veículo:** R$ {valor_unit:.2f}")
                 else:
                     st.info("Nenhuma empresa parceira cadastrada.")
             
@@ -791,11 +802,13 @@ else:
                     e_tel = st.text_input("Telefone")
                     e_resp = st.text_input("Responsável")
                     e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
+                    e_valor = st.number_input("Valor por Veículo (R$) *", min_value=0.0, value=3.00, format="%.2f")
                     
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
-                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos) VALUES (?,?,?,?,?,?)", (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos))
-                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada com pacote: {e_servicos}.")
+                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo) VALUES (?,?,?,?,?,?,?)", 
+                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor))
+                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada com pacote: {e_servicos} e valor R$ {e_valor:.2f}.")
                             st.rerun()
                         else:
                             st.error("Nome e CNPJ são obrigatórios.")
@@ -822,9 +835,13 @@ else:
                                 idx_serv = opcoes_s.index(serv_atual) if serv_atual in opcoes_s else 0
                                 ne_servicos = st.selectbox("Serviços Contratados", opcoes_s, index=idx_serv)
 
+                                val_atual = dados_e['valor_veiculo'] if ('valor_veiculo' in dados_e and dados_e['valor_veiculo'] is not None) else 3.00
+                                ne_valor = st.number_input("Valor por Veículo (R$)", min_value=0.0, value=float(val_atual), format="%.2f")
+
                                 if st.form_submit_button("💾 Salvar Alterações"):
-                                    execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=? WHERE id=?", (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, id_emp))
-                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Serviço: {ne_servicos}")
+                                    execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=?, valor_veiculo=? WHERE id=?", 
+                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, id_emp))
+                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Serviço: {ne_servicos} | Valor: R$ {ne_valor:.2f}")
                                     st.rerun()
                         
                         elif acao_parceiros == "Excluir":
@@ -841,21 +858,24 @@ else:
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro Global de Parceiros")
+            st.info("ℹ️ O faturamento global abaixo calcula automaticamente a receita mensal de cada parceiro com base na quantidade de veículos ativos e no preço unitário contratado.")
             
-            # Tabela resumo puxando o faturamento real automático de cada parceiro
-            empresas_cad = fetch_data("SELECT nome FROM empresas")
+            empresas_cad = fetch_data("SELECT nome, valor_veiculo FROM empresas")
             if empresas_cad:
                 dados_financeiro_global = []
                 for emp in empresas_cad:
                     nome_emp = emp['nome']
+                    val_unit = emp['valor_veiculo'] if emp['valor_veiculo'] is not None else 3.00
+                    
                     q_v = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = ? AND c.status = 'Ativo'"
                     res_v = fetch_data(q_v, (nome_emp,))
                     qtd_v = res_v[0]['qtd'] if res_v else 0
-                    valor_calc = qtd_v * 3.00
+                    valor_calc = qtd_v * val_unit
+                    
                     dados_financeiro_global.append({
                         "Empresa Parceira": nome_emp,
                         "Veículos Ativos": qtd_v,
-                        "Valor por Veículo": "R$ 3,00",
+                        "Valor Unitário": f"R$ {val_unit:.2f}",
                         "Faturamento Estimado (Mês)": f"R$ {valor_calc:.2f}"
                     })
                 
