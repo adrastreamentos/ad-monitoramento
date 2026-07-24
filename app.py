@@ -42,7 +42,6 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT)''')
     
-    # Migrações seguras para colunas de serviços, valor unitário e dia de vencimento
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)'")
         conn.commit()
@@ -321,7 +320,16 @@ else:
                 st.markdown("---")
                 st.subheader("🔍 Visualizar Ficha Completa do Cliente")
                 
-                clientes_para_ficha = fetch_data(f"SELECT id, nome, documento, empresa FROM clientes " + ("" if st.session_state.is_admin else f"WHERE empresa='{st.session_state.nome_empresa}'"))
+                # Consulta otimizada garantindo que só apareçam clientes que possuem veículos ativos válidos
+                q_clientes_validos = f"""
+                    SELECT DISTINCT c.id, c.nome, c.documento, c.empresa 
+                    FROM clientes c 
+                    JOIN veiculos v ON c.id = v.cliente_id
+                """
+                if not st.session_state.is_admin:
+                    q_clientes_validos += f" WHERE c.empresa='{st.session_state.nome_empresa}'"
+                
+                clientes_para_ficha = fetch_data(q_clientes_validos)
                 lista_ficha_op = [""] + [f"{cli['id']} - {cli['nome']} (CPF/CNPJ: {cli['documento']}) - [{cli['empresa']}]" for cli in clientes_para_ficha]
                 
                 cli_ficha_sel = st.selectbox("Selecione o cliente para ver a ficha completa e seus veículos:", lista_ficha_op, key="select_ficha_cliente")
