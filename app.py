@@ -6,7 +6,7 @@ import urllib.parse
 import base64
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
-st.set_page_config(page_title="AD Rastreamento Veicular", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
@@ -17,7 +17,7 @@ st.markdown("""
     div[data-testid="stSidebar"] { background-color: #4a0e4e; }
     div[data-testid="stSidebar"] * { color: white; }
     
-    /* Estilização das Abas (Corrigido para a versão atual do Streamlit) */
+    /* Estilização das Abas */
     button[data-testid="stTab"] { background-color: transparent; border-radius: 5px 5px 0 0; }
     button[data-testid="stTab"][aria-selected="true"] {
         background-color: #4a0e4e !important;
@@ -33,13 +33,21 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- BANCO DE DADOS ---
+# --- BANCO DE DADOS E MIGRAÇÕES ---
 DB_PATH = "ad_monitoramento.db"
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT)''')
+    
+    # Atualização: Adiciona a coluna 'servicos' caso não exista (Migração segura)
+    try:
+        c.execute("ALTER TABLE empresas ADD COLUMN servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)'")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass # A coluna já existe, segue o fluxo
+        
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, documento TEXT, endereco TEXT, telefone TEXT, tipo_veic TEXT, placa TEXT, modelo TEXT, cor TEXT, empresa TEXT, status TEXT DEFAULT 'Ativo', ultima_atualizacao TEXT DEFAULT '')''')
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id INTEGER PRIMARY KEY AUTOINCREMENT, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
@@ -77,7 +85,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     <html>
     <head>
         <meta charset="utf-8">
-        <title>Relatório de Ocorrência - AD Rastreamento</title>
+        <title>Relatório de Ocorrência</title>
         <style>
             body {{ font-family: Arial, sans-serif; color: #333; margin: 40px; }}
             .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 15px; margin-bottom: 30px; }}
@@ -91,7 +99,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     </head>
     <body>
         <div class="header">
-            <h1>🛡️ AD RASTREAMENTO VEICULAR</h1>
+            <h1>🛡️ CENTRAL DE OPERAÇÕES</h1>
             <h3>Relatório Oficial de Atendimento Operacional</h3>
         </div>
         <div class="content">
@@ -106,7 +114,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
             <div class="field"><span class="label">Detalhes / Dinâmica / Desfecho:</span><br><p>{dados_relatorio['detalhes']}</p></div>
         </div>
         <div class="footer">
-            Documento gerado automaticamente pela Central AD Rastreamento 24h.
+            Documento gerado automaticamente pela Central de Operações de Segurança.
         </div>
     </body>
     </html>
@@ -116,7 +124,6 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
 
 # --- CONTROLE DE SESSÃO E PERSISTÊNCIA ---
 if 'logged_in' not in st.session_state:
-    # Restaura o login caso a página seja atualizada (F5)
     if st.query_params.get("logged_in") == "true":
         st.session_state.logged_in = True
         st.session_state.is_admin = (st.query_params.get("admin") == "true")
@@ -137,8 +144,8 @@ if 'acao_parceiros' not in st.session_state:
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<h1 style='text-align: center;'>🛡️ AD Rastreamento Veicular</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #8b0000; font-weight: bold;'>Central de Operações de Segurança</p>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center;'>🛡️ Central de Operações de Segurança</h1>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #8b0000; font-weight: bold;'>Administrador: AD Rastreamento Veicular</p>", unsafe_allow_html=True)
         
         with st.form("login_form"):
             user = st.text_input("Usuário ou Nome da Empresa")
@@ -150,7 +157,6 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.is_admin = True
                     st.session_state.nome_empresa = "AD RASTREAMENTO VEICULAR"
-                    # Salva na URL para não desligar ao atualizar a página
                     st.query_params["logged_in"] = "true"
                     st.query_params["admin"] = "true"
                     st.query_params["empresa"] = "AD RASTREAMENTO VEICULAR"
@@ -227,7 +233,7 @@ else:
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
-                                    st.session_state["busca_op_input"] = ""  # LIMPA A TELA AUTOMATICAMENTE
+                                    st.session_state["busca_op_input"] = ""
                                     st.success(f"Salvo e enviado para relatórios como EM ANDAMENTO!")
                                     st.rerun()
                         
@@ -241,7 +247,7 @@ else:
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}")
-                                    st.session_state["busca_op_input"] = ""  # LIMPA A TELA AUTOMATICAMENTE
+                                    st.session_state["busca_op_input"] = ""
                                     st.success("Salvo com sucesso!")
                                     st.rerun()
                 else:
@@ -250,7 +256,7 @@ else:
 
     # --- ABA: CLIENTES E FROTAS ---
     with tabs[tab_idx]:
-        st.header("👤 Gerenciamento de Clientes (Frota Ilimitada e Endereço)")
+        st.header("👤 Gerenciamento de Clientes (Frotas e Veículos)")
         
         acao_clientes = st.radio("Ação Clientes:", ["Listar", "Incluir Novo", "Importação em Lote", "Editar", "Excluir"], horizontal=True, key="acao_clientes")
         st.markdown("---")
@@ -264,7 +270,7 @@ else:
             if not df_clientes.empty:
                 df_export = df_clientes[['nome', 'documento', 'endereco', 'telefone', 'tipo_veic', 'placa', 'modelo', 'cor']]
                 df_export.columns = ['Nome', 'CPF/CNPJ', 'Endereço', 'Telefone', 'Tipo de Veículo', 'Placa', 'Modelo', 'Cor']
-                st.download_button(label="📥 Baixar Base de Clientes (CSV Inteligente)", data=df_export.to_csv(index=False).encode('utf-8'), file_name="Base_Clientes_AD.csv", mime="text/csv")
+                st.download_button(label="📥 Baixar Base de Clientes (CSV Inteligente)", data=df_export.to_csv(index=False).encode('utf-8'), file_name="Base_Clientes.csv", mime="text/csv")
                 
                 empresas_ativas = df_clientes['empresa'].unique()
                 for emp_ativa in empresas_ativas:
@@ -278,28 +284,60 @@ else:
             if not opcoes_emp:
                 st.error("Nenhuma empresa parceira cadastrada! Cadastre a empresa primeiro.")
             else:
-                st.subheader("➕ Incluir Novo Cliente")
-                with st.form("novo_cliente", clear_on_submit=True):
-                    c1, c2 = st.columns(2)
-                    nome = c1.text_input("Nome do Cliente *")
-                    doc = c2.text_input("CPF/CNPJ")
-                    end = c1.text_input("Endereço")
-                    tel = c2.text_input("Telefone")
-                    emp = c1.selectbox("Empresa (Pasta) *", opcoes_emp)
-                    tipo = c2.selectbox("Tipo de Veículo", ["Carro", "Moto", "Caminhão", "Outro"])
-                    placa = c1.text_input("Placa *")
-                    mod = c2.text_input("Modelo")
-                    cor = c1.text_input("Cor")
-                    if st.form_submit_button("Salvar Cliente"):
-                        if nome and placa:
-                            agora = datetime.now().strftime('%d/%m/%Y %H:%M')
-                            execute_query("INSERT INTO clientes (nome, documento, endereco, telefone, tipo_veic, placa, modelo, cor, empresa, status, ultima_atualizacao) VALUES (?,?,?,?,?,?,?,?,?,'Ativo',?)", 
-                                      (nome, doc, end, tel, tipo, placa, mod, cor, emp, agora))
-                            registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome} adicionado na pasta {emp}.")
-                            st.session_state.acao_clientes = "Listar"
-                            st.rerun()
-                        else:
-                            st.error("Nome e Placa são obrigatórios.")
+                tipo_inclusao = st.radio("Como deseja cadastrar?", ["📝 Cadastrar Cliente e Veículo Novos", "🚗 Adicionar Veículo a um Cliente Existente"], horizontal=True)
+                
+                if tipo_inclusao == "📝 Cadastrar Cliente e Veículo Novos":
+                    st.subheader("Cadastro de Novo Cliente")
+                    with st.form("novo_cliente", clear_on_submit=True):
+                        c1, c2 = st.columns(2)
+                        nome = c1.text_input("Nome do Cliente *")
+                        doc = c2.text_input("CPF/CNPJ")
+                        end = c1.text_input("Endereço")
+                        tel = c2.text_input("Telefone")
+                        emp = c1.selectbox("Empresa (Pasta) *", opcoes_emp)
+                        tipo = c2.selectbox("Tipo de Veículo", ["Carro", "Moto", "Caminhão", "Outro"])
+                        placa = c1.text_input("Placa *")
+                        mod = c2.text_input("Modelo")
+                        cor = c1.text_input("Cor")
+                        if st.form_submit_button("Salvar Novo Cliente"):
+                            if nome and placa:
+                                agora = datetime.now().strftime('%d/%m/%Y %H:%M')
+                                execute_query("INSERT INTO clientes (nome, documento, endereco, telefone, tipo_veic, placa, modelo, cor, empresa, status, ultima_atualizacao) VALUES (?,?,?,?,?,?,?,?,?,'Ativo',?)", 
+                                          (nome, doc, end, tel, tipo, placa, mod, cor, emp, agora))
+                                registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome} adicionado na pasta {emp}.")
+                                st.session_state.acao_clientes = "Listar"
+                                st.rerun()
+                            else:
+                                st.error("Nome e Placa são obrigatórios.")
+                                
+                elif tipo_inclusao == "🚗 Adicionar Veículo a um Cliente Existente":
+                    if not df_clientes.empty:
+                        lista_nomes_unicos = df_clientes['nome'].unique()
+                        cli_sel_vinc = st.selectbox("Selecione o Cliente Existente para vincular o novo veículo:", [""] + list(lista_nomes_unicos))
+                        
+                        if cli_sel_vinc:
+                            # Puxa os dados fixos do cliente escolhido
+                            dados_cli_existente = df_clientes[df_clientes['nome'] == cli_sel_vinc].iloc[0]
+                            st.info(f"Vincular novo veículo ao cliente: **{dados_cli_existente['nome']}** (Documento: {dados_cli_existente['documento']}) - Empresa: {dados_cli_existente['empresa']}")
+                            
+                            with st.form("novo_veiculo_vinculado", clear_on_submit=True):
+                                c1, c2 = st.columns(2)
+                                tipo = c1.selectbox("Tipo de Veículo", ["Carro", "Moto", "Caminhão", "Outro"])
+                                placa = c2.text_input("Placa da Nova Frota *")
+                                mod = c1.text_input("Modelo")
+                                cor = c2.text_input("Cor")
+                                if st.form_submit_button("Salvar Veículo Adicional"):
+                                    if placa:
+                                        agora = datetime.now().strftime('%d/%m/%Y %H:%M')
+                                        execute_query("INSERT INTO clientes (nome, documento, endereco, telefone, tipo_veic, placa, modelo, cor, empresa, status, ultima_atualizacao) VALUES (?,?,?,?,?,?,?,?,?,'Ativo',?)", 
+                                                  (dados_cli_existente['nome'], dados_cli_existente['documento'], dados_cli_existente['endereco'], dados_cli_existente['telefone'], tipo, placa, mod, cor, dados_cli_existente['empresa'], agora))
+                                        registrar_auditoria("Cadastro", "Frotas", f"Veículo {placa} vinculado ao cliente {dados_cli_existente['nome']}.")
+                                        st.session_state.acao_clientes = "Listar"
+                                        st.rerun()
+                                    else:
+                                        st.error("A Placa é obrigatória.")
+                    else:
+                        st.warning("Nenhum cliente cadastrado ainda para vincular veículos.")
                             
         elif acao_clientes == "Importação em Lote":
             st.info("📥 Funcionalidade de Importação em Lote (CSV) disponível em breve.")
@@ -329,162 +367,184 @@ else:
                                 if st.form_submit_button("💾 Salvar Alterações"):
                                     execute_query("UPDATE clientes SET nome=?, placa=?, status=? WHERE id=?", (en_nome, en_placa, en_status, id_sel))
                                     registrar_auditoria("Edição", "Clientes", f"Cliente ID {id_sel} alterado.")
-                                    st.session_state["busca_cli_input"] = "" # Limpa busca
+                                    st.session_state["busca_cli_input"] = "" 
                                     st.session_state.acao_clientes = "Listar"
                                     st.rerun()
                         
                         elif acao_clientes == "Excluir":
-                            st.warning(f"Tem certeza que deseja excluir o cliente **{dados_c['nome']}**?")
-                            if st.button("🗑️ Excluir Cliente (Irreversível)"):
+                            st.warning(f"Tem certeza que deseja excluir o cliente/veículo **{dados_c['nome']} (Placa: {dados_c['placa']})**?")
+                            if st.button("🗑️ Excluir Registro (Irreversível)"):
                                 execute_query("DELETE FROM clientes WHERE id=?", (id_sel,))
                                 registrar_auditoria("Exclusão", "Clientes", f"Cliente ID {id_sel} excluído.")
-                                st.session_state["busca_cli_input"] = "" # Limpa busca
+                                st.session_state["busca_cli_input"] = ""
                                 st.session_state.acao_clientes = "Listar"
                                 st.rerun()
                 else:
                     st.warning("Nenhum cliente encontrado com esse termo.")
-    
-    # AQUI ESTAVA O ERRO DE LÓGICA DO PULO DE ABAS. AGORA CORRIGIDO!
     tab_idx += 1
 
-    # --- ABA: RELATÓRIOS (SEPARADA EM FURTO/ROUBO E MONITORAMENTO) ---
+    # --- ABA: RELATÓRIOS (DINÂMICA POR SERVIÇO CONTRATADO) ---
     with tabs[tab_idx]:
         st.header("📖 Relatórios Operacionais")
         
-        sub_tab_fr, sub_tab_mon = st.tabs(["🚨 Relatórios de Furto e Roubo", "📡 Relatórios de Monitoramento Técnico"])
+        # Lógica para descobrir os serviços da empresa logada
+        if st.session_state.is_admin:
+            servico_atual = "Ambos (Furto/Roubo + Monitoramento)"
+        else:
+            res_servico = fetch_data("SELECT servicos FROM empresas WHERE nome=?", (st.session_state.nome_empresa,))
+            if res_servico and 'servicos' in res_servico[0] and res_servico[0]['servicos']:
+                servico_atual = res_servico[0]['servicos']
+            else:
+                servico_atual = "Ambos (Furto/Roubo + Monitoramento)" # Padrão se não tiver nada
         
-        # 1. SUB-ABA: FURTO E ROUBO
-        with sub_tab_fr:
-            st.subheader("Controle de Ocorrências de Furto e Roubo")
-            col_f1, col_f2 = st.columns(2)
-            b_fr = col_f1.text_input("🔍 Buscar por Placa, Nome ou CPF (Furto/Roubo)", key="b_fr")
-            p_fr = col_f2.text_input("📅 Filtrar por Data (Furto/Roubo)", key="p_fr")
+        mostrar_fr = "Furto e Roubo" in servico_atual or "Ambos" in servico_atual
+        mostrar_mon = "Monitoramento" in servico_atual or "Ambos" in servico_atual
+        
+        abas_relatorios_ativas = []
+        if mostrar_fr: abas_relatorios_ativas.append("🚨 Relatórios de Furto e Roubo")
+        if mostrar_mon: abas_relatorios_ativas.append("📡 Relatórios de Monitoramento Técnico")
+        
+        if not abas_relatorios_ativas:
+            st.warning("Nenhum serviço de relatório atrelado a esta empresa.")
+        else:
+            sub_tabs = st.tabs(abas_relatorios_ativas)
+            idx_sub = 0
             
-            conn = sqlite3.connect(DB_PATH)
-            q_fr = "SELECT * FROM historico WHERE tipo IN ('Furto', 'Roubo')"
-            p_list_fr = []
-            if not st.session_state.is_admin:
-                q_fr += " AND empresa=?"
-                p_list_fr.append(st.session_state.nome_empresa)
-            if b_fr:
-                q_fr += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
-                p_list_fr.extend([f"%{b_fr.lower()}%", f"%{b_fr.lower()}%"])
-            if p_fr:
-                q_fr += " AND data_hora LIKE ?"
-                p_list_fr.append(f"%{p_fr}%")
-            q_fr += " ORDER BY id DESC"
-            
-            res_fr = fetch_data(q_fr, tuple(p_list_fr))
-            conn.close()
-            
-            if res_fr:
-                df_fr = pd.DataFrame(res_fr)
-                st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
-                
-                st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
-                lista_sel_fr = [f"{h['id']} - {h['placa']} ({h['tipo']} - {h['status']})" for h in res_fr]
-                reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", [""] + lista_sel_fr, key="sel_fr")
-                
-                if reg_sel_fr:
-                    id_r = int(reg_sel_fr.split(" - ")[0])
-                    dados_fr = next(item for item in res_fr if item["id"] == id_r)
+            # 1. SUB-ABA: FURTO E ROUBO
+            if mostrar_fr:
+                with sub_tabs[idx_sub]:
+                    st.subheader("Controle de Ocorrências de Furto e Roubo")
+                    col_f1, col_f2 = st.columns(2)
+                    b_fr = col_f1.text_input("🔍 Buscar por Placa, Nome ou CPF (Furto/Roubo)", key="b_fr")
+                    p_fr = col_f2.text_input("📅 Filtrar por Data (Furto/Roubo)", key="p_fr")
                     
-                    if st.button("❌ Fechar Ficha", key="fechar_fr"):
-                        st.session_state["sel_fr"] = ""
-                        st.rerun()
-
-                    st.markdown(f'''
-                    <div class="ficha-box">
-                        <h4 style="color:#8b0000; text-align:center;">Ficha de Ocorrência nº {dados_fr['id']} ({dados_fr['tipo']})</h4>
-                        <hr>
-                        <p><b>Data/Hora de Abertura:</b> {dados_fr['data_hora']}</p>
-                        <p><b>Cliente:</b> {dados_fr['cliente']}</p>
-                        <p><b>Placa:</b> {dados_fr['placa']}</p>
-                        <p><b>Status Atual:</b> <b>{dados_fr['status']}</b></p>
-                        <hr>
-                        <p><b>Detalhes / Dinâmica:</b></p>
-                        <p>{dados_fr['detalhes']}</p>
-                    </div>
-                    ''', unsafe_allow_html=True)
+                    conn = sqlite3.connect(DB_PATH)
+                    q_fr = "SELECT * FROM historico WHERE tipo IN ('Furto', 'Roubo')"
+                    p_list_fr = []
+                    if not st.session_state.is_admin:
+                        q_fr += " AND empresa=?"
+                        p_list_fr.append(st.session_state.nome_empresa)
+                    if b_fr:
+                        q_fr += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
+                        p_list_fr.extend([f"%{b_fr.lower()}%", f"%{b_fr.lower()}%"])
+                    if p_fr:
+                        q_fr += " AND data_hora LIKE ?"
+                        p_list_fr.append(f"%{p_fr}%")
+                    q_fr += " ORDER BY id DESC"
                     
-                    if dados_fr['status'] == 'EM ANDAMENTO':
-                        st.markdown("---")
-                        with st.form(f"form_finalizar_reg_{id_r}"):
-                            st.write("🟢 **Finalizar Atendimento:**")
-                            desfecho = st.text_area("Informe o desfecho do caso (ex: Veículo recuperado com sucesso)")
-                            if st.form_submit_button("✅ Concluir e Finalizar Ocorrência"):
-                                novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho}"
-                                execute_query("UPDATE historico SET status='FINALIZADO', detalhes=? WHERE id=?", (novo_detalhe, id_r))
-                                registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada.")
+                    res_fr = fetch_data(q_fr, tuple(p_list_fr))
+                    conn.close()
+                    
+                    if res_fr:
+                        df_fr = pd.DataFrame(res_fr)
+                        st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
+                        
+                        st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
+                        lista_sel_fr = [f"{h['id']} - {h['placa']} ({h['tipo']} - {h['status']})" for h in res_fr]
+                        reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", [""] + lista_sel_fr, key="sel_fr")
+                        
+                        if reg_sel_fr:
+                            id_r = int(reg_sel_fr.split(" - ")[0])
+                            dados_fr = next(item for item in res_fr if item["id"] == id_r)
+                            
+                            if st.button("❌ Fechar Ficha", key="fechar_fr"):
                                 st.session_state["sel_fr"] = ""
-                                st.success("Ocorrência finalizada com sucesso!")
                                 st.rerun()
-                    
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.markdown(gerar_relatorio_html(dados_fr, st.session_state.nome_empresa), unsafe_allow_html=True)
-            else:
-                st.info("Nenhum registro de Furto ou Roubo encontrado.")
 
-        # 2. SUB-ABA: MONITORAMENTO TÉCNICO
-        with sub_tab_mon:
-            st.subheader("Eventos de Monitoramento Técnico")
-            col_m1, col_m2 = st.columns(2)
-            b_mon = col_m1.text_input("🔍 Buscar por Placa, Nome ou CPF (Monitoramento)", key="b_mon")
-            p_mon = col_m2.text_input("📅 Filtrar por Data (Monitoramento)", key="p_mon")
-            
-            conn = sqlite3.connect(DB_PATH)
-            q_mon = "SELECT * FROM historico WHERE tipo='Monitoramento'"
-            p_list_mon = []
-            if not st.session_state.is_admin:
-                q_mon += " AND empresa=?"
-                p_list_mon.append(st.session_state.nome_empresa)
-            if b_mon:
-                q_mon += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
-                p_list_mon.extend([f"%{b_mon.lower()}%", f"%{b_mon.lower()}%"])
-            if p_mon:
-                q_mon += " AND data_hora LIKE ?"
-                p_list_mon.append(f"%{p_mon}%")
-            q_mon += " ORDER BY id DESC"
-            
-            res_mon = fetch_data(q_mon, tuple(p_list_mon))
-            conn.close()
-            
-            if res_mon:
-                df_mon = pd.DataFrame(res_mon)
-                st.dataframe(df_mon[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
-                
-                st.markdown("### 🔎 Ficha de Monitoramento")
-                lista_sel_mon = [f"{h['id']} - {h['placa']} ({h['data_hora']})" for h in res_mon]
-                reg_sel_mon = st.selectbox("Selecione um registro para visualizar:", [""] + lista_sel_mon, key="sel_mon")
-                
-                if reg_sel_mon:
-                    id_m = int(reg_sel_mon.split(" - ")[0])
-                    dados_mon = next(item for item in res_mon if item["id"] == id_m)
-                    
-                    if st.button("❌ Fechar Ficha", key="fechar_mon"):
-                        st.session_state["sel_mon"] = ""
-                        st.rerun()
+                            st.markdown(f'''
+                            <div class="ficha-box">
+                                <h4 style="color:#8b0000; text-align:center;">Ficha de Ocorrência nº {dados_fr['id']} ({dados_fr['tipo']})</h4>
+                                <hr>
+                                <p><b>Data/Hora de Abertura:</b> {dados_fr['data_hora']}</p>
+                                <p><b>Cliente:</b> {dados_fr['cliente']}</p>
+                                <p><b>Placa:</b> {dados_fr['placa']}</p>
+                                <p><b>Status Atual:</b> <b>{dados_fr['status']}</b></p>
+                                <hr>
+                                <p><b>Detalhes / Dinâmica:</b></p>
+                                <p>{dados_fr['detalhes']}</p>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                            
+                            if dados_fr['status'] == 'EM ANDAMENTO':
+                                st.markdown("---")
+                                with st.form(f"form_finalizar_reg_{id_r}"):
+                                    st.write("🟢 **Finalizar Atendimento:**")
+                                    desfecho = st.text_area("Informe o desfecho do caso (ex: Veículo recuperado com sucesso)")
+                                    if st.form_submit_button("✅ Concluir e Finalizar Ocorrência"):
+                                        novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho}"
+                                        execute_query("UPDATE historico SET status='FINALIZADO', detalhes=? WHERE id=?", (novo_detalhe, id_r))
+                                        registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada.")
+                                        st.session_state["sel_fr"] = ""
+                                        st.success("Ocorrência finalizada com sucesso!")
+                                        st.rerun()
+                            
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            st.markdown(gerar_relatorio_html(dados_fr, st.session_state.nome_empresa), unsafe_allow_html=True)
+                    else:
+                        st.info("Nenhum registro de Furto ou Roubo encontrado.")
+                idx_sub += 1
 
-                    st.markdown(f'''
-                    <div class="ficha-box">
-                        <h4 style="color:#4a0e4e; text-align:center;">Ficha de Monitoramento nº {dados_mon['id']}</h4>
-                        <hr>
-                        <p><b>Data/Hora:</b> {dados_mon['data_hora']}</p>
-                        <p><b>Cliente:</b> {dados_mon['cliente']}</p>
-                        <p><b>Placa:</b> {dados_mon['placa']}</p>
-                        <p><b>Status:</b> {dados_mon['status']}</p>
-                        <hr>
-                        <p><b>Detalhes / Ação da Central:</b></p>
-                        <p>{dados_mon['detalhes']}</p>
-                    </div>
-                    ''', unsafe_allow_html=True)
+            # 2. SUB-ABA: MONITORAMENTO TÉCNICO
+            if mostrar_mon:
+                with sub_tabs[idx_sub]:
+                    st.subheader("Eventos de Monitoramento Técnico")
+                    col_m1, col_m2 = st.columns(2)
+                    b_mon = col_m1.text_input("🔍 Buscar por Placa, Nome ou CPF (Monitoramento)", key="b_mon")
+                    p_mon = col_m2.text_input("📅 Filtrar por Data (Monitoramento)", key="p_mon")
                     
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    st.markdown(gerar_relatorio_html(dados_mon, st.session_state.nome_empresa), unsafe_allow_html=True)
-            else:
-                st.info("Nenhum registro de monitoramento encontrado.")
+                    conn = sqlite3.connect(DB_PATH)
+                    q_mon = "SELECT * FROM historico WHERE tipo='Monitoramento'"
+                    p_list_mon = []
+                    if not st.session_state.is_admin:
+                        q_mon += " AND empresa=?"
+                        p_list_mon.append(st.session_state.nome_empresa)
+                    if b_mon:
+                        q_mon += " AND (lower(cliente) LIKE ? OR lower(placa) LIKE ?)"
+                        p_list_mon.extend([f"%{b_mon.lower()}%", f"%{b_mon.lower()}%"])
+                    if p_mon:
+                        q_mon += " AND data_hora LIKE ?"
+                        p_list_mon.append(f"%{p_mon}%")
+                    q_mon += " ORDER BY id DESC"
+                    
+                    res_mon = fetch_data(q_mon, tuple(p_list_mon))
+                    conn.close()
+                    
+                    if res_mon:
+                        df_mon = pd.DataFrame(res_mon)
+                        st.dataframe(df_mon[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
+                        
+                        st.markdown("### 🔎 Ficha de Monitoramento")
+                        lista_sel_mon = [f"{h['id']} - {h['placa']} ({h['data_hora']})" for h in res_mon]
+                        reg_sel_mon = st.selectbox("Selecione um registro para visualizar:", [""] + lista_sel_mon, key="sel_mon")
+                        
+                        if reg_sel_mon:
+                            id_m = int(reg_sel_mon.split(" - ")[0])
+                            dados_mon = next(item for item in res_mon if item["id"] == id_m)
+                            
+                            if st.button("❌ Fechar Ficha", key="fechar_mon"):
+                                st.session_state["sel_mon"] = ""
+                                st.rerun()
 
-    # LINHA DE CORREÇÃO ADICIONADA AQUI. ISSO É O QUE ESTAVA BAGUNÇANDO TUDO:
+                            st.markdown(f'''
+                            <div class="ficha-box">
+                                <h4 style="color:#4a0e4e; text-align:center;">Ficha de Monitoramento nº {dados_mon['id']}</h4>
+                                <hr>
+                                <p><b>Data/Hora:</b> {dados_mon['data_hora']}</p>
+                                <p><b>Cliente:</b> {dados_mon['cliente']}</p>
+                                <p><b>Placa:</b> {dados_mon['placa']}</p>
+                                <p><b>Status:</b> {dados_mon['status']}</p>
+                                <hr>
+                                <p><b>Detalhes / Ação da Central:</b></p>
+                                <p>{dados_mon['detalhes']}</p>
+                            </div>
+                            ''', unsafe_allow_html=True)
+                            
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            st.markdown(gerar_relatorio_html(dados_mon, st.session_state.nome_empresa), unsafe_allow_html=True)
+                    else:
+                        st.info("Nenhum registro de monitoramento encontrado.")
+                idx_sub += 1
+
     tab_idx += 1
 
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
@@ -503,6 +563,9 @@ else:
                         with st.expander(f"📁 Empresa: {emp['nome']}"):
                             st.write(f"**CNPJ/Senha:** {emp['cnpj']} | **Responsável:** {emp['responsavel']}")
                             st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
+                            # Ajuste para evitar erro se for uma empresa antiga sem o campo 'servicos' ainda
+                            servico_vinculado = emp['servicos'] if 'servicos' in emp else "Ambos (Furto/Roubo + Monitoramento)"
+                            st.write(f"**Pacote de Serviço:** {servico_vinculado}")
                 else:
                     st.info("Nenhuma empresa parceira cadastrada.")
             
@@ -513,50 +576,57 @@ else:
                     e_end = st.text_input("Endereço")
                     e_tel = st.text_input("Telefone")
                     e_resp = st.text_input("Responsável")
+                    # NOVO CAMPO: Serviços
+                    e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
+                    
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
-                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel) VALUES (?,?,?,?,?)", (e_nome, e_cnpj, e_end, e_tel, e_resp))
-                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada.")
+                            # Inserção com a nova coluna de serviços
+                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos) VALUES (?,?,?,?,?,?)", (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos))
+                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada com pacote: {e_servicos}.")
                             st.session_state.acao_parceiros = "Listar"
                             st.rerun()
                         else:
                             st.error("Nome e CNPJ são obrigatórios.")
                             
             elif acao_parceiros in ["Editar", "Excluir"]:
-                busca_emp = st.text_input("🔍 Buscar Empresa na Lista (Nome ou CNPJ):", key="busca_emp_input")
-                if busca_emp and len(busca_emp) >= 3:
-                    res_emp = fetch_data(f"SELECT * FROM empresas WHERE lower(nome) LIKE '%{busca_emp.lower()}%' OR cnpj LIKE '%{busca_emp}%'")
-                    if res_emp:
-                        lista_opcoes_e = [f"{e['id']} - {e['nome']}" for e in res_emp]
-                        emp_selecionada = st.selectbox("Selecione a Empresa:", [""] + lista_opcoes_e)
+                res_emp = fetch_data("SELECT * FROM empresas")
+                if res_emp:
+                    lista_opcoes_e = [f"{e['id']} - {e['nome']}" for e in res_emp]
+                    emp_selecionada = st.selectbox("🔍 Selecione a Empresa na lista (ou digite para buscar):", [""] + lista_opcoes_e, key="sel_emp_edit")
+                    
+                    if emp_selecionada:
+                        id_emp = int(emp_selecionada.split(" - ")[0])
+                        dados_e = next(item for item in res_emp if item["id"] == id_emp)
                         
-                        if emp_selecionada:
-                            id_emp = int(emp_selecionada.split(" - ")[0])
-                            dados_e = next(item for item in res_emp if item["id"] == id_emp)
-                            
-                            if acao_parceiros == "Editar":
-                                with st.form(f"form_edit_emp", clear_on_submit=True):
-                                    ne_nome = st.text_input("Nome", value=dados_e['nome'])
-                                    ne_resp = st.text_input("Responsável", value=dados_e['responsavel'])
-                                    ne_tel = st.text_input("Telefone", value=dados_e['telefone'])
-                                    ne_end = st.text_input("Endereço", value=dados_e['endereco'])
-                                    if st.form_submit_button("💾 Salvar Alterações"):
-                                        execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=? WHERE id=?", (ne_nome, ne_resp, ne_tel, ne_end, id_emp))
-                                        registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado.")
-                                        st.session_state["busca_emp_input"] = "" # Limpa busca
-                                        st.session_state.acao_parceiros = "Listar"
-                                        st.rerun()
-                            
-                            elif acao_parceiros == "Excluir":
-                                st.warning(f"Tem certeza que deseja excluir a empresa **{dados_e['nome']}**?")
-                                if st.button("🗑️ Excluir Parceiro"):
-                                    execute_query("DELETE FROM empresas WHERE id=?", (id_emp,))
-                                    registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.")
-                                    st.session_state["busca_emp_input"] = "" # Limpa busca
+                        if acao_parceiros == "Editar":
+                            with st.form(f"form_edit_emp", clear_on_submit=True):
+                                ne_nome = st.text_input("Nome", value=dados_e['nome'])
+                                ne_resp = st.text_input("Responsável", value=dados_e['responsavel'])
+                                ne_tel = st.text_input("Telefone", value=dados_e['telefone'])
+                                ne_end = st.text_input("Endereço", value=dados_e['endereco'])
+                                
+                                # Verifica valor atual do banco para o index do selectbox
+                                serv_atual = dados_e['servicos'] if 'servicos' in dados_e and dados_e['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
+                                opcoes_s = ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"]
+                                idx_serv = opcoes_s.index(serv_atual) if serv_atual in opcoes_s else 0
+                                ne_servicos = st.selectbox("Serviços Contratados", opcoes_s, index=idx_serv)
+
+                                if st.form_submit_button("💾 Salvar Alterações"):
+                                    execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=? WHERE id=?", (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, id_emp))
+                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Serviço: {ne_servicos}")
                                     st.session_state.acao_parceiros = "Listar"
                                     st.rerun()
-                    else:
-                        st.warning("Nenhuma empresa encontrada com esse termo.")
+                        
+                        elif acao_parceiros == "Excluir":
+                            st.warning(f"Tem certeza que deseja excluir a empresa **{dados_e['nome']}**?")
+                            if st.button("🗑️ Excluir Parceiro"):
+                                execute_query("DELETE FROM empresas WHERE id=?", (id_emp,))
+                                registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.")
+                                st.session_state.acao_parceiros = "Listar"
+                                st.rerun()
+                else:
+                    st.warning("Nenhuma empresa encontrada.")
         tab_idx += 1
 
     # --- ABA: FINANCEIRO (SÓ ADMIN) ---
