@@ -47,12 +47,8 @@ def init_db():
     except sqlite3.OperationalError:
         pass
         
-    # Tabela principal de Clientes (Dados Cadastrais Únicos)
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, documento TEXT, endereco TEXT, telefone TEXT, empresa TEXT, status TEXT DEFAULT 'Ativo')''')
-    
-    # Tabela de Veículos (Frotas vinculadas ao Cliente)
     c.execute('''CREATE TABLE IF NOT EXISTS veiculos (id INTEGER PRIMARY KEY AUTOINCREMENT, cliente_id INTEGER, tipo_veic TEXT, placa TEXT, modelo TEXT, cor TEXT, FOREIGN KEY(cliente_id) REFERENCES clientes(id))''')
-
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id INTEGER PRIMARY KEY AUTOINCREMENT, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id INTEGER PRIMARY KEY AUTOINCREMENT, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS financeiro (id INTEGER PRIMARY KEY AUTOINCREMENT, mes TEXT, empresa TEXT, faturado REAL, recebido REAL, status TEXT, detalhes TEXT)''')
@@ -267,7 +263,7 @@ else:
                     st.warning("Nenhum veículo encontrado com este termo.")
         tab_idx += 1
 
-    # --- ABA: CLIENTES E FROTAS (UNIFICADO) ---
+    # --- ABA: CLIENTES E FROTAS ---
     with tabs[tab_idx]:
         st.header("👤 Gerenciamento de Clientes e Frotas Multi-Veículos")
         
@@ -282,7 +278,7 @@ else:
 
         if acao_clientes == "Listar":
             q_completa = f"""
-                SELECT c.nome, c.documento, c.endereco, c.telefone, v.tipo_veic, v.placa, v.modelo, v.cor, c.empresa, c.status
+                SELECT c.id, c.nome, c.documento, c.endereco, c.telefone, v.tipo_veic, v.placa, v.modelo, v.cor, c.empresa, c.status
                 FROM clientes c JOIN veiculos v ON c.id = v.cliente_id
             """
             if not st.session_state.is_admin:
@@ -298,6 +294,42 @@ else:
                     with st.expander(f"📁 Clientes e Frotas da Empresa: {emp_ativa}"):
                         df_emp = df_geral[df_geral['empresa'] == emp_ativa]
                         st.dataframe(df_emp[['nome', 'documento', 'placa', 'modelo', 'cor', 'status']], use_container_width=True)
+                
+                st.markdown("---")
+                st.subheader("🔍 Visualizar Ficha Completa do Cliente")
+                
+                # Lista unificada de clientes para visualização de ficha
+                clientes_para_ficha = fetch_data(f"SELECT id, nome, documento, empresa FROM clientes " + ("" if st.session_state.is_admin else f"WHERE empresa='{st.session_state.nome_empresa}'"))
+                lista_ficha_op = [""] + [f"{cli['id']} - {cli['nome']} (CPF/CNPJ: {cli['documento']}) - [{cli['empresa']}]" for cli in clientes_para_ficha]
+                
+                cli_ficha_sel = st.selectbox("Selecione o cliente para ver a ficha completa e seus veículos:", lista_ficha_op, key="select_ficha_cliente")
+                
+                if cli_ficha_sel != "":
+                    id_cli_ficha = int(cli_ficha_sel.split(" - ")[0])
+                    dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=?", (id_cli_ficha,))[0]
+                    veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=?", (id_cli_ficha,))
+                    
+                    st.markdown(f"""
+                    <div class="ficha-box">
+                        <h3 style="color:#4a0e4e; margin-top:0;">📋 Ficha Cadastral Completa</h3>
+                        <p><b>Nome do Cliente:</b> {dados_cli_ficha['nome']}</p>
+                        <p><b>CPF / CNPJ:</b> {dados_cli_ficha['documento']}</p>
+                        <p><b>Endereço:</b> {dados_cli_ficha['endereco']}</p>
+                        <p><b>Telefone:</b> {dados_cli_ficha['telefone']}</p>
+                        <p><b>Empresa Responsável:</b> {dados_cli_ficha['empresa']}</p>
+                        <p><b>Status:</b> {dados_cli_ficha['status']}</p>
+                        <hr style="border: 0; border-top: 2px solid #4a0e4e; margin: 15px 0;">
+                        <h4 style="color:#8b0000;">🚗 Veículos / Frotas Vinculadas ({len(veiculos_cli_ficha)})</h4>
+                    """, unsafe_allow_html=True)
+                    
+                    if veiculos_cli_ficha:
+                        df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor']]
+                        df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor']
+                        st.dataframe(df_veics, use_container_width=True)
+                    else:
+                        st.info("Nenhum veículo vinculado a este cliente.")
+                        
+                    st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.info("Nenhum cliente ou veículo cadastrado no momento.")
                 
@@ -328,11 +360,9 @@ else:
                             if nome and doc and placa:
                                 conn = sqlite3.connect(DB_PATH)
                                 cursor = conn.cursor()
-                                # Insere cliente único
                                 cursor.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status) VALUES (?,?,?,?,?,'Ativo')", 
                                                (nome, doc, end, tel, emp))
                                 cliente_id = cursor.lastrowid
-                                # Insere o veículo vinculado ao ID do cliente
                                 cursor.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (?,?,?,?,?)", 
                                                (cliente_id, tipo, placa, mod, cor))
                                 conn.commit()
@@ -375,7 +405,7 @@ else:
                         st.warning("Nenhum cliente cadastrado no sistema para adicionar veículos.")
                             
         elif acao_clientes == "Importação em Lote":
-            st.subheader("📥 Importação Inteligente via CSV")
+            st.subheader("📥 Importação Inteligente de Clientes e Frotas via CSV")
             st.info("O sistema criará o cliente automaticamente (se já não existir pelo CPF/CNPJ) e agrupará os veículos na conta dele.")
             
             emp_lote = st.selectbox("Selecione a Empresa de destino:", opcoes_emp, key="emp_lote_sel")
@@ -411,7 +441,6 @@ else:
                             if nome and placa:
                                 conn = sqlite3.connect(DB_PATH)
                                 cur = conn.cursor()
-                                # Verifica se o cliente já existe pelo documento
                                 cur.execute("SELECT id FROM clientes WHERE documento=? AND empresa=?", (doc, emp_lote))
                                 cli_res = cur.fetchone()
                                 
@@ -422,7 +451,6 @@ else:
                                                 (nome, doc, end, tel, emp_lote))
                                     cli_id = cur.lastrowid
                                     
-                                # Insere o veículo
                                 cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (?,?,?,?,?)", 
                                             (cli_id, tipo, placa, modelo, cor))
                                 conn.commit()
@@ -470,11 +498,12 @@ else:
                             
                         if acao_clientes == "Editar":
                             with st.form(f"form_edit_cad_{id_c_sel}", clear_on_submit=True):
-                                novo_nome = st.text_input("Alterar Nome", value=dados_cliente_sel['nome'])
-                                novo_doc = st.text_input("Alterar CPF/CNPJ", value=dados_cliente_sel['documento'])
-                                novo_tel = st.text_input("Alterar Telefone", value=dados_cliente_sel['telefone'])
-                                if st.form_submit_button("💾 Salvar Dados do Cliente"):
-                                    execute_query("UPDATE clientes SET nome=?, documento=?, telefone=? WHERE id=?", (novo_nome, novo_doc, novo_tel, id_c_sel))
+                                st.write("**Atualizando Dados:**")
+                                en_nome = st.text_input("Nome", value=dados_cliente_sel['nome'])
+                                en_doc = st.text_input("CPF/CNPJ", value=dados_cliente_sel['documento'])
+                                en_tel = st.text_input("Telefone", value=dados_cliente_sel['telefone'])
+                                if st.form_submit_button("💾 Salvar Alterações"):
+                                    execute_query("UPDATE clientes SET nome=?, documento=?, telefone=? WHERE id=?", (en_nome, en_doc, en_tel, id_c_sel))
                                     registrar_auditoria("Edição", "Clientes", f"Dados cadastrais do cliente ID {id_c_sel} atualizados.")
                                     st.success("Atualizado com sucesso!")
                                     st.rerun()
