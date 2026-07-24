@@ -35,6 +35,9 @@ st.markdown("""
     
     /* Ajuste botões de rádio (Ações) */
     div[role="radiogroup"] { flex-wrap: wrap; gap: 15px; }
+    
+    /* Estilo Ficha de Atendimento */
+    .ficha-box { border: 2px solid #4a0e4e; padding: 20px; border-radius: 10px; background-color: #fafafa; margin-top: 15px;}
 </style>
 """, unsafe_allow_html=True)
 
@@ -76,35 +79,43 @@ def registrar_auditoria(acao, modulo, detalhes):
     execute_query("INSERT INTO auditoria (data_hora, acao, modulo, detalhes, usuario) VALUES (?,?,?,?,?)", 
                   (agora, acao, modulo, detalhes, usuario))
 
-# --- GERADOR DE PDF ---
-def gerar_pdf_historico(df, empresa_nome):
+# --- GERADOR DE PDF ESPECÍFICO ---
+def gerar_pdf_individual(dados_relatorio, empresa_nome):
     if FPDF is None:
         return None
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", 'B', 16)
-    pdf.cell(200, 10, txt=f"Relatório Oficial de Ocorrências - AD Rastreamento", ln=True, align='C')
+    pdf.cell(200, 10, txt=f"Relatório de Atendimento Oficial", ln=True, align='C')
     pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, txt=f"Empresa / Parceiro: {empresa_nome}", ln=True, align='C')
+    pdf.cell(200, 10, txt=f"Emitido por: {empresa_nome}", ln=True, align='C')
+    pdf.ln(10)
+    
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(50, 10, "Detalhes da Ocorrência:", ln=True)
+    pdf.set_font("Arial", '', 10)
+    
+    pdf.cell(40, 10, "Data/Hora:", border=1)
+    pdf.cell(150, 10, str(dados_relatorio['data_hora']), border=1, ln=True)
+    
+    pdf.cell(40, 10, "Cliente:", border=1)
+    pdf.cell(150, 10, str(dados_relatorio['cliente']), border=1, ln=True)
+    
+    pdf.cell(40, 10, "Placa:", border=1)
+    pdf.cell(150, 10, str(dados_relatorio['placa']), border=1, ln=True)
+    
+    pdf.cell(40, 10, "Tipo de Serviço:", border=1)
+    pdf.cell(150, 10, str(dados_relatorio['tipo']), border=1, ln=True)
+    
+    pdf.cell(40, 10, "Status Atual:", border=1)
+    pdf.cell(150, 10, str(dados_relatorio['status']), border=1, ln=True)
+    
     pdf.ln(5)
+    pdf.set_font("Arial", 'B', 11)
+    pdf.cell(50, 10, "Descrição / Ações Tomadas:", ln=True)
+    pdf.set_font("Arial", '', 10)
+    pdf.multi_cell(0, 8, txt=str(dados_relatorio['detalhes']))
     
-    pdf.set_font("Arial", 'B', 9)
-    pdf.cell(35, 10, 'Data/Hora', border=1)
-    pdf.cell(25, 10, 'Placa', border=1)
-    pdf.cell(35, 10, 'Tipo', border=1)
-    pdf.cell(30, 10, 'Status', border=1)
-    pdf.cell(65, 10, 'Detalhes', border=1)
-    pdf.ln()
-    
-    pdf.set_font("Arial", '', 8)
-    for _, row in df.iterrows():
-        detalhe_curto = str(row['detalhes'])[:45] + "..." if len(str(row['detalhes'])) > 45 else str(row['detalhes'])
-        pdf.cell(35, 10, str(row['data_hora'])[:16], border=1)
-        pdf.cell(25, 10, str(row['placa']), border=1)
-        pdf.cell(35, 10, str(row['tipo']), border=1)
-        pdf.cell(30, 10, str(row['status']), border=1)
-        pdf.cell(65, 10, detalhe_curto, border=1)
-        pdf.ln()
     return bytes(pdf.output(dest='S').encode('latin-1'))
 
 # --- CONTROLE DE SESSÃO ---
@@ -244,7 +255,6 @@ else:
     with tabs[tab_idx]:
         st.header("👤 Gerenciamento de Clientes (Frota Ilimitada e Endereço)")
         
-        # Botões de Rádio (Ações)
         acao_clientes = st.radio("Ação Clientes:", ["Listar", "Incluir Novo", "Importação em Lote", "Editar", "Excluir"], horizontal=True, key="acao_clientes")
         st.markdown("---")
         
@@ -307,7 +317,7 @@ else:
                 res_cli = fetch_data(q_busca_cli)
                 if res_cli:
                     lista_opcoes = [f"{c['id']} - {c['nome']} ({c['placa']})" for c in res_cli]
-                    cli_selecionado = st.selectbox("Selecione...", [""] + lista_opcoes)
+                    cli_selecionado = st.selectbox("Selecione o Cliente:", [""] + lista_opcoes)
                     
                     if cli_selecionado:
                         id_sel = int(cli_selecionado.split(" - ")[0])
@@ -360,26 +370,58 @@ else:
             params_h.append(f"%{filtro_periodo}%")
             
         query_h += " ORDER BY id DESC"
-        df_hist = pd.read_sql_query(query_h, conn, params=params_h)
+        res_historico = fetch_data(query_h, params=params_h)
+        df_hist = pd.DataFrame(res_historico)
         conn.close()
         
-        st.dataframe(df_hist, use_container_width=True)
+        # Tabela reduzida (Resumo)
+        if not df_hist.empty:
+            df_resumo = df_hist[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']]
+            st.dataframe(df_resumo, use_container_width=True)
+            
+            st.markdown("---")
+            st.markdown("### 🔎 Visualizar Ficha de Atendimento")
+            lista_hist = [f"{h['id']} - {h['placa']} ({h['data_hora']})" for h in res_historico]
+            rel_selecionado = st.selectbox("Selecione um registro da lista acima para ver detalhes ou baixar o PDF:", [""] + lista_hist)
+            
+            if rel_selecionado:
+                id_rel = int(rel_selecionado.split(" - ")[0])
+                dados_rel = next(item for item in res_historico if item["id"] == id_rel)
+                
+                # Exibir os detalhes visualmente na tela
+                st.markdown(f"""
+                <div class="ficha-box">
+                    <h4 style="color:#8b0000; text-align:center;">Ficha de Ocorrência nº {dados_rel['id']}</h4>
+                    <hr>
+                    <p><b>Data/Hora:</b> {dados_rel['data_hora']}</p>
+                    <p><b>Cliente:</b> {dados_rel['cliente']}</p>
+                    <p><b>Placa:</b> {dados_rel['placa']}</p>
+                    <p><b>Tipo de Serviço:</b> {dados_rel['tipo']}</p>
+                    <p><b>Status:</b> {dados_rel['status']}</p>
+                    <hr>
+                    <p><b>Detalhes / Ações Tomadas:</b></p>
+                    <p>{dados_rel['detalhes']}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Opção de baixar o PDF desta ficha específica
+                if FPDF is not None:
+                    pdf_bytes = gerar_pdf_individual(dados_rel, st.session_state.nome_empresa)
+                    if pdf_bytes:
+                        st.download_button(label="📄 Baixar esta Ficha em PDF", data=pdf_bytes, file_name=f"Ocorrencia_{dados_rel['placa']}.pdf", mime="application/pdf")
+                else:
+                    st.error("⚠️ Biblioteca 'fpdf' ausente no servidor. Configure o requirements.txt.")
+        else:
+            st.info("Nenhum histórico encontrado.")
         
         if st.session_state.is_admin and not df_hist.empty:
+            st.markdown("---")
             with st.expander("⚙️ Excluir Registro do Histórico (Admin)"):
                 id_del_hist = st.selectbox("ID do Histórico para remover:", [""] + list(df_hist['id'].astype(str)))
                 if id_del_hist and st.button("🗑️ Excluir Registro Selecionado"):
                     execute_query("DELETE FROM historico WHERE id=?", (int(id_del_hist),))
                     registrar_auditoria("Exclusão", "Histórico", f"Registro ID {id_del_hist} removido.")
                     st.rerun()
-
-        if not df_hist.empty:
-            if FPDF is not None:
-                pdf_bytes = gerar_pdf_historico(df_hist, st.session_state.nome_empresa)
-                if pdf_bytes:
-                    st.download_button(label="📄 Baixar Relatório Oficial (Exclusivo PDF)", data=pdf_bytes, file_name=f"Relatorio_{st.session_state.nome_empresa}.pdf", mime="application/pdf")
-            else:
-                st.error("⚠️ Biblioteca 'fpdf' ausente no servidor. Configure o requirements.txt.")
     tab_idx += 1
 
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
@@ -423,7 +465,7 @@ else:
                     res_emp = fetch_data(f"SELECT * FROM empresas WHERE lower(nome) LIKE '%{busca_emp.lower()}%' OR cnpj LIKE '%{busca_emp}%'")
                     if res_emp:
                         lista_opcoes_e = [f"{e['id']} - {e['nome']}" for e in res_emp]
-                        emp_selecionada = st.selectbox("Selecione...", [""] + lista_opcoes_e)
+                        emp_selecionada = st.selectbox("Selecione a Empresa:", [""] + lista_opcoes_e)
                         
                         if emp_selecionada:
                             id_emp = int(emp_selecionada.split(" - ")[0])
