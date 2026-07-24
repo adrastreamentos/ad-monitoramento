@@ -365,7 +365,7 @@ else:
                 reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", [""] + lista_sel_fr, key="sel_fr")
                 
                 if reg_sel_fr:
-                    id_ r = int(reg_sel_fr.split(" - ")[0])
+                    id_r = int(reg_sel_fr.split(" - ")[0])
                     dados_fr = next(item for item in res_fr if item["id"] == id_r)
                     
                     st.markdown(f"""
