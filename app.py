@@ -131,6 +131,9 @@ if 'logged_in' not in st.session_state:
         st.session_state.is_admin = False
         st.session_state.nome_empresa = ""
 
+if 'acao_clientes' not in st.session_state:
+    st.session_state.acao_clientes = "Listar"
+
 # ==========================================
 # 1. TELA DE LOGIN
 # ==========================================
@@ -454,9 +457,20 @@ else:
                             id_r = int(reg_sel_fr.split(" - ")[0])
                             dados_fr = next(item for item in res_fr if item["id"] == id_r)
                             
-                            if st.button("❌ Fechar Ficha", key="fechar_fr_btn"):
-                                st.session_state["sel_fr_val"] = ""
-                                st.rerun()
+                            col_b1, col_b2 = st.columns([1, 4])
+                            with col_b1:
+                                if st.button("❌ Fechar Ficha", key="fechar_fr_btn"):
+                                    st.session_state["sel_fr_val"] = ""
+                                    st.rerun()
+                            # OPÇÃO DE EXCLUSÃO DE RELATÓRIO EXCLUSIVA PARA O ADMINISTRADOR
+                            if st.session_state.is_admin:
+                                with col_b2:
+                                    if st.button("🗑️ Excluir este Relatório de Ocorrência", key=f"del_rel_fr_{id_r}"):
+                                        execute_query("DELETE FROM historico WHERE id=?", (id_r,))
+                                        registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Ocorrência ID {id_r} excluído pelo administrador.")
+                                        st.session_state["sel_fr_val"] = ""
+                                        st.success("Relatório excluído com sucesso!")
+                                        st.rerun()
 
                             st.markdown(f'''
                             <div class="ficha-box">
@@ -534,9 +548,20 @@ else:
                             id_m = int(reg_sel_mon.split(" - ")[0])
                             dados_mon = next(item for item in res_mon if item["id"] == id_m)
                             
-                            if st.button("❌ Fechar Ficha", key="fechar_mon_btn"):
-                                st.session_state["sel_mon_val"] = ""
-                                st.rerun()
+                            col_mb1, col_mb2 = st.columns([1, 4])
+                            with col_mb1:
+                                if st.button("❌ Fechar Ficha", key="fechar_mon_btn"):
+                                    st.session_state["sel_mon_val"] = ""
+                                    st.rerun()
+                            # OPÇÃO DE EXCLUSÃO DE RELATÓRIO DE MONITORAMENTO EXCLUSIVA PARA O ADMINISTRADOR
+                            if st.session_state.is_admin:
+                                with col_mb2:
+                                    if st.button("🗑️ Excluir este Relatório de Monitoramento", key=f"del_rel_mon_{id_m}"):
+                                        execute_query("DELETE FROM historico WHERE id=?", (id_m,))
+                                        registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Monitoramento ID {id_m} excluído pelo administrador.")
+                                        st.session_state["sel_mon_val"] = ""
+                                        st.success("Relatório excluído com sucesso!")
+                                        st.rerun()
 
                             st.markdown(f'''
                             <div class="ficha-box">
@@ -658,7 +683,7 @@ else:
             st.dataframe(pd.read_sql_query(q_fin, sqlite3.connect(DB_PATH)), use_container_width=True)
         tab_idx += 1
 
-    # --- AUDITORIA ---
+    # --- AUDITORIA COM OPÇÃO DE EXCLUSÃO DE REGISTRO SELECIONADO ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("🕵️ Auditoria e Rastreabilidade")
@@ -667,7 +692,19 @@ else:
             
             q_aud = f"SELECT * FROM auditoria WHERE data_hora LIKE '%{filtro_mes_aud}%' ORDER BY id DESC" if filtro_mes_aud else "SELECT * FROM auditoria ORDER BY id DESC"
             df_auditoria = pd.read_sql_query(q_aud, sqlite3.connect(DB_PATH))
-            if df_auditoria.empty:
-                st.info(f"Nenhum registro para '{filtro_mes_aud}'.")
-            else:
+            
+            if not df_auditoria.empty:
                 st.dataframe(df_auditoria, use_container_width=True)
+                
+                st.markdown("### 🗑️ Excluir Registro Específico de Auditoria")
+                lista_aud = [""] + [f"{row['id']} - {row['data_hora']} ({row['acao']} / {row['modulo']})" for _, row in df_auditoria.iterrows()]
+                aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud)
+                
+                if aud_sel_excluir != "":
+                    id_aud_del = int(aud_sel_excluir.split(" - ")[0])
+                    if st.button("🗑️ Excluir Registro de Auditoria Selecionado", key=f"btn_del_aud_{id_aud_del}"):
+                        execute_query("DELETE FROM auditoria WHERE id=?", (id_aud_del,))
+                        st.success(f"Registro de auditoria ID {id_aud_del} excluído com sucesso!")
+                        st.rerun()
+            else:
+                st.info(f"Nenhum registro de auditoria para '{filtro_mes_aud}'.")
