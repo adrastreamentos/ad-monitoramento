@@ -482,7 +482,7 @@ else:
                     st.subheader("Eventos de Monitoramento Técnico")
                     col_m1, col_m2 = st.columns(2)
                     b_mon = col_m1.text_input("🔍 Buscar por Placa, Nome ou CPF (Monitoramento)", key="b_mon")
-                    p_mon = col_m2.text_input("📅 Filtrar por Data (Monitoramento)", key="p_mon")
+                    p_mon = col_m2.text_input("📅 Filtrar por Date (Monitoramento)", key="p_mon")
                     
                     conn = sqlite3.connect(DB_PATH)
                     q_mon = "SELECT * FROM historico WHERE tipo='Monitoramento'"
@@ -544,11 +544,7 @@ else:
         with tabs[tab_idx]:
             st.header("🏢 Gerenciamento de Empresas Parceiras")
             
-            # Inicialização segura exclusiva para esta aba
-            if 'acao_parceiros' not in st.session_state:
-                st.session_state.acao_parceiros = "Listar"
-                
-            acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True, key="acao_parceiros")
+            acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
             st.markdown("---")
             
             df_empresas = pd.read_sql_query("SELECT * FROM empresas", sqlite3.connect(DB_PATH))
@@ -577,7 +573,6 @@ else:
                         if e_nome and e_cnpj:
                             execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos) VALUES (?,?,?,?,?,?)", (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada com pacote: {e_servicos}.")
-                            st.session_state.acao_parceiros = "Listar"
                             st.rerun()
                         else:
                             st.error("Nome e CNPJ são obrigatórios.")
@@ -607,7 +602,6 @@ else:
                                 if st.form_submit_button("💾 Salvar Alterações"):
                                     execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=? WHERE id=?", (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, id_emp))
                                     registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Serviço: {ne_servicos}")
-                                    st.session_state.acao_parceiros = "Listar"
                                     st.rerun()
                         
                         elif acao_parceiros == "Excluir":
@@ -615,7 +609,6 @@ else:
                             if st.button("🗑️ Excluir Parceiro"):
                                 execute_query("DELETE FROM empresas WHERE id=?", (id_emp,))
                                 registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.")
-                                st.session_state.acao_parceiros = "Listar"
                                 st.rerun()
                 else:
                     st.warning("Nenhuma empresa encontrada.")
