@@ -1,29 +1,17 @@
-import sys
-import subprocess
-
-# --- INSTALAÇÃO AUTOMÁTICA DE DEPENDÊNCIAS ---
-# Força o servidor do Streamlit a instalar o Supabase e o Pandas automaticamente
-try:
-    from supabase import create_client, Client
-    import pandas as pd
-except ImportError:
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "supabase", "pandas"])
-    from supabase import create_client, Client
-    import pandas as pd
-
 import streamlit as st
 import sqlite3
+import pandas as pd
 from datetime import datetime
 import urllib.parse
+from supabase import create_client, Client
 
-# --- CONFIGURAÇÕES E CORES (AD RASTREAMENTO VEICULAR) ---
+# --- CONFIGURAÇÕES E CORES ---
 st.set_page_config(page_title="AD Rastreamento Veicular", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
-    /* Identidade visual: Roxo e Vermelho Escuro */
     .stApp { background-color: #fdfdfd; }
-    h1, h2, h3 { color: #4a0e4e; } /* Roxo */
+    h1, h2, h3 { color: #4a0e4e; }
     .stButton>button { background-color: #8b0000; color: white; font-weight: bold; border-radius: 6px; border: none; }
     .stButton>button:hover { background-color: #4a0e4e; color: white; }
     div[data-testid="stSidebar"] { background-color: #4a0e4e; }
@@ -104,7 +92,6 @@ if not st.session_state.logged_in:
 # SISTEMA PRINCIPAL (PÓS-LOGIN)
 # ==========================================
 else:
-    # BARRA LATERAL
     with st.sidebar:
         st.write(f"👤 **Conectado como:** {st.session_state.nome_empresa}")
         if st.button("🚪 Sair do Sistema"):
@@ -113,23 +100,18 @@ else:
         st.markdown("---")
         st.markdown("Garantindo segurança, agilidade e proteção contínua para nossas motoristas.")
 
-    # ABAS
     abas = ["👤 Clientes e Frotas", "📖 Histórico de Ocorrências"]
     if st.session_state.is_admin:
         abas.insert(0, "🚨 Operação 24h")
         abas.append("🏢 Gestão de Parceiros")
         
     tabs = st.tabs(abas)
-    
     tab_idx = 0
 
-    # ==========================
-    # 1. ABA OPERAÇÃO 24H (SÓ ADMIN)
-    # ==========================
+    # ABA 1: OPERAÇÃO 24H
     if st.session_state.is_admin:
         with tabs[tab_idx]:
             st.header("🚨 Central de Operações e Ocorrências 24h")
-            
             busca_op = st.text_input("🔍 Buscar veículo por Placa, CPF ou Nome (Apenas Ativos)")
             if busca_op and len(busca_op) >= 3:
                 conn = sqlite3.connect(DB_PATH)
@@ -138,17 +120,15 @@ else:
                 
                 if not df_busca.empty:
                     st.dataframe(df_busca, use_container_width=True)
-                    
                     st.subheader("Registrar Atendimento para Veículo Encontrado")
                     placa_sel = st.selectbox("Selecione a Placa para o atendimento:", df_busca['placa'].unique())
                     
                     if placa_sel:
                         info_veic = df_busca[df_busca['placa'] == placa_sel].iloc[0]
-                        
                         col_f, col_m = st.columns(2)
                         with col_f:
                             with st.form("form_furto"):
-                                st.markdown(f"<h3 style='color: #8b0000;'>Abertura de Furto/Roubo</h3>", unsafe_allow_html=True)
+                                st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo</h3>", unsafe_allow_html=True)
                                 tipo_ocorrencia = st.selectbox("Natureza", ["Furto", "Roubo"])
                                 local_oc = st.text_input("Localização")
                                 desc_oc = st.text_area("Descrição do Ocorrido")
@@ -166,10 +146,9 @@ else:
                                             supabase.table("historico").insert({"data_hora": agora, "cliente": info_veic['nome'], "placa": placa_sel, "tipo": tipo_ocorrencia, "status": status_oc, "detalhes": f"Local: {local_oc} | Desc: {desc_oc}", "empresa": info_veic['empresa']}).execute()
                                         except: pass
                                     st.success(f"Ocorrência de {tipo_ocorrencia} salva com sucesso!")
-
                         with col_m:
                             with st.form("form_monitoramento"):
-                                st.markdown(f"<h3 style='color: #4a0e4e;'>Registro de Monitoramento</h3>", unsafe_allow_html=True)
+                                st.markdown("<h3 style='color: #4a0e4e;'>Registro de Monitoramento</h3>", unsafe_allow_html=True)
                                 evento_mon = st.selectbox("Evento", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"])
                                 acao_mon = st.text_area("Ação Realizada")
                                 if st.form_submit_button("Salvar Monitoramento"):
@@ -183,15 +162,11 @@ else:
                                     st.success("Evento de monitoramento registrado!")
                 else:
                     st.warning("Nenhum veículo ativo encontrado com esse termo.")
-                    
         tab_idx += 1
 
-    # ==========================
-    # 2. ABA CLIENTES E FROTAS
-    # ==========================
+    # ABA 2: CLIENTES E FROTAS
     with tabs[tab_idx]:
         st.header("👤 Gestão de Clientes e Frotas")
-        
         with st.expander("➕ Cadastrar Novo Cliente/Veículo"):
             with st.form("novo_cliente"):
                 c1, c2 = st.columns(2)
@@ -229,7 +204,6 @@ else:
         else:
             df_clientes = pd.read_sql_query(f"SELECT id, nome, documento, telefone, placa, modelo, status FROM clientes WHERE empresa='{st.session_state.nome_empresa}'", conn)
         conn.close()
-        
         st.dataframe(df_clientes, use_container_width=True)
         
         if not st.session_state.is_admin:
@@ -237,40 +211,30 @@ else:
             texto_wpp = f"🚨 *ATENDIMENTO INDIRETO* 🚨\n\n🏢 Parceiro acionando: {st.session_state.nome_empresa}\n⚠️ O cliente entrou em contato direto. Precisamos de apoio na ocorrência!"
             url_wpp = f"https://wa.me/5584999305771?text={urllib.parse.quote(texto_wpp)}"
             st.markdown(f'<a href="{url_wpp}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px; border-radius:5px; border:none; font-weight:bold;">🚨 Acionar Central AD via WhatsApp</button></a>', unsafe_allow_html=True)
-            
     tab_idx += 1
 
-    # ==========================
-    # 3. ABA HISTÓRICO
-    # ==========================
+    # ABA 3: HISTÓRICO
     with tabs[tab_idx]:
         st.header("📖 Histórico de Ocorrências")
-        
         conn = sqlite3.connect(DB_PATH)
         if st.session_state.is_admin:
             df_hist = pd.read_sql_query("SELECT * FROM historico ORDER BY id DESC", conn)
         else:
             df_hist = pd.read_sql_query(f"SELECT * FROM historico WHERE empresa='{st.session_state.nome_empresa}' ORDER BY id DESC", conn)
         conn.close()
-        
         st.dataframe(df_hist, use_container_width=True)
-        
         st.download_button(
             label="📄 Fazer Download do Relatório (CSV)",
             data=df_hist.to_csv(index=False).encode('utf-8'),
             file_name=f"Relatorio_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv"
         )
-        
     tab_idx += 1
 
-    # ==========================
-    # 4. ABA GESTÃO DE PARCEIROS (SÓ ADMIN)
-    # ==========================
+    # ABA 4: GESTÃO DE PARCEIROS
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("🏢 Gestão de Empresas Parceiras")
-            
             with st.form("nova_empresa"):
                 e_nome = st.text_input("Nome da Empresa (Login)")
                 e_cnpj = st.text_input("CNPJ (Senha)")
