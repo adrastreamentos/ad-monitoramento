@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 import urllib.parse
 import base64
+import io
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -340,7 +341,58 @@ else:
                         st.warning("Nenhum cliente cadastrado ainda para vincular veículos.")
                             
         elif acao_clientes == "Importação em Lote":
-            st.info("📥 Funcionalidade de Importação em Lote (CSV) disponível em breve.")
+            st.subheader("📥 Importação Inteligente de Clientes e Frotas via CSV")
+            st.info("Envie um arquivo CSV contendo as colunas essenciais: **Nome**, **Documento**, **Endereço**, **Telefone**, **Tipo Veículo**, **Placa**, **Modelo** e **Cor**.")
+            
+            emp_lote = st.selectbox("Selecione a Empresa (Pasta) de destino para esta importação:", opcoes_emp, key="emp_lote_sel")
+            
+            # Botão para baixar modelo de exemplo
+            df_exemplo = pd.DataFrame({
+                "Nome": ["João da Silva", "Maria Oliveira"],
+                "Documento": ["123.456.789-00", "987.654.321-11"],
+                "Endereço": ["Rua A, 100", "Av B, 200"],
+                "Telefone": ["(84) 99999-1111", "(84) 98888-2222"],
+                "Tipo Veículo": ["Carro", "Moto"],
+                "Placa": ["ABC-1234", "XYZ-5678"],
+                "Modelo": ["Fiat Palio", "Honda CG"],
+                "Cor": ["Prata", "Vermelha"]
+            })
+            csv_exemplo_bytes = df_exemplo.to_csv(index=False).encode('utf-8')
+            st.download_button(label="📄 Baixar Planilha Modelo (CSV)", data=csv_exemplo_bytes, file_name="Modelo_Importacao_Clientes.csv", mime="text/csv")
+            
+            arquivo_csv = st.file_uploader("Escolha o arquivo CSV preenchido", type=["csv"])
+            if arquivo_csv is not None:
+                try:
+                    df_import = pd.read_csv(arquivo_csv)
+                    st.write("Prévia dos dados carregados:", df_import.head())
+                    
+                    if st.button("🚀 Processar e Importar Lote Agora"):
+                        colunas_obrigatorias = ["Placa", "Nome"]
+                        if not all(col in df_import.columns for col in colunas_obrigatorias):
+                            st.error("O arquivo CSV precisa conter pelo menos as colunas 'Nome' e 'Placa'.")
+                        else:
+                            agora = datetime.now().strftime('%d/%m/%Y %H:%M')
+                            importados = 0
+                            for _, row in df_import.iterrows():
+                                nome_val = str(row.get("Nome", "Desconhecido"))
+                                doc_val = str(row.get("Documento", ""))
+                                end_val = str(row.get("Endereço", ""))
+                                tel_val = str(row.get("Telefone", ""))
+                                tipo_val = str(row.get("Tipo Veículo", "Carro"))
+                                placa_val = str(row.get("Placa", ""))
+                                mod_val = str(row.get("Modelo", ""))
+                                cor_val = str(row.get("Cor", ""))
+                                
+                                if placa_val and placa_val.lower() != "nan":
+                                    execute_query("INSERT INTO clientes (nome, documento, endereco, telefone, tipo_veic, placa, modelo, cor, empresa, status, ultima_atualizacao) VALUES (?,?,?,?,?,?,?,?,?,'Ativo',?)", 
+                                              (nome_val, doc_val, end_val, tel_val, tipo_val, placa_val, mod_val, cor_val, emp_lote, agora))
+                                    importados += 1
+                                    
+                            registrar_auditoria("Importação Lote", "Clientes", f"{importados} registros importados via CSV para a empresa {emp_lote}.")
+                            st.success(f"Sucesso! {importados} clientes/veículos importados para a pasta {emp_lote}.")
+                            st.rerun()
+                except Exception as e:
+                    st.error(f"Erro ao ler o arquivo CSV: {e}")
             
         elif acao_clientes in ["Editar", "Excluir"]:
             with st.form("form_busca_cliente", clear_on_submit=False):
@@ -462,7 +514,6 @@ else:
                                 if st.button("❌ Fechar Ficha", key="fechar_fr_btn"):
                                     st.session_state["sel_fr_val"] = ""
                                     st.rerun()
-                            # OPÇÃO DE EXCLUSÃO DE RELATÓRIO EXCLUSIVA PARA O ADMINISTRADOR
                             if st.session_state.is_admin:
                                 with col_b2:
                                     if st.button("🗑️ Excluir este Relatório de Ocorrência", key=f"del_rel_fr_{id_r}"):
@@ -553,7 +604,6 @@ else:
                                 if st.button("❌ Fechar Ficha", key="fechar_mon_btn"):
                                     st.session_state["sel_mon_val"] = ""
                                     st.rerun()
-                            # OPÇÃO DE EXCLUSÃO DE RELATÓRIO DE MONITORAMENTO EXCLUSIVA PARA O ADMINISTRADOR
                             if st.session_state.is_admin:
                                 with col_mb2:
                                     if st.button("🗑️ Excluir este Relatório de Monitoramento", key=f"del_rel_mon_{id_m}"):
@@ -683,7 +733,7 @@ else:
             st.dataframe(pd.read_sql_query(q_fin, sqlite3.connect(DB_PATH)), use_container_width=True)
         tab_idx += 1
 
-    # --- AUDITORIA COM OPÇÃO DE EXCLUSÃO DE REGISTRO SELECIONADO ---
+    # --- AUDITORIA ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("🕵️ Auditoria e Rastreabilidade")
