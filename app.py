@@ -40,13 +40,11 @@ def init_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT)''')
-    
-    # Atualização: Adiciona a coluna 'servicos' caso não exista (Migração segura)
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)'")
         conn.commit()
     except sqlite3.OperationalError:
-        pass # A coluna já existe, segue o fluxo
+        pass
         
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id INTEGER PRIMARY KEY AUTOINCREMENT, nome TEXT, documento TEXT, endereco TEXT, telefone TEXT, tipo_veic TEXT, placa TEXT, modelo TEXT, cor TEXT, empresa TEXT, status TEXT DEFAULT 'Ativo', ultima_atualizacao TEXT DEFAULT '')''')
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id INTEGER PRIMARY KEY AUTOINCREMENT, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
@@ -74,7 +72,7 @@ def execute_query(query, params=()):
     conn.close()
 
 def registrar_auditoria(acao, modulo, detalhes):
-    usuario = st.session_state.nome_empresa
+    usuario = st.session_state.get('nome_empresa', 'Sistema')
     agora = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     execute_query("INSERT INTO auditoria (data_hora, acao, modulo, detalhes, usuario) VALUES (?,?,?,?,?)", 
                   (agora, acao, modulo, detalhes, usuario))
@@ -122,7 +120,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
-# --- CONTROLE DE SESSÃO E PERSISTÊNCIA ---
+# --- CONTROLE DE SESSÃO ANTES DE QUALQUER COMPONENTE ---
 if 'logged_in' not in st.session_state:
     if st.query_params.get("logged_in") == "true":
         st.session_state.logged_in = True
@@ -316,7 +314,6 @@ else:
                         cli_sel_vinc = st.selectbox("Selecione o Cliente Existente para vincular o novo veículo:", [""] + list(lista_nomes_unicos))
                         
                         if cli_sel_vinc:
-                            # Puxa os dados fixos do cliente escolhido
                             dados_cli_existente = df_clientes[df_clientes['nome'] == cli_sel_vinc].iloc[0]
                             st.info(f"Vincular novo veículo ao cliente: **{dados_cli_existente['nome']}** (Documento: {dados_cli_existente['documento']}) - Empresa: {dados_cli_existente['empresa']}")
                             
@@ -383,11 +380,10 @@ else:
                     st.warning("Nenhum cliente encontrado com esse termo.")
     tab_idx += 1
 
-    # --- ABA: RELATÓRIOS (DINÂMICA POR SERVIÇO CONTRATADO) ---
+    # --- ABA: RELATÓRIOS ---
     with tabs[tab_idx]:
         st.header("📖 Relatórios Operacionais")
         
-        # Lógica para descobrir os serviços da empresa logada
         if st.session_state.is_admin:
             servico_atual = "Ambos (Furto/Roubo + Monitoramento)"
         else:
@@ -395,7 +391,7 @@ else:
             if res_servico and 'servicos' in res_servico[0] and res_servico[0]['servicos']:
                 servico_atual = res_servico[0]['servicos']
             else:
-                servico_atual = "Ambos (Furto/Roubo + Monitoramento)" # Padrão se não tiver nada
+                servico_atual = "Ambos (Furto/Roubo + Monitoramento)"
         
         mostrar_fr = "Furto e Roubo" in servico_atual or "Ambos" in servico_atual
         mostrar_mon = "Monitoramento" in servico_atual or "Ambos" in servico_atual
@@ -410,7 +406,6 @@ else:
             sub_tabs = st.tabs(abas_relatorios_ativas)
             idx_sub = 0
             
-            # 1. SUB-ABA: FURTO E ROUBO
             if mostrar_fr:
                 with sub_tabs[idx_sub]:
                     st.subheader("Controle de Ocorrências de Furto e Roubo")
@@ -484,7 +479,6 @@ else:
                         st.info("Nenhum registro de Furto ou Roubo encontrado.")
                 idx_sub += 1
 
-            # 2. SUB-ABA: MONITORAMENTO TÉCNICO
             if mostrar_mon:
                 with sub_tabs[idx_sub]:
                     st.subheader("Eventos de Monitoramento Técnico")
@@ -563,7 +557,6 @@ else:
                         with st.expander(f"📁 Empresa: {emp['nome']}"):
                             st.write(f"**CNPJ/Senha:** {emp['cnpj']} | **Responsável:** {emp['responsavel']}")
                             st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
-                            # Ajuste para evitar erro se for uma empresa antiga sem o campo 'servicos' ainda
                             servico_vinculado = emp['servicos'] if 'servicos' in emp else "Ambos (Furto/Roubo + Monitoramento)"
                             st.write(f"**Pacote de Serviço:** {servico_vinculado}")
                 else:
@@ -576,12 +569,10 @@ else:
                     e_end = st.text_input("Endereço")
                     e_tel = st.text_input("Telefone")
                     e_resp = st.text_input("Responsável")
-                    # NOVO CAMPO: Serviços
                     e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
                     
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
-                            # Inserção com a nova coluna de serviços
                             execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos) VALUES (?,?,?,?,?,?)", (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada com pacote: {e_servicos}.")
                             st.session_state.acao_parceiros = "Listar"
@@ -606,7 +597,6 @@ else:
                                 ne_tel = st.text_input("Telefone", value=dados_e['telefone'])
                                 ne_end = st.text_input("Endereço", value=dados_e['endereco'])
                                 
-                                # Verifica valor atual do banco para o index do selectbox
                                 serv_atual = dados_e['servicos'] if 'servicos' in dados_e and dados_e['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
                                 opcoes_s = ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"]
                                 idx_serv = opcoes_s.index(serv_atual) if serv_atual in opcoes_s else 0
