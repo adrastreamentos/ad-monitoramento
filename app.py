@@ -95,11 +95,14 @@ def execute_query(query, params=()):
 # Horário Oficial do Brasil (UTC-3)
 def get_horario_brasil():
     fuso_br = timezone(timedelta(hours=-3))
-    return datetime.now(fuso_br).strftime("%d/%m/%Y %H:%M:%S")
+    return datetime.now(fuso_br)
+
+def get_horario_brasil_str():
+    return get_horario_brasil().strftime("%d/%m/%Y %H:%M:%S")
 
 def registrar_auditoria(acao, modulo, detalhes):
     usuario = st.session_state.get('nome_empresa', 'Sistema')
-    agora = get_horario_brasil()
+    agora = get_horario_brasil_str()
     execute_query("INSERT INTO auditoria (data_hora, acao, modulo, detalhes, usuario) VALUES (?,?,?,?,?)", 
                   (agora, acao, modulo, detalhes, usuario))
 
@@ -266,7 +269,7 @@ else:
                                 st.info("ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO.")
                                 
                                 if st.form_submit_button("Salvar Ocorrência"):
-                                    agora = get_horario_brasil()
+                                    agora = get_horario_brasil_str()
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
@@ -280,7 +283,7 @@ else:
                                 evento_mon = st.selectbox("Evento", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"])
                                 acao_mon = st.text_area("Ação da Central")
                                 if st.form_submit_button("Salvar Monitoramento"):
-                                    agora = get_horario_brasil()
+                                    agora = get_horario_brasil_str()
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}")
@@ -754,9 +757,38 @@ else:
             dia_venc = res_emp_info[0]['dia_vencimento'] if (res_emp_info and res_emp_info[0]['dia_vencimento'] is not None) else 10
             status_pag = res_emp_info[0]['status_pagamento'] if (res_emp_info and res_emp_info[0]['status_pagamento'] is not None) else "Pendente"
             
-            # ALERTA PROFISSIONAL DE FATURA ATRASADA / SERVIÇOS INTERROMPIDOS
-            if status_pag != "Pago":
-                st.error("⚠️ **AVISO FINANCEIRO IMPORTANTE:** Identificamos uma fatura pendente em aberto. Seus serviços encontram-se temporariamente **interrompidos até a quitação do débito**. Por favor, regularize sua situação com o suporte financeiro da Central para o restabelecimento imediato das operações.")
+            # Lógica automatizada baseada na data atual e no dia de vencimento configurado
+            agora_dt = get_horario_brasil()
+            dia_atual = agora_dt.day
+            mes_atual = agora_dt.month
+            ano_atual = agora_dt.year
+            
+            # Determina o status inteligente baseado na data e no status do banco
+            if status_pag == "Pago":
+                status_visual = "🟢 Em Dias (Pago)"
+                alerta_ativo = False
+            else:
+                # Se não estiver marcado como pago, avalia pela data
+                if dia_atual == dia_venc:
+                    status_visual = "🟠 Vence Hoje"
+                    alerta_ativo = True
+                elif dia_atual > dia_venc:
+                    status_visual = "🔴 Vencida / Atrasada"
+                    alerta_ativo = True
+                elif dia_venc - dia_atual <= 2:
+                    status_visual = "🟡 Próximo ao Vencimento"
+                    alerta_ativo = False # Apenas aviso amigável, sem cortar serviço ainda
+                else:
+                    status_visual = "🟢 Em Dias"
+                    alerta_ativo = False
+
+            # Exibe os avisos profissionais conforme o estado calculado
+            if alerta_ativo and status_visual == "🔴 Vencida / Atrasada":
+                st.error("⚠️ **AVISO FINANCEIRO IMPORTANTE - FATURA ATRASADA:** Identificamos que sua fatura venceu e encontra-se em atraso. Seus serviços encontram-se temporariamente **interrompidos até a quitação do débito**. Por favor, regularize sua situação com o suporte financeiro da Central para o restabelecimento imediato das operações.")
+            elif status_visual == "🟠 Vence Hoje":
+                st.warning("⚠️ **AVISO FINANCEIRO:** Sua fatura referente ao fechamento do último dia do mês **vence hoje**. Evite transtornos e o bloqueio dos serviços realizando o pagamento.")
+            elif status_visual == "🟡 Próximo ao Vencimento":
+                st.info(f"🔔 **Aviso Financeiro Importante:** Sua fatura está próxima do vencimento (dia {dia_venc}). Fique atento para manter seus serviços ativos.")
             else:
                 st.success("✅ **Situação Financeira Regularizada:** Suas faturas encontram-se em dia. Obrigado por manter sua parceria conosco!")
 
@@ -776,8 +808,8 @@ else:
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
             col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
             col_m2.metric("💵 Valor Unitário Aplicado", f"R$ {valor_por_veiculo:.2f}")
-            col_m3.metric("💳 Fatura Estimada", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
-            col_m4.metric("📌 Status do Pagamento", f"{status_pag}", delta="OK" if status_pag=="Pago" else "Débito", delta_color="normal" if status_pag=="Pago" else "inverse")
+            col_m3.metric("💳 Fatura (Fechamento último dia)", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
+            col_m4.metric("📌 Status da Fatura", f"{status_visual}")
             
             st.markdown("---")
             st.subheader("📋 Detalhamento da Frota Faturada")
@@ -898,7 +930,7 @@ else:
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro Global de Parceiros")
-            st.info("ℹ️ Gerencie abaixo o faturamento e o status de pagamento (Pago ou Pendente) de cada empresa parceira.")
+            st.info("ℹ️ O faturamento global calcula automaticamente a receita mensal de cada parceiro com base na quantidade de veículos ativos e no preço unitário contratado, informando também a data de vencimento e o status.")
             
             empresas_cad = fetch_data("SELECT id, nome, valor_veiculo, dia_vencimento, status_pagamento FROM empresas")
             if empresas_cad:
