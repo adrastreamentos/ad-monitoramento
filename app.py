@@ -29,6 +29,9 @@ st.markdown("""
         border-bottom: 4px solid #8b0000 !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] * { color: white !important; font-weight: bold; }
+    
+    /* Ajuste para pastas (expanders) */
+    div[data-testid="stExpander"] { border-left: 4px solid #4a0e4e; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -151,7 +154,6 @@ else:
         st.markdown("### 🛡️ Missão AD")
         st.markdown("**Foco total na segurança, agilidade e comprometimento.** Nossa missão é garantir proteção máxima e resposta rápida para a nossa frota e a de nossos parceiros.")
 
-    # Definição das Abas
     abas = ["👤 Clientes e Frotas", "📖 Histórico em PDF"]
     if st.session_state.is_admin:
         abas = ["🚨 Operação 24h", "👤 Clientes e Frotas", "📖 Histórico em PDF", "🏢 Parceiros", "💰 Financeiro", "🕵️ Auditoria"]
@@ -163,70 +165,73 @@ else:
     if st.session_state.is_admin:
         with tabs[tab_idx]:
             st.header("🚨 Central de Operações e Ocorrências 24h")
-            busca_op = st.text_input("🔍 Buscar veículo (Placa, CPF ou Nome)")
+            busca_op = st.text_input("🔍 Buscar veículo (Digite as 3 primeiras letras do Nome, Placa ou CPF)")
             
             if busca_op and len(busca_op) >= 3:
-                resultados = fetch_data(f"SELECT * FROM clientes WHERE status='Ativo' AND (lower(nome) LIKE '%{busca_op.lower()}%' OR lower(placa) LIKE '%{busca_op.lower()}%')")
+                # Busca inteligente (Nome, Documento ou Placa)
+                q_busca = f"SELECT * FROM clientes WHERE status='Ativo' AND (lower(nome) LIKE '%{busca_op.lower()}%' OR lower(placa) LIKE '%{busca_op.lower()}%' OR lower(documento) LIKE '%{busca_op.lower()}%')"
+                resultados = fetch_data(q_busca)
+                
                 if resultados:
-                    st.dataframe(resultados, use_container_width=True)
-                    placas_disponiveis = [r['placa'] for r in resultados]
-                    placa_sel = st.selectbox("Selecione a Placa para Atendimento:", placas_disponiveis)
+                    st.success("Veículos encontrados! Selecione abaixo.")
+                    placas_disponiveis = [f"{r['placa']} - {r['nome']}" for r in resultados]
+                    placa_sel_texto = st.selectbox("Selecione o Veículo para Atendimento:", placas_disponiveis)
                     
-                    if placa_sel:
+                    if placa_sel_texto:
+                        placa_sel = placa_sel_texto.split(" - ")[0]
                         info_veic = next(item for item in resultados if item["placa"] == placa_sel)
-                        col_f, col_m = st.columns(2)
                         
-                        # Furto / Roubo
-                        with col_f:
-                            with st.form("form_furto"):
+                        st.markdown("---")
+                        tipo_servico = st.radio("📋 **Selecione o tipo de serviço a ser registrado:**", ["Abertura de Furto/Roubo", "Monitoramento Técnico"], horizontal=True)
+                        
+                        if tipo_servico == "Abertura de Furto/Roubo":
+                            with st.form("form_furto", clear_on_submit=True):
                                 st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo</h3>", unsafe_allow_html=True)
                                 tipo_oc = st.selectbox("Natureza", ["Furto", "Roubo"])
-                                local_oc = st.text_input("Localização")
-                                desc_oc = st.text_area("Descrição")
+                                local_oc = st.text_input("Localização do Fato")
+                                desc_oc = st.text_area("Descrição / Dinâmica do Ocorrido")
                                 status_oc = st.selectbox("Status", ["INICIADO", "EM ANDAMENTO", "FINALIZADO"])
                                 if st.form_submit_button("Salvar Ocorrência"):
                                     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, tipo_oc, status_oc, f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} para {placa_sel}")
-                                    st.success(f"Ocorrência salva!")
+                                    st.success(f"Ocorrência salva com sucesso!")
                         
-                        # Monitoramento
-                        with col_m:
-                            with st.form("form_monitoramento"):
+                        elif tipo_servico == "Monitoramento Técnico":
+                            with st.form("form_monitoramento", clear_on_submit=True):
                                 st.markdown("<h3 style='color: #4a0e4e;'>Monitoramento Técnico</h3>", unsafe_allow_html=True)
-                                evento_mon = st.selectbox("Evento", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"])
-                                acao_mon = st.text_area("Ação da Central")
+                                evento_mon = st.selectbox("Evento Detectado", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"])
+                                acao_mon = st.text_area("Ação Tomada pela Central")
                                 if st.form_submit_button("Salvar Monitoramento"):
                                     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (?,?,?,?,?,?,?)", 
                                               (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Monitoramento", f"Evento de {evento_mon} para {placa_sel}")
-                                    st.success("Evento salvo!")
+                                    st.success("Monitoramento salvo com sucesso!")
                 else:
-                    st.warning("Veículo não encontrado.")
+                    st.warning("Nenhum veículo encontrado com este termo.")
         tab_idx += 1
 
-    # --- ABA: CLIENTES E FROTAS (CRUD COMPLETO) ---
+    # --- ABA: CLIENTES E FROTAS ---
     with tabs[tab_idx]:
         st.header("👤 Gestão de Clientes e Frotas")
-        t_cad_cli, t_edit_cli = st.tabs(["➕ Novo Cliente", "✏️ Editar / Excluir Cliente"])
         
-        # Obter empresas disponíveis para garantir o fluxo de cadastro
         empresas_disp = fetch_data("SELECT nome FROM empresas")
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
         
-        with t_cad_cli:
+        # 1. CADASTRO DE CLIENTE (Limpa a tela ao salvar)
+        with st.expander("➕ Cadastrar Novo Cliente"):
             if not opcoes_emp:
                 st.error("Nenhuma empresa parceira cadastrada! Cadastre a empresa primeiro na aba de Parceiros.")
             else:
-                with st.form("novo_cliente"):
+                with st.form("novo_cliente", clear_on_submit=True):
                     c1, c2 = st.columns(2)
                     nome = c1.text_input("Nome do Cliente *")
                     doc = c2.text_input("CPF/CNPJ")
                     end = c1.text_input("Endereço")
                     tel = c2.text_input("Telefone")
-                    emp = c1.selectbox("Empresa Proprietária (Obrigatório)", opcoes_emp)
+                    emp = c1.selectbox("Empresa Proprietária (Pasta) *", opcoes_emp)
                     tipo = c2.selectbox("Tipo de Veículo", ["Carro", "Moto", "Caminhão", "Outro"])
                     placa = c1.text_input("Placa *")
                     mod = c2.text_input("Modelo")
@@ -236,51 +241,62 @@ else:
                             agora = datetime.now().strftime('%d/%m/%Y %H:%M')
                             execute_query("INSERT INTO clientes (nome, documento, endereco, telefone, tipo_veic, placa, modelo, cor, empresa, status, ultima_atualizacao) VALUES (?,?,?,?,?,?,?,?,?,'Ativo',?)", 
                                       (nome, doc, end, tel, tipo, placa, mod, cor, emp, agora))
-                            registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome} ({placa}) adicionado por {emp}.")
-                            st.success("Cadastrado com sucesso!")
+                            registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome} adicionado na pasta {emp}.")
+                            st.success(f"Cliente cadastrado com sucesso na pasta {emp}!")
                         else:
                             st.error("Nome e Placa são obrigatórios.")
-        
-        with t_edit_cli:
-            if st.session_state.is_admin:
-                lista_c = fetch_data("SELECT id, nome, placa, empresa FROM clientes")
-            else:
-                lista_c = fetch_data("SELECT id, nome, placa, empresa FROM clientes WHERE empresa=?", (st.session_state.nome_empresa,))
-            
-            if lista_c:
-                cli_op = st.selectbox("Selecione o Cliente para Gerenciar", [f"{c['id']} - {c['nome']} ({c['placa']})" for c in lista_c])
-                if cli_op:
-                    id_sel = int(cli_op.split(" - ")[0])
-                    cli_dados = fetch_data("SELECT * FROM clientes WHERE id=?", (id_sel,))[0]
-                    
-                    with st.form("edit_cliente"):
-                        st.write("**Atualizar Dados:**")
-                        n_nome = st.text_input("Nome", value=cli_dados['nome'])
-                        n_placa = st.text_input("Placa", value=cli_dados['placa'])
-                        n_status = st.selectbox("Status", ["Ativo", "Inativo"], index=0 if cli_dados['status']=='Ativo' else 1)
-                        
-                        col_btn1, col_btn2 = st.columns(2)
-                        if col_btn1.form_submit_button("💾 Salvar Alterações"):
-                            execute_query("UPDATE clientes SET nome=?, placa=?, status=? WHERE id=?", (n_nome, n_placa, n_status, id_sel))
-                            registrar_auditoria("Edição", "Clientes", f"Cliente ID {id_sel} alterado.")
-                            st.success("Atualizado!")
-                            st.rerun()
-                        if col_btn2.form_submit_button("🗑️ Excluir Cliente (Irreversível)"):
-                            execute_query("DELETE FROM clientes WHERE id=?", (id_sel,))
-                            registrar_auditoria("Exclusão", "Clientes", f"Cliente ID {id_sel} excluído.")
-                            st.warning("Cliente excluído com sucesso!")
-                            st.rerun()
 
-        st.subheader("Base Atual de Clientes")
-        if st.session_state.is_admin:
-            df_clientes = pd.read_sql_query("SELECT id, nome, documento, placa, modelo, empresa, status FROM clientes", sqlite3.connect(DB_PATH))
+        st.markdown("---")
+        
+        # 2. VISUALIZAÇÃO EM PASTAS E EDIÇÃO INTEGRADA
+        st.subheader("📁 Base de Clientes (Por Parceiro)")
+        
+        q_clientes = "SELECT * FROM clientes" if st.session_state.is_admin else f"SELECT * FROM clientes WHERE empresa='{st.session_state.nome_empresa}'"
+        df_clientes = pd.read_sql_query(q_clientes, sqlite3.connect(DB_PATH))
+        
+        if not df_clientes.empty:
+            empresas_ativas = df_clientes['empresa'].unique()
+            
+            for emp_ativa in empresas_ativas:
+                with st.expander(f"📂 Clientes da Empresa: {emp_ativa}"):
+                    df_emp = df_clientes[df_clientes['empresa'] == emp_ativa]
+                    st.dataframe(df_emp[['id', 'nome', 'documento', 'placa', 'modelo', 'status']], use_container_width=True)
+            
+            st.markdown("### ✏️ Gerenciar Cliente Existente")
+            st.markdown("Selecione um cliente da base acima para editar ou excluir.")
+            
+            # Lista de seleção unificada para edição
+            lista_edicao = df_clientes['id'].astype(str) + " - " + df_clientes['nome'] + " (" + df_clientes['placa'] + ")"
+            cli_selecionado = st.selectbox("Selecione o Cliente:", [""] + list(lista_edicao))
+            
+            if cli_selecionado:
+                id_sel = int(cli_selecionado.split(" - ")[0])
+                cli_dados = df_clientes[df_clientes['id'] == id_sel].iloc[0]
+                
+                with st.form("edit_cliente"):
+                    st.write(f"**Atualizando:** {cli_dados['nome']}")
+                    n_nome = st.text_input("Nome", value=cli_dados['nome'])
+                    n_placa = st.text_input("Placa", value=cli_dados['placa'])
+                    n_status = st.selectbox("Status", ["Ativo", "Inativo"], index=0 if cli_dados['status']=='Ativo' else 1)
+                    
+                    col_b1, col_b2 = st.columns(2)
+                    if col_b1.form_submit_button("💾 Salvar Alterações"):
+                        execute_query("UPDATE clientes SET nome=?, placa=?, status=? WHERE id=?", (n_nome, n_placa, n_status, id_sel))
+                        registrar_auditoria("Edição", "Clientes", f"Cliente ID {id_sel} alterado.")
+                        st.success("Cliente atualizado!")
+                        st.rerun()
+                    if col_b2.form_submit_button("🗑️ Excluir Cliente (Irreversível)"):
+                        execute_query("DELETE FROM clientes WHERE id=?", (id_sel,))
+                        registrar_auditoria("Exclusão", "Clientes", f"Cliente ID {id_sel} excluído.")
+                        st.warning("Cliente apagado com sucesso!")
+                        st.rerun()
         else:
-            df_clientes = pd.read_sql_query(f"SELECT id, nome, documento, placa, modelo, status FROM clientes WHERE empresa='{st.session_state.nome_empresa}'", sqlite3.connect(DB_PATH))
-        st.dataframe(df_clientes, use_container_width=True)
+            st.info("Sua base de clientes está vazia.")
         
         if not st.session_state.is_admin:
+            st.markdown("---")
             st.markdown("### 🚑 Apoio da Central")
-            texto_wpp = f"🚨 *ATENDIMENTO INDIRETO* 🚨\n🏢 Parceiro acionando: {st.session_state.nome_empresa}\n⚠️ Precisamos de apoio na ocorrência!"
+            texto_wpp = f"🚨 *ATENDIMENTO INDIRETO* 🚨\n🏢 Parceiro acionando: {st.session_state.nome_empresa}\n⚠️ Precisamos de apoio!"
             url_wpp = f"https://wa.me/5584999305771?text={urllib.parse.quote(texto_wpp)}"
             st.markdown(f'<a href="{url_wpp}" target="_blank"><button style="background-color:#25D366; color:white; padding:10px; border-radius:5px; border:none; font-weight:bold;">🚨 Acionar Central via WhatsApp</button></a>', unsafe_allow_html=True)
     tab_idx += 1
@@ -301,53 +317,62 @@ else:
             if FPDF is not None:
                 pdf_bytes = gerar_pdf_historico(df_hist, st.session_state.nome_empresa)
                 if pdf_bytes:
-                    st.download_button(label="📄 Baixar Relatório em PDF", data=pdf_bytes, file_name=f"Relatorio_{st.session_state.nome_empresa}.pdf", mime="application/pdf")
+                    st.download_button(label="📄 Baixar Relatório Oficial (PDF)", data=pdf_bytes, file_name=f"Relatorio_{st.session_state.nome_empresa}.pdf", mime="application/pdf")
             else:
-                st.warning("⚠️ Biblioteca 'fpdf' não instalada no servidor. Faça o download em CSV abaixo.")
                 st.download_button(label="📄 Baixar Relatório (CSV)", data=df_hist.to_csv(index=False).encode('utf-8'), file_name="Relatorio.csv", mime="text/csv")
     tab_idx += 1
 
-    # --- ABA: PARCEIROS (CRUD) (SÓ ADMIN) ---
+    # --- ABA: PARCEIROS (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("🏢 Gestão de Empresas Parceiras")
-            t_cad_emp, t_edit_emp = st.tabs(["➕ Cadastrar Parceiro", "✏️ Editar / Excluir Parceiro"])
             
-            with t_cad_emp:
-                with st.form("nova_empresa"):
-                    e_nome = st.text_input("Nome da Empresa (Será o Login)")
-                    e_cnpj = st.text_input("CNPJ (Será a Senha)")
+            with st.expander("➕ Cadastrar Novo Parceiro"):
+                with st.form("nova_empresa", clear_on_submit=True):
+                    e_nome = st.text_input("Nome da Empresa (Será o Login) *")
+                    e_cnpj = st.text_input("CNPJ (Será a Senha) *")
+                    e_end = st.text_input("Endereço")
+                    e_tel = st.text_input("Telefone")
                     e_resp = st.text_input("Responsável")
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
-                            execute_query("INSERT INTO empresas (nome, cnpj, responsavel) VALUES (?,?,?)", (e_nome, e_cnpj, e_resp))
+                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel) VALUES (?,?,?,?,?)", (e_nome, e_cnpj, e_end, e_tel, e_resp))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada.")
-                            st.success(f"Empresa {e_nome} criada! Agora ela já pode receber clientes.")
-            
-            with t_edit_emp:
-                lista_e = fetch_data("SELECT id, nome FROM empresas")
-                if lista_e:
-                    emp_op = st.selectbox("Selecione a Empresa", [f"{e['id']} - {e['nome']}" for e in lista_e])
-                    if emp_op:
-                        id_emp = int(emp_op.split(" - ")[0])
-                        if st.button("🗑️ Excluir Empresa (Irreversível)"):
-                            execute_query("DELETE FROM empresas WHERE id=?", (id_emp,))
-                            registrar_auditoria("Exclusão", "Parceiros", f"Empresa ID {id_emp} excluída.")
-                            st.warning("Excluída com sucesso!")
-                            st.rerun()
+                            st.success(f"Empresa {e_nome} criada e organizada com sucesso!")
+                        else:
+                            st.error("Nome e CNPJ são obrigatórios.")
 
-            st.dataframe(pd.read_sql_query("SELECT id, nome, cnpj, responsavel FROM empresas", sqlite3.connect(DB_PATH)), use_container_width=True)
+            st.markdown("---")
+            st.subheader("📁 Base de Empresas Parceiras")
+            df_empresas = pd.read_sql_query("SELECT * FROM empresas", sqlite3.connect(DB_PATH))
+            
+            if not df_empresas.empty:
+                for _, emp in df_empresas.iterrows():
+                    with st.expander(f"📂 Empresa: {emp['nome']}"):
+                        st.write(f"**CNPJ/Senha:** {emp['cnpj']} | **Responsável:** {emp['responsavel']}")
+                        st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
+                
+                st.markdown("### ✏️ Gerenciar Parceiro")
+                lista_e = df_empresas['id'].astype(str) + " - " + df_empresas['nome']
+                emp_selecionada = st.selectbox("Selecione o Parceiro:", [""] + list(lista_e))
+                if emp_selecionada:
+                    id_emp = int(emp_selecionada.split(" - ")[0])
+                    if st.button("🗑️ Excluir Empresa (Irreversível)"):
+                        execute_query("DELETE FROM empresas WHERE id=?", (id_emp,))
+                        registrar_auditoria("Exclusão", "Parceiros", f"Empresa ID {id_emp} excluída.")
+                        st.warning("Excluída com sucesso!")
+                        st.rerun()
         tab_idx += 1
 
     # --- ABA: FINANCEIRO (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro de Parceiros")
-            mes_busca = st.text_input("🔍 Filtrar por Mês (Ex: 06/2026)")
+            mes_busca = st.text_input("🔍 Filtrar por Mês")
             
             with st.expander("➕ Lançar Faturamento"):
-                with st.form("form_fin"):
-                    f_mes = st.text_input("Mês de Referência (Ex: 06/2026)")
+                with st.form("form_fin", clear_on_submit=True):
+                    f_mes = st.text_input("Mês de Referência (Ex: 07/2026)")
                     f_emp = st.selectbox("Empresa", [e['nome'] for e in fetch_data("SELECT nome FROM empresas")])
                     f_fat = st.number_input("Valor Faturado (R$)", min_value=0.0, format="%.2f")
                     f_rec = st.number_input("Valor Recebido/Pago (R$)", min_value=0.0, format="%.2f")
