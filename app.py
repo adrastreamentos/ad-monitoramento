@@ -170,7 +170,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
-# --- CONTROLE DE SESSÃO SEGURO ---
+# --- CONTROLE DE SESSÃO SEGURO E CHAVES DINÂMICAS DE LIMPEZA ---
 if 'logged_in' not in st.session_state:
     if st.query_params.get("logged_in") == "true":
         st.session_state.logged_in = True
@@ -186,6 +186,17 @@ if 'acao_clientes' not in st.session_state:
 
 if 'num_veiculos_form' not in st.session_state:
     st.session_state.num_veiculos_form = 1
+
+if 'reset_keys' not in st.session_state:
+    st.session_state.reset_keys = {
+        'ficha_cli': 0, 'edit_cli': 0, 'rel_fr': 0, 
+        'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0
+    }
+
+# Renderiza alertas dinâmicos de sucesso e limpa logo em seguida
+if 'flash_msg' in st.session_state:
+    st.toast(st.session_state.flash_msg, icon="✅")
+    del st.session_state.flash_msg
 
 # ==========================================
 # 1. TELA DE LOGIN
@@ -295,7 +306,7 @@ else:
                                               (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
                                     st.session_state["termo_busca_ativo"] = ""
-                                    st.success(f"Salvo e enviado para relatórios como EM ANDAMENTO!")
+                                    st.session_state.flash_msg = "Salvo e enviado para relatórios como EM ANDAMENTO!"
                                     st.rerun()
                         
                         elif tipo_servico == "Monitoramento Técnico":
@@ -309,7 +320,7 @@ else:
                                               (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}")
                                     st.session_state["termo_busca_ativo"] = ""
-                                    st.success("Salvo com sucesso!")
+                                    st.session_state.flash_msg = "Salvo com sucesso!"
                                     st.rerun()
                 else:
                     st.warning("Nenhum veículo encontrado com este termo.")
@@ -361,13 +372,18 @@ else:
                 clientes_para_ficha = fetch_data(q_clientes_validos)
                 lista_ficha_op = [""] + [f"{cli['id']} - {cli['nome']} (CPF/CNPJ: {cli['documento']}) - [{cli['empresa']}]" for cli in clientes_para_ficha]
                 
-                cli_ficha_sel = st.selectbox("Selecione o cliente para ver a ficha completa e seus veículos:", lista_ficha_op, key="select_ficha_cliente")
+                k_ficha_cli = st.session_state.reset_keys['ficha_cli']
+                cli_ficha_sel = st.selectbox("Selecione o cliente para ver a ficha completa e seus veículos:", lista_ficha_op, key=f"sb_ficha_cli_{k_ficha_cli}")
                 
                 if cli_ficha_sel != "":
                     id_cli_ficha = int(cli_ficha_sel.split(" - ")[0])
                     dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=?", (id_cli_ficha,))[0]
                     veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=?", (id_cli_ficha,))
                     
+                    if st.button("❌ Fechar Ficha Cadastral", key="btn_close_ficha_cli"):
+                        st.session_state.reset_keys['ficha_cli'] += 1
+                        st.rerun()
+
                     st.markdown(f"""
                     <div class="ficha-box">
                         <h3 style="color:#4a0e4e; margin-top:0;">📋 Ficha Cadastral Completa</h3>
@@ -431,7 +447,7 @@ else:
                         veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic})
                         st.markdown("---")
 
-                    btn_salvar_tudo = st.form_submit_button("💾 Salvar Cadastro Completo do Cliente")
+                    btn_salvar_tudo = st.form_submit_button("💾 Salvar Cadastro Completo")
                     
                     if btn_salvar_tudo:
                         if nome_cli and doc_cli and any(v['placa'] for v in veiculos_dados):
@@ -450,7 +466,8 @@ else:
                             
                             st.session_state.num_veiculos_form = 1
                             registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome_cli} cadastrado com múltiplos veículos.")
-                            st.success("Cliente e veículos cadastrados com sucesso e tela limpa!")
+                            st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso!"
+                            st.rerun()
                         else:
                             st.error("Preencha o Nome, CPF/CNPJ e pelo menos a Placa de um veículo.")
                             
@@ -508,7 +525,7 @@ else:
                                 importados += 1
                                 
                         registrar_auditoria("Importação Lote", "Clientes", f"{importados} registros importados via CSV.")
-                        st.success(f"Importação concluída! {importados} registros processados.")
+                        st.session_state.flash_msg = f"Importação concluída! {importados} registros processados."
                         st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao processar CSV: {e}")
@@ -534,9 +551,15 @@ else:
                 res_cli_busca = fetch_data(q_cli_busca)
                 if res_cli_busca:
                     opcoes_cli = [f"{item['id']} - {item['nome']} (CPF/CNPJ: {item['documento']})" for item in res_cli_busca]
-                    cli_escolhido = st.selectbox("Selecione o Cliente:", [""] + opcoes_cli)
+                    
+                    k_edit_cli = st.session_state.reset_keys['edit_cli']
+                    cli_escolhido = st.selectbox("Selecione o Cliente:", [""] + opcoes_cli, key=f"sb_edit_cli_{k_edit_cli}")
                     
                     if cli_escolhido != "":
+                        if st.button("❌ Fechar Seleção", key="btn_close_edit_cli"):
+                            st.session_state.reset_keys['edit_cli'] += 1
+                            st.rerun()
+                            
                         id_c_sel = int(cli_escolhido.split(" - ")[0])
                         dados_cliente_sel = fetch_data("SELECT * FROM clientes WHERE id=?", (id_c_sel,))[0]
                         veiculos_cliente = fetch_data("SELECT * FROM veiculos WHERE cliente_id=?", (id_c_sel,))
@@ -555,7 +578,8 @@ else:
                                 if st.form_submit_button("💾 Salvar Alterações"):
                                     execute_query("UPDATE clientes SET nome=?, documento=?, telefone=? WHERE id=?", (en_nome, en_doc, en_tel, id_c_sel))
                                     registrar_auditoria("Edição", "Clientes", f"Dados cadastrais do cliente ID {id_c_sel} atualizados.")
-                                    st.success("Atualizado com sucesso!")
+                                    st.session_state.flash_msg = "Atualizado com sucesso!"
+                                    st.session_state.reset_keys['edit_cli'] += 1
                                     st.rerun()
                                     
                         elif acao_clientes == "Excluir":
@@ -564,8 +588,9 @@ else:
                                 execute_query("DELETE FROM veiculos WHERE cliente_id=?", (id_c_sel,))
                                 execute_query("DELETE FROM clientes WHERE id=?", (id_c_sel,))
                                 registrar_auditoria("Exclusão", "Clientes", f"Cliente ID {id_c_sel} e frotas excluídos.")
-                                st.success("Cliente excluído com sucesso!")
+                                st.session_state.flash_msg = "Cliente excluído com sucesso!"
                                 st.session_state["termo_cli_ativo"] = ""
+                                st.session_state.reset_keys['edit_cli'] += 1
                                 st.rerun()
                 else:
                     st.warning("Nenhum cliente encontrado.")
@@ -628,29 +653,25 @@ else:
                         st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
                         lista_sel_fr = [""] + [f"{h['id']} - {h['placa']} ({h['tipo']} - {h['status']})" for h in res_fr]
                         
-                        idx_sel_fr = 0
-                        if "sel_fr_val" in st.session_state and st.session_state["sel_fr_val"] in lista_sel_fr:
-                            idx_sel_fr = lista_sel_fr.index(st.session_state["sel_fr_val"])
-                            
-                        reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", lista_sel_fr, index=idx_sel_fr, key="sel_fr_selectbox")
+                        k_rel_fr = st.session_state.reset_keys['rel_fr']
+                        reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", lista_sel_fr, key=f"sb_rel_fr_{k_rel_fr}")
                         
                         if reg_sel_fr != "":
-                            st.session_state["sel_fr_val"] = reg_sel_fr
                             id_r = int(reg_sel_fr.split(" - ")[0])
                             dados_fr = next(item for item in res_fr if item["id"] == id_r)
                             
                             col_b1, col_b2 = st.columns([1, 4])
                             with col_b1:
                                 if st.button("❌ Fechar Ficha", key="fechar_fr_btn"):
-                                    st.session_state["sel_fr_val"] = ""
+                                    st.session_state.reset_keys['rel_fr'] += 1
                                     st.rerun()
                             if st.session_state.is_admin:
                                 with col_b2:
                                     if st.button("🗑️ Excluir este Relatório de Ocorrência", key=f"del_rel_fr_{id_r}"):
                                         execute_query("DELETE FROM historico WHERE id=?", (id_r,))
                                         registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Ocorrência ID {id_r} excluído pelo administrador.")
-                                        st.session_state["sel_fr_val"] = ""
-                                        st.success("Relatório excluído com sucesso!")
+                                        st.session_state.flash_msg = "Relatório excluído com sucesso!"
+                                        st.session_state.reset_keys['rel_fr'] += 1
                                         st.rerun()
 
                             st.markdown(f'''
@@ -669,20 +690,19 @@ else:
                             
                             if dados_fr['status'] == 'EM ANDAMENTO':
                                 st.markdown("---")
-                                with st.form(f"form_finalizar_reg_{id_r}"):
+                                with st.form(f"form_finalizar_reg_{id_r}", clear_on_submit=True):
                                     st.write("🟢 **Finalizar Atendimento:**")
                                     desfecho = st.text_area("Informe o desfecho do caso (ex: Veículo recuperado com sucesso)")
                                     if st.form_submit_button("✅ Concluir e Finalizar Ocorrência"):
                                         novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho}"
                                         execute_query("UPDATE historico SET status='FINALIZADO', detalhes=? WHERE id=?", (novo_detalhe, id_r))
                                         registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada.")
-                                        st.success("Ocorrência finalizada com sucesso!")
+                                        st.session_state.flash_msg = "Ocorrência finalizada com sucesso!"
+                                        st.session_state.reset_keys['rel_fr'] += 1
                                         st.rerun()
                             
                             st.markdown("<br>", unsafe_allow_html=True)
                             st.markdown(gerar_relatorio_html(dados_fr, st.session_state.nome_empresa), unsafe_allow_html=True)
-                        else:
-                            st.session_state["sel_fr_val"] = ""
                     else:
                         st.info("Nenhum registro de Furto ou Roubo encontrado.")
                 idx_sub += 1
@@ -718,29 +738,25 @@ else:
                         st.markdown("### 🔎 Ficha de Monitoramento")
                         lista_sel_mon = [""] + [f"{h['id']} - {h['placa']} ({h['data_hora']})" for h in res_mon]
                         
-                        idx_sel_mon = 0
-                        if "sel_mon_val" in st.session_state and st.session_state["sel_mon_val"] in lista_sel_mon:
-                            idx_sel_mon = lista_sel_mon.index(st.session_state["sel_mon_val"])
-                            
-                        reg_sel_mon = st.selectbox("Selecione um registro para visualizar:", lista_sel_mon, index=idx_sel_mon, key="sel_mon_selectbox")
+                        k_rel_mon = st.session_state.reset_keys['rel_mon']
+                        reg_sel_mon = st.selectbox("Selecione um registro para visualizar:", lista_sel_mon, key=f"sb_rel_mon_{k_rel_mon}")
                         
                         if reg_sel_mon != "":
-                            st.session_state["sel_mon_val"] = reg_sel_mon
                             id_m = int(reg_sel_mon.split(" - ")[0])
                             dados_mon = next(item for item in res_mon if item["id"] == id_m)
                             
                             col_mb1, col_mb2 = st.columns([1, 4])
                             with col_mb1:
                                 if st.button("❌ Fechar Ficha", key="fechar_mon_btn"):
-                                    st.session_state["sel_mon_val"] = ""
+                                    st.session_state.reset_keys['rel_mon'] += 1
                                     st.rerun()
                             if st.session_state.is_admin:
                                 with col_mb2:
                                     if st.button("🗑️ Excluir este Relatório de Monitoramento", key=f"del_rel_mon_{id_m}"):
                                         execute_query("DELETE FROM historico WHERE id=?", (id_m,))
                                         registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Monitoramento ID {id_m} excluído pelo administrador.")
-                                        st.session_state["sel_mon_val"] = ""
-                                        st.success("Relatório excluído com sucesso!")
+                                        st.session_state.flash_msg = "Relatório excluído com sucesso!"
+                                        st.session_state.reset_keys['rel_mon'] += 1
                                         st.rerun()
 
                             st.markdown(f'''
@@ -759,8 +775,6 @@ else:
                             
                             st.markdown("<br>", unsafe_allow_html=True)
                             st.markdown(gerar_relatorio_html(dados_mon, st.session_state.nome_empresa), unsafe_allow_html=True)
-                        else:
-                            st.session_state["sel_mon_val"] = ""
                     else:
                         st.info("Nenhum registro de monitoramento encontrado.")
                 idx_sub += 1
@@ -868,7 +882,8 @@ else:
                             execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento) VALUES (?,?,?,?,?,?,?,?,?)", 
                                           (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, e_stat))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc} | Status: {e_stat}.")
-                            st.success("Empresa cadastrada com sucesso e tela limpa!")
+                            st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
+                            st.rerun()
                         else:
                             st.error("Nome e CNPJ são obrigatórios.")
                             
@@ -876,9 +891,14 @@ else:
                 res_emp = fetch_data("SELECT * FROM empresas")
                 if res_emp:
                     lista_opcoes_e = [f"{e['id']} - {e['nome']}" for e in res_emp]
-                    emp_selecionada = st.selectbox("🔍 Selecione a Empresa na lista (ou digite para buscar):", [""] + lista_opcoes_e, key="sel_emp_edit")
+                    k_edit_emp = st.session_state.reset_keys['edit_emp']
+                    emp_selecionada = st.selectbox("🔍 Selecione a Empresa na lista (ou digite para buscar):", [""] + lista_opcoes_e, key=f"sb_edit_emp_{k_edit_emp}")
                     
                     if emp_selecionada:
+                        if st.button("❌ Fechar Seleção", key="btn_close_edit_emp"):
+                            st.session_state.reset_keys['edit_emp'] += 1
+                            st.rerun()
+
                         id_emp = int(emp_selecionada.split(" - ")[0])
                         dados_e = next(item for item in res_emp if item["id"] == id_emp)
                         
@@ -909,7 +929,8 @@ else:
                                     execute_query("UPDATE empresas SET nome=?, responsavel=?, telefone=?, endereco=?, servicos=?, valor_veiculo=?, dia_vencimento=?, status_pagamento=? WHERE id=?", 
                                                   (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, ne_stat, id_emp))
                                     registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Status Pagto: {ne_stat}")
-                                    st.success("Alterações salvas com sucesso!")
+                                    st.session_state.flash_msg = "Alterações salvas com sucesso!"
+                                    st.session_state.reset_keys['edit_emp'] += 1
                                     st.rerun()
                         
                         elif acao_parceiros == "Excluir":
@@ -917,7 +938,8 @@ else:
                             if st.button("🗑️ Excluir Parceiro"):
                                 execute_query("DELETE FROM empresas WHERE id=?", (id_emp,))
                                 registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.")
-                                st.success("Empresa excluída com sucesso!")
+                                st.session_state.flash_msg = "Empresa excluída com sucesso!"
+                                st.session_state.reset_keys['edit_emp'] += 1
                                 st.rerun()
                 else:
                     st.warning("Nenhuma empresa encontrada.")
@@ -931,7 +953,6 @@ else:
             
             empresas_cad = fetch_data("SELECT id, nome, valor_veiculo, dia_vencimento, status_pagamento FROM empresas")
             
-            # Cálculo dos totais para os KPIs solicitados
             total_a_receber = 0.0
             total_atrasado = 0.0
             total_pago = 0.0
@@ -951,7 +972,6 @@ else:
                     qtd_v = res_v[0]['qtd'] if res_v else 0
                     valor_calc = qtd_v * val_unit
                     
-                    # Alimenta os totais com base no status calculado
                     if "Pago" in status_calculado:
                         total_pago += valor_calc
                     elif "Vencida / Atrasada" in status_calculado or "Vence Hoje" in status_calculado:
@@ -968,7 +988,6 @@ else:
                         "Status": status_calculado
                     })
             
-            # Exibição dos KPIs Financeiros Exclusivos para o Administrador
             col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
             col_kpi1.metric("💵 Valor a Receber (Em Dias / Próximos)", f"R$ {total_a_receber:.2f}")
             col_kpi2.metric("🔴 Valor Atrasado / Vencido", f"R$ {total_atrasado:.2f}", delta_color="inverse")
@@ -992,7 +1011,7 @@ else:
                         if emp_escolhida_pagto != "":
                             execute_query("UPDATE empresas SET status_pagamento=? WHERE nome=?", (novo_status_pagto, emp_escolhida_pagto))
                             registrar_auditoria("Financeiro", "Faturamento", f"Status de pagamento da empresa {emp_escolhida_pagto} alterado para: {novo_status_pagto}")
-                            st.success(f"Status da empresa {emp_escolhida_pagto} atualizado para {novo_status_pagto} com sucesso!")
+                            st.session_state.flash_msg = f"Status da empresa {emp_escolhida_pagto} atualizado para {novo_status_pagto} com sucesso!"
                             st.rerun()
                         else:
                             st.error("Selecione uma empresa válida.")
@@ -1015,13 +1034,20 @@ else:
                 
                 st.markdown("### 🗑️ Excluir Registro Específico de Auditoria")
                 lista_aud = [""] + [f"{row['id']} - {row['data_hora']} ({row['acao']} / {row['modulo']})" for _, row in df_auditoria.iterrows()]
-                aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud)
+                
+                k_aud_del = st.session_state.reset_keys['aud_del']
+                aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
                 
                 if aud_sel_excluir != "":
+                    if st.button("❌ Fechar Seleção", key="btn_close_aud_del"):
+                        st.session_state.reset_keys['aud_del'] += 1
+                        st.rerun()
+                        
                     id_aud_del = int(aud_sel_excluir.split(" - ")[0])
                     if st.button("🗑️ Excluir Registro de Auditoria Selecionado", key=f"btn_del_aud_{id_aud_del}"):
                         execute_query("DELETE FROM auditoria WHERE id=?", (id_aud_del,))
-                        st.success(f"Registro de auditoria ID {id_aud_del} excluído com sucesso!")
+                        st.session_state.flash_msg = f"Registro de auditoria ID {id_aud_del} excluído com sucesso!"
+                        st.session_state.reset_keys['aud_del'] += 1
                         st.rerun()
             else:
                 st.info(f"Nenhum registro de auditoria para '{filtro_mes_aud}'.")
