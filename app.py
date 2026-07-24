@@ -17,13 +17,13 @@ st.markdown("""
     div[data-testid="stSidebar"] { background-color: #4a0e4e; }
     div[data-testid="stSidebar"] * { color: white; }
     
-    /* Estilização das Abas */
-    button[data-baseweb="tab"] { background-color: transparent; border-radius: 5px 5px 0 0; }
-    button[data-baseweb="tab"][aria-selected="true"] {
+    /* Estilização das Abas (Corrigido para a versão atual do Streamlit) */
+    button[data-testid="stTab"] { background-color: transparent; border-radius: 5px 5px 0 0; }
+    button[data-testid="stTab"][aria-selected="true"] {
         background-color: #4a0e4e !important;
         border-bottom: 4px solid #8b0000 !important;
     }
-    button[data-baseweb="tab"][aria-selected="true"] * { color: white !important; font-weight: bold; }
+    button[data-testid="stTab"][aria-selected="true"] * { color: white !important; font-weight: bold; }
     
     /* Ajuste para pastas */
     div[data-testid="stExpander"] { border-left: 4px solid #4a0e4e; }
@@ -343,6 +343,8 @@ else:
                                 st.rerun()
                 else:
                     st.warning("Nenhum cliente encontrado com esse termo.")
+    
+    # AQUI ESTAVA O ERRO DE LÓGICA DO PULO DE ABAS. AGORA CORRIGIDO!
     tab_idx += 1
 
     # --- ABA: RELATÓRIOS (SEPARADA EM FURTO/ROUBO E MONITORAMENTO) ---
@@ -387,7 +389,6 @@ else:
                     id_r = int(reg_sel_fr.split(" - ")[0])
                     dados_fr = next(item for item in res_fr if item["id"] == id_r)
                     
-                    # BOTÃO PARA FECHAR A FICHA
                     if st.button("❌ Fechar Ficha", key="fechar_fr"):
                         st.session_state["sel_fr"] = ""
                         st.rerun()
@@ -406,7 +407,6 @@ else:
                     </div>
                     ''', unsafe_allow_html=True)
                     
-                    # Botão para Finalizar se estiver em andamento
                     if dados_fr['status'] == 'EM ANDAMENTO':
                         st.markdown("---")
                         with st.form(f"form_finalizar_reg_{id_r}"):
@@ -416,7 +416,7 @@ else:
                                 novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho}"
                                 execute_query("UPDATE historico SET status='FINALIZADO', detalhes=? WHERE id=?", (novo_detalhe, id_r))
                                 registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada.")
-                                st.session_state["sel_fr"] = "" # Fecha a ficha após finalizar
+                                st.session_state["sel_fr"] = ""
                                 st.success("Ocorrência finalizada com sucesso!")
                                 st.rerun()
                     
@@ -461,7 +461,6 @@ else:
                     id_m = int(reg_sel_mon.split(" - ")[0])
                     dados_mon = next(item for item in res_mon if item["id"] == id_m)
                     
-                    # BOTÃO PARA FECHAR A FICHA
                     if st.button("❌ Fechar Ficha", key="fechar_mon"):
                         st.session_state["sel_mon"] = ""
                         st.rerun()
@@ -484,6 +483,9 @@ else:
                     st.markdown(gerar_relatorio_html(dados_mon, st.session_state.nome_empresa), unsafe_allow_html=True)
             else:
                 st.info("Nenhum registro de monitoramento encontrado.")
+
+    # LINHA DE CORREÇÃO ADICIONADA AQUI. ISSO É O QUE ESTAVA BAGUNÇANDO TUDO:
+    tab_idx += 1
 
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
