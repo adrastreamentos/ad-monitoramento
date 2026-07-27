@@ -940,7 +940,7 @@ else:
                     st.warning("Nenhuma empresa encontrada.")
         tab_idx += 1
 
-    # --- ABA: FINANCEIRO (SÓ ADMIN COM PAINEL DE RESUMO EXECUTIVO) ---
+    # --- ABA: FINANCEIRO (SÓ ADMIN COM PAINEL DE RESUMO EXECUTIVO E EDIÇÃO DIRETA) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro Global de Parceiros")
@@ -995,21 +995,39 @@ else:
                 st.dataframe(df_fin_global, use_container_width=True)
                 
                 st.markdown("---")
-                st.subheader("⚡ Alterar Status de Pagamento de Parceiro")
+                st.subheader("⚡ Atualizar Pagamento e Valor da Fatura")
                 
-                with st.form("form_atualiza_status_pagto", clear_on_submit=True):
-                    lista_p_nomes = [e['nome'] for e in empresas_cad]
-                    emp_escolhida_pagto = st.selectbox("Selecione a Empresa Parceira:", [""] + lista_p_nomes)
-                    novo_status_pagto = st.selectbox("Novo Status da Fatura:", ["Pago", "Pendente"])
+                if 'k_fin' not in st.session_state:
+                    st.session_state.k_fin = 0
+                
+                lista_p_nomes = [e['nome'] for e in empresas_cad]
+                emp_escolhida_pagto = st.selectbox("Selecione a Empresa Parceira:", [""] + lista_p_nomes, key=f"sel_fin_emp_{st.session_state.k_fin}")
+                
+                if emp_escolhida_pagto != "":
+                    if st.button("❌ Cancelar / Limpar Seleção", key="btn_close_fin"):
+                        st.session_state.k_fin += 1
+                        st.rerun()
+                        
+                    dados_emp_fin = next(item for item in empresas_cad if item["nome"] == emp_escolhida_pagto)
+                    val_atual = dados_emp_fin['valor_veiculo'] if dados_emp_fin['valor_veiculo'] is not None else 3.00
+                    stat_atual = dados_emp_fin['status_pagamento'] if dados_emp_fin['status_pagamento'] is not None else "Pendente"
                     
-                    if st.form_submit_button("💾 Atualizar Status de Pagamento"):
-                        if emp_escolhida_pagto != "":
-                            execute_query("UPDATE empresas SET status_pagamento=? WHERE nome=?", (novo_status_pagto, emp_escolhida_pagto))
-                            registrar_auditoria("Financeiro", "Faturamento", f"Status de pagamento da empresa {emp_escolhida_pagto} alterado para: {novo_status_pagto}")
-                            st.session_state.flash_msg = f"Status da empresa {emp_escolhida_pagto} atualizado para {novo_status_pagto} com sucesso!"
+                    with st.form("form_atualiza_status_pagto", clear_on_submit=True):
+                        st.write(f"**Empresa Selecionada:** {emp_escolhida_pagto}")
+                        col_f1, col_f2 = st.columns(2)
+                        
+                        novo_valor = col_f1.number_input("Valor Unitário por Veículo (Pode incluir juros/acréscimos):", min_value=0.0, value=float(val_atual), format="%.2f")
+                        
+                        opcoes_st_fin = ["Pendente", "Pago"]
+                        idx_st_fin = opcoes_st_fin.index(stat_atual) if stat_atual in opcoes_st_fin else 0
+                        novo_status_pagto = col_f2.selectbox("Status da Fatura:", opcoes_st_fin, index=idx_st_fin)
+                        
+                        if st.form_submit_button("💾 Salvar Pagamento e Valor"):
+                            execute_query("UPDATE empresas SET status_pagamento=?, valor_veiculo=? WHERE nome=?", (novo_status_pagto, novo_valor, emp_escolhida_pagto))
+                            registrar_auditoria("Financeiro", "Faturamento", f"Status de {emp_escolhida_pagto} alterado para {novo_status_pagto} e valor para R$ {novo_valor:.2f}")
+                            st.session_state.flash_msg = f"Financeiro da empresa {emp_escolhida_pagto} atualizado com sucesso!"
+                            st.session_state.k_fin += 1
                             st.rerun()
-                        else:
-                            st.error("Selecione uma empresa válida.")
             else:
                 st.info("Nenhuma empresa parceira cadastrada para faturamento.")
         tab_idx += 1
