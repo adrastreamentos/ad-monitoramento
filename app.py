@@ -75,7 +75,7 @@ def fetch_data(query, params=()):
     conn.close()
     return data
 
-# CACHE EXCLUSIVO E BLINDADO PARA A LOGO (RESOLVE A LENTIDÃO)
+# CACHE EXCLUSIVO E BLINDADO PARA A LOGO
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
     try:
@@ -355,7 +355,6 @@ else:
     with tabs[tab_idx]:
         st.header("👤 Gerenciamento de Clientes e Frotas Multi-Veículos")
         
-        # Bloqueio inteligente: Parceiro não tem o botão 'Excluir', apenas 'Solicitar Exclusão'
         opcoes_acao = ["Listar", "Incluir Novo", "Importação em Lote", "Editar"]
         if st.session_state.is_admin:
             opcoes_acao.append("Excluir")
@@ -369,7 +368,6 @@ else:
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
 
         if acao_clientes == "Listar":
-            # Geração do CSV mantendo as placas e todos os dados abertos para Excel
             q_csv = """
                 SELECT c.nome as "Cliente", c.documento as "CPF/CNPJ", c.telefone as "Telefone", c.empresa as "Empresa", v.tipo_veic as "Tipo", v.placa as "Placa", v.modelo as "Modelo", v.cor as "Cor", c.status as "Status"
                 FROM clientes c JOIN veiculos v ON c.id = v.cliente_id
@@ -380,7 +378,6 @@ else:
             if res_csv:
                 st.download_button(label="📥 Baixar Base Completa de Frotas (CSV)", data=pd.DataFrame(res_csv).to_csv(index=False).encode('utf-8'), file_name="Base_Clientes_Frotas.csv", mime="text/csv")
             
-            # Geração da TELA agrupada (Mostra apenas o cliente e QTD de veículos, sem repetir)
             q_tela = """
                 SELECT c.id, c.nome, c.documento, c.telefone, c.empresa, c.status, COUNT(v.id) as qtd_veiculos
                 FROM clientes c 
@@ -648,8 +645,7 @@ else:
                     st.warning("Nenhum cliente encontrado.")
         
         elif acao_clientes == "Solicitar Exclusão":
-            st.warning("⚠️ **Ação Restrita:** Por medidas de segurança e controle de faturamento, a exclusão direta de clientes ou veículos foi desabilitada para contas parceiras.")
-            st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao Suporte Oficial informando a placa e o motivo.")
+            st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao suporte oficial informando a placa e o motivo.")
             st.markdown(gerar_link_whatsapp(f"Solicitação de Exclusão de Cadastro - Parceiro: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
     tab_idx += 1
 
@@ -873,9 +869,9 @@ else:
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
             col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
             col_m2.metric("💵 Valor Unitário Aplicado", f"R$ {valor_por_veiculo:.2f}")
-            col_m3.metric("💳 Faturamento Previsto Atual", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
-            col_m4.metric("📌 Status Atual", f"{status_visual}")
-
+            col_m3.metric("💳 Fatura Prevista Atual", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
+            col_m4.metric("📌 Status da Fatura", f"{status_visual}")
+            
             st.markdown("---")
             st.subheader("🔍 Consulta de Faturas Anteriores por Mês")
             
@@ -896,27 +892,111 @@ else:
                 else:
                     st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
-            st.markdown("---")
-            st.subheader("📋 Detalhamento da Frota Faturada Atual")
-            
-            q_detalhe_frota = """
-                SELECT c.nome as cliente, c.documento, v.tipo_veic, v.placa, v.modelo, v.cor 
-                FROM veiculos v 
-                JOIN clientes c ON v.cliente_id = c.id 
-                WHERE c.empresa = %s AND c.status = 'Ativo'
-            """
-            res_frota = fetch_data(q_detalhe_frota, (st.session_state.nome_empresa,))
-            
-            if res_frota:
-                df_frota_parceiro = pd.DataFrame(res_frota)
-                df_frota_parceiro.columns = ['Cliente', 'CPF/CNPJ', 'Tipo', 'Placa', 'Modelo', 'Cor']
-                st.dataframe(df_frota_parceiro, use_container_width=True)
-            else:
-                st.info("Nenhum veículo ativo registrado em sua base no momento.")
-                
-        tab_idx += 1
+        tab_idx += 1  # FIM DO BLOCO PARCEIRO
 
-    # --- ABA: FINANCEIRO (SÓ ADMIN COM PAINEL DE RESUMO EXECUTIVO E EDIÇÃO DIRETA) ---
+    # --- ABA: PARCEIROS (SÓ ADMIN) ---
+    if st.session_state.is_admin and tab_idx < len(tabs):
+        with tabs[tab_idx]:
+            st.header("🏢 Gerenciamento de Empresas Parceiras e Precificação")
+            
+            acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
+            st.markdown("---")
+            
+            empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas")
+            df_empresas = pd.DataFrame(empresas_res) if empresas_res else pd.DataFrame()
+            
+            if acao_parceiros == "Listar":
+                if not df_empresas.empty:
+                    for _, emp in df_empresas.iterrows():
+                        with st.expander(f"📁 Empresa: {emp['nome']}"):
+                            st.write(f"**CNPJ/Senha:** {emp['cnpj']} | **Responsável:** {emp['responsavel']}")
+                            st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
+                            servico_vinculado = emp['servicos'] if 'servicos' in emp and emp['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
+                            valor_unit = emp['valor_veiculo'] if ('valor_veiculo' in emp and emp['valor_veiculo'] is not None) else 3.00
+                            dia_v = emp['dia_vencimento'] if ('dia_vencimento' in emp and emp['dia_vencimento'] is not None) else 10
+                            stat_pag = emp['status_pagamento'] if ('status_pagamento' in emp and emp['status_pagamento'] is not None) else "Pendente"
+                            val_pago_ef = emp['valor_pago'] if ('valor_pago' in emp and emp['valor_pago'] is not None) else 0.00
+                            
+                            st.write(f"**Pacote:** {servico_vinculado} | **Preço/Veículo:** R$ {valor_unit:.2f} | **Vencimento:** Dia {dia_v}")
+                            st.write(f"**Status Fatura:** {stat_pag} | **Valor Pago Registrado:** R$ {val_pago_ef:.2f}")
+                else:
+                    st.info("Nenhuma empresa parceira cadastrada.")
+            
+            elif acao_parceiros == "Incluir Nova":
+                with st.form("nova_empresa", clear_on_submit=True):
+                    e_nome = st.text_input("Nome da Empresa (Será o Login) *")
+                    e_cnpj = st.text_input("CNPJ (Será a Senha) *")
+                    e_end = st.text_input("Endereço")
+                    e_tel = st.text_input("Telefone")
+                    e_resp = st.text_input("Responsável")
+                    e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
+                    e_valor = st.number_input("Valor por Veículo (R$) *", min_value=0.0, value=3.00, format="%.2f")
+                    e_venc = st.number_input("Dia de Vencimento da Fatura *", min_value=1, max_value=31, value=10)
+                    
+                    if st.form_submit_button("Registrar Parceiro"):
+                        if e_nome and e_cnpj:
+                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
+                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
+                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.")
+                            st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
+                            st.rerun()
+                        else:
+                            st.error("Nome e CNPJ são obrigatórios.")
+                            
+            elif acao_parceiros in ["Editar", "Excluir"]:
+                if empresas_res:
+                    lista_opcoes_e = [f"{e['id']} - {e['nome']}" for e in empresas_res]
+                    
+                    k_edit_emp = st.session_state.reset_keys['edit_emp']
+                    emp_selecionada = st.selectbox("🔍 Selecione a Empresa na lista (ou digite para buscar):", [""] + lista_opcoes_e, key=f"sb_edit_emp_{k_edit_emp}")
+                    
+                    if emp_selecionada:
+                        if st.button("❌ Fechar Seleção", key="btn_close_edit_emp"):
+                            st.session_state.reset_keys['edit_emp'] += 1
+                            st.rerun()
+
+                        id_emp = int(emp_selecionada.split(" - ")[0])
+                        dados_e = next(item for item in empresas_res if item["id"] == id_emp)
+                        
+                        if acao_parceiros == "Editar":
+                            with st.form(f"form_edit_emp", clear_on_submit=True):
+                                ne_nome = st.text_input("Nome", value=dados_e['nome'])
+                                ne_resp = st.text_input("Responsável", value=dados_e['responsavel'])
+                                ne_tel = st.text_input("Telefone", value=dados_e['telefone'])
+                                ne_end = st.text_input("Endereço", value=dados_e['endereco'])
+                                
+                                serv_atual = dados_e['servicos'] if 'servicos' in dados_e and dados_e['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
+                                opcoes_s = ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"]
+                                idx_serv = opcoes_s.index(serv_atual) if serv_atual in opcoes_s else 0
+                                ne_servicos = st.selectbox("Serviços Contratados", opcoes_s, index=idx_serv)
+
+                                val_atual = dados_e['valor_veiculo'] if ('valor_veiculo' in dados_e and dados_e['valor_veiculo'] is not None) else 3.00
+                                ne_valor = st.number_input("Valor por Veículo (R$)", min_value=0.0, value=float(val_atual), format="%.2f")
+
+                                venc_atual = dados_e['dia_vencimento'] if ('dia_vencimento' in dados_e and dados_e['dia_vencimento'] is not None) else 10
+                                ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
+
+                                if st.form_submit_button("💾 Salvar Alterações"):
+                                    execute_query("UPDATE empresas SET nome=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
+                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
+                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}")
+                                    st.session_state.flash_msg = "Alterações salvas com sucesso!"
+                                    st.session_state.reset_keys['edit_emp'] += 1
+                                    st.rerun()
+                        
+                        elif acao_parceiros == "Excluir":
+                            st.warning(f"Tem certeza que deseja excluir a empresa **{dados_e['nome']}**?")
+                            if st.button("🗑️ Excluir Parceiro"):
+                                execute_query("DELETE FROM empresas WHERE id=%s", (id_emp,))
+                                registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.")
+                                st.session_state.flash_msg = "Empresa excluída com sucesso!"
+                                st.session_state.reset_keys['edit_emp'] += 1
+                                st.rerun()
+                else:
+                    st.warning("Nenhuma empresa encontrada.")
+        tab_idx += 1  # FIM DO BLOCO EMPRESAS (ADMIN)
+
+    # --- ABA: FINANCEIRO (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro Global de Parceiros")
@@ -944,7 +1024,7 @@ else:
                     qtd_v = res_v[0]['qtd'] if res_v else 0
                     valor_calc = qtd_v * val_unit
                     
-                    # Acumula TODO MUNDO globalmente no Faturamento Previsto
+                    # Acumula TODO MUNDO globalmente no Faturamento Previsto (Recebível baseado em cadastros reais)
                     total_faturamento_previsto += valor_calc
                     
                     if "Pago" in status_calculado:
@@ -1062,7 +1142,7 @@ else:
                             st.rerun()
             else:
                 st.info("Nenhuma empresa parceira cadastrada para faturamento.")
-        tab_idx += 1
+        tab_idx += 1 # FIM DO BLOCO FINANCEIRO (ADMIN)
 
     # --- AUDITORIA ---
     if st.session_state.is_admin and tab_idx < len(tabs):
@@ -1097,7 +1177,7 @@ else:
                 aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
                 
                 if aud_sel_excluir != "":
-                    if st.button("❌ Fechar Seleção", key="btn_close_aud_del"):
+                    if st.button("❌ Fechar Seleção", key="btn_close_aud_del_sel"):
                         st.session_state.reset_keys['aud_del'] += 1
                         st.rerun()
                         
