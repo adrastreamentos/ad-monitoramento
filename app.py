@@ -99,7 +99,7 @@ def get_horario_brasil_str():
     return get_horario_brasil().strftime("%d/%m/%Y %H:%M:%S")
 
 def registrar_auditoria(acao, modulo, detalhes):
-    usuario = st.session_state.get('nome_empresa', 'Sistema')
+    usuario = st.session_state.get('nome_empresa', 'AD RASTREAMENTO VEICULAR')
     agora = get_horario_brasil_str()
     execute_query("INSERT INTO auditoria (data_hora, acao, modulo, detalhes, usuario) VALUES (%s,%s,%s,%s,%s)", 
                   (agora, acao, modulo, detalhes, usuario))
@@ -479,16 +479,19 @@ else:
                                            (nome_cli, doc_cli, end_cli, tel_cli, emp_cli))
                             cliente_id = cur.fetchone()['id']
                             
-                            for v in veiculos_dados:
-                                if v['placa'].strip():
-                                    cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
-                                                   (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor']))
+                            validos = [v for v in veiculos_dados if v['placa'].strip()]
+                            for v in validos:
+                                cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
+                                               (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor']))
                             conn.commit()
                             conn.close()
                             st.cache_data.clear()
                             
+                            total_cad = len(validos)
+                            msg_veic = f"1 veículo" if total_cad == 1 else f"{total_cad} veículos"
+
                             st.session_state.num_veiculos_form = 1
-                            registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome_cli} cadastrado com múltiplos veículos.")
+                            registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome_cli} cadastrado com {msg_veic}.")
                             st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso e tela limpa!"
                             st.rerun()
                         else:
@@ -874,7 +877,6 @@ else:
             acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
             st.markdown("---")
             
-            # Buscando apenas colunas de texto/número para evitar carregar a foto no cache do Admin
             empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas")
             df_empresas = pd.DataFrame(empresas_res) if empresas_res else pd.DataFrame()
             
@@ -1090,10 +1092,18 @@ else:
             
             if res_aud:
                 df_auditoria = pd.DataFrame(res_aud)
+                # Reorganiza a ordem das colunas para colocar a empresa/usuário antes dos detalhes
+                if 'usuario' in df_auditoria.columns and 'detalhes' in df_auditoria.columns:
+                    colunas_ordem = ['id', 'data_hora', 'usuario', 'acao', 'modulo', 'detalhes']
+                    # Garante que só pega colunas existentes
+                    colunas_existentes = [c for c in colunas_ordem if c in df_auditoria.columns]
+                    df_auditoria = df_auditoria[colunas_existentes]
+                    df_auditoria.columns = ['ID', 'Data/Hora', 'Empresa / Usuário', 'Ação', 'Módulo', 'Detalhes']
+
                 st.dataframe(df_auditoria, use_container_width=True)
                 
                 st.markdown("### 🗑️ Excluir Registro Específico de Auditoria")
-                lista_aud = [""] + [f"{row['id']} - {row['data_hora']} ({row['acao']} / {row['modulo']})" for _, row in df_auditoria.iterrows()]
+                lista_aud = [""] + [f"{row['ID']} - {row['Data/Hora']} ({row['Empresa / Usuário']} - {row['Ação']} / {row['Módulo']})" for _, row in df_auditoria.iterrows()]
                 
                 k_aud_del = st.session_state.reset_keys['aud_del']
                 aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
