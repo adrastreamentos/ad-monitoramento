@@ -63,6 +63,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+# CACHE REATIVADO PARA DEIXAR O APLICATIVO RÁPIDO
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -72,6 +73,7 @@ def fetch_data(query, params=()):
     conn.close()
     return data
 
+# Função dedicada e sem cache para a logo (evita o erro anterior)
 def fetch_logo_direto(query, params=()):
     conn = get_db_connection()
     c = conn.cursor(cursor_factory=RealDictCursor)
@@ -86,7 +88,7 @@ def execute_query(query, params=()):
     c.execute(query, params)
     conn.commit()
     conn.close()
-    st.cache_data.clear()
+    st.cache_data.clear()  # Limpa o cache automaticamente sempre que salvar algo novo
 
 init_db()
 
@@ -1092,10 +1094,8 @@ else:
             
             if res_aud:
                 df_auditoria = pd.DataFrame(res_aud)
-                # Reorganiza a ordem das colunas para colocar a empresa/usuário antes dos detalhes
                 if 'usuario' in df_auditoria.columns and 'detalhes' in df_auditoria.columns:
                     colunas_ordem = ['id', 'data_hora', 'usuario', 'acao', 'modulo', 'detalhes']
-                    # Garante que só pega colunas existentes
                     colunas_existentes = [c for c in colunas_ordem if c in df_auditoria.columns]
                     df_auditoria = df_auditoria[colunas_existentes]
                     df_auditoria.columns = ['ID', 'Data/Hora', 'Empresa / Usuário', 'Ação', 'Módulo', 'Detalhes']
