@@ -65,7 +65,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# CACHE ATIVO PARA MANTÊ-R O APLICATIVO RÁPIDO
+# CACHE ATIVO PARA DADOS GERAIS
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -75,13 +75,20 @@ def fetch_data(query, params=()):
     conn.close()
     return data
 
-def fetch_logo_direto(query, params=()):
-    conn = get_db_connection()
-    c = conn.cursor(cursor_factory=RealDictCursor)
-    c.execute(query, params)
-    data = c.fetchall()
-    conn.close()
-    return data
+# CACHE EXCLUSIVO E BLINDADO PARA A LOGO (RESOLVE A LENTIDÃO)
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_logo_cached(empresa_nome):
+    try:
+        conn = get_db_connection()
+        c = conn.cursor(cursor_factory=RealDictCursor)
+        c.execute("SELECT logo_binario FROM empresas WHERE nome=%s", (empresa_nome,))
+        res = c.fetchone()
+        conn.close()
+        if res and res.get('logo_binario'):
+            return bytes(res['logo_binario'])
+    except Exception:
+        pass
+    return None
 
 def execute_query(query, params=()):
     conn = get_db_connection()
@@ -176,11 +183,9 @@ if 'logged_in' not in st.session_state:
         st.session_state.is_admin = False
         st.session_state.nome_empresa = ""
 
-if 'acao_clientes' not in st.session_state:
-    st.session_state.acao_clientes = "Listar"
-
-if 'num_veiculos_form' not in st.session_state:
-    st.session_state.num_veiculos_form = 1
+if 'acao_clientes' not in st.session_state: st.session_state.acao_clientes = "Listar"
+if 'num_veiculos_state' not in st.session_state: st.session_state.num_veiculos_state = 1
+if 'rk' not in st.session_state: st.session_state.rk = 0 # Chave inteligente para forçar limpeza da tela
 
 if 'reset_keys' not in st.session_state:
     st.session_state.reset_keys = {
@@ -237,17 +242,11 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     with st.sidebar:
+        # Exibição otimizada da logo usando cache (Não trava o aplicativo)
         if not st.session_state.is_admin:
-            try:
-                res_logo_sb = fetch_logo_direto("SELECT logo_binario FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
-                if res_logo_sb and len(res_logo_sb) > 0:
-                    logo_dado = res_logo_sb[0].get('logo_binario')
-                    if logo_dado is not None:
-                        logo_bytes = bytes(logo_dado) if isinstance(logo_dado, memoryview) else bytes(logo_dado)
-                        if len(logo_bytes) > 10:
-                            st.image(io.BytesIO(logo_bytes), width=140)
-            except Exception:
-                pass
+            logo_bytes = fetch_logo_cached(st.session_state.nome_empresa)
+            if logo_bytes and len(logo_bytes) > 10:
+                st.image(io.BytesIO(logo_bytes), width=140)
 
         st.write(f"👤 **Conectado como:** {st.session_state.nome_empresa}")
         
@@ -439,37 +438,29 @@ else:
             else:
                 st.subheader("📝 Cadastro de Novo Cliente e Seus Veículos")
                 
-                # Inicializa memória state para formulário de cadastro sem perder dados ao adicionar carros
-                if 'form_cli_nome' not in st.session_state: st.session_state.form_cli_nome = ""
-                if 'form_cli_doc' not in st.session_state: st.session_state.form_cli_doc = ""
-                if 'form_cli_end' not in st.session_state: st.session_state.form_cli_end = ""
-                if 'form_cli_tel' not in st.session_state: st.session_state.form_cli_tel = ""
-                if 'num_veiculos_state' not in st.session_state: st.session_state.num_veiculos_state = 1
-
+                # O uso da chave (rk) garante que toda a tela limpe magicamente quando o registro for salvo
+                rk = st.session_state.rk
+                
+                st.markdown("<div class='ficha-box'>", unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
-                f_nome = c1.text_input("Nome do Cliente *", value=st.session_state.form_cli_nome, key="IN_nome")
-                f_doc = c2.text_input("CPF / CNPJ *", value=st.session_state.form_cli_doc, key="IN_doc")
-                f_end = c1.text_input("Endereço", value=st.session_state.form_cli_end, key="IN_end")
-                f_tel = c2.text_input("Telefone", value=st.session_state.form_cli_tel, key="IN_tel")
-                f_emp = c1.selectbox("Empresa (Pasta) *", opcoes_emp, key="IN_emp")
-
-                # Atualiza state
-                st.session_state.form_cli_nome = f_nome
-                st.session_state.form_cli_doc = f_doc
-                st.session_state.form_cli_end = f_end
-                st.session_state.form_cli_tel = f_tel
-
+                f_nome = c1.text_input("Nome do Cliente *", key=f"in_nome_{rk}")
+                f_doc = c2.text_input("CPF / CNPJ *", key=f"in_doc_{rk}")
+                f_end = c1.text_input("Endereço", key=f"in_end_{rk}")
+                f_tel = c2.text_input("Telefone", key=f"in_tel_{rk}")
+                f_emp = c1.selectbox("Empresa (Pasta) *", opcoes_emp, key=f"in_emp_{rk}")
+                
                 st.markdown("---")
                 st.write("🚗 **Frota / Veículos do Cliente:**")
-
+                
                 col_b1, col_b2 = st.columns([1, 4])
                 with col_b1:
-                    if st.button("➕ Adicionar Veículo", key="btn_add_v_state"):
+                    # Botão blindado. Não apaga o formulário ao adicionar mais linhas.
+                    if st.button("➕ Adicionar Veículo", type="secondary"):
                         st.session_state.num_veiculos_state += 1
                         st.rerun()
                 with col_b2:
                     if st.session_state.num_veiculos_state > 1:
-                        if st.button("➖ Remover Último Veículo", key="btn_rem_v_state"):
+                        if st.button("➖ Remover Último Veículo", type="secondary"):
                             st.session_state.num_veiculos_state -= 1
                             st.rerun()
 
@@ -477,14 +468,14 @@ else:
                 for i in range(st.session_state.num_veiculos_state):
                     st.markdown(f"**Veículo {i+1}**")
                     vc1, vc2, vc3, vc4 = st.columns(4)
-                    t_veic = vc1.selectbox(f"Tipo {i+1}", ["Carro", "Moto", "Caminhão", "Outro"], key=f"st_t_{i}")
-                    p_veic = vc2.text_input(f"Placa * {i+1}", key=f"st_p_{i}")
-                    m_veic = vc3.text_input(f"Modelo {i+1}", key=f"st_m_{i}")
-                    c_veic = vc4.text_input(f"Cor {i+1}", key=f"st_c_{i}")
+                    t_veic = vc1.selectbox(f"Tipo {i+1}", ["Carro", "Moto", "Caminhão", "Outro"], key=f"in_t_{i}_{rk}")
+                    p_veic = vc2.text_input(f"Placa * {i+1}", key=f"in_p_{i}_{rk}")
+                    m_veic = vc3.text_input(f"Modelo {i+1}", key=f"in_m_{i}_{rk}")
+                    c_veic = vc4.text_input(f"Cor {i+1}", key=f"in_c_{i}_{rk}")
                     veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic})
                     st.markdown("---")
 
-                if st.button("💾 Salvar Cadastro Completo", key="btn_salvar_tudo_state"):
+                if st.button("💾 Salvar Cadastro Completo", type="primary"):
                     if f_nome and f_doc and any(v['placa'] for v in veiculos_dados):
                         conn = get_db_connection()
                         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -503,18 +494,16 @@ else:
                         total_cad = len(validos)
                         msg_veic = f"1 veículo" if total_cad == 1 else f"{total_cad} veículos"
 
-                        # Limpa estados
-                        st.session_state.form_cli_nome = ""
-                        st.session_state.form_cli_doc = ""
-                        st.session_state.form_cli_end = ""
-                        st.session_state.form_cli_tel = ""
+                        # Limpa toda a tela para o próximo registro
                         st.session_state.num_veiculos_state = 1
-
+                        st.session_state.rk += 1 
+                        
                         registrar_auditoria("Cadastro", "Clientes", f"Cliente {f_nome} cadastrado com {msg_veic}.")
-                        st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso!"
+                        st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso e tela limpa!"
                         st.rerun()
                     else:
                         st.error("Preencha o Nome, CPF/CNPJ e pelo menos a Placa de um veículo.")
+                st.markdown("</div>", unsafe_allow_html=True)
                             
         elif acao_clientes == "Importação em Lote":
             st.subheader("📥 Importação Inteligente de Clientes e Frotas via CSV")
@@ -872,9 +861,9 @@ else:
             st.subheader("🔍 Consulta de Faturas Anteriores por Mês")
             
             res_meses_p = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas WHERE empresa=%s ORDER BY mes_ref DESC", (st.session_state.nome_empresa,))
-            lista_meses_p = [m['mes_ref'] for m in res_meses_p] if res_meses_p else []
+            lista_meses_p = ["Selecione..."] + [m['mes_ref'] for m in res_meses_p] if res_meses_p else ["Selecione..."]
             
-            mes_busca_parceiro = st.selectbox("Selecione o Mês/Ano de referência:", ["Selecione..."] + lista_meses_p)
+            mes_busca_parceiro = st.selectbox("Selecione o Mês/Ano de referência:", lista_meses_p)
             digita_mes_p = st.text_input("Ou digite o mês diretamente (Ex: 06/2026):", value="")
             
             mes_alvo_p = digita_mes_p.strip() if digita_mes_p.strip() else (mes_busca_parceiro if mes_busca_parceiro != "Selecione..." else "")
@@ -908,7 +897,7 @@ else:
                 
         tab_idx += 1
 
-    # --- ABA: PARCEIROS (SÓ ADMIN) ---
+    # --- ABA: PARCEIROS E FINANCEIRO (ADMINISTRADOR) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("🏢 Gerenciamento de Empresas Parceiras e Precificação")
@@ -1010,7 +999,7 @@ else:
                     st.warning("Nenhuma empresa encontrada.")
         tab_idx += 1
 
-    # --- ABA: FINANCEIRO (SÓ ADMIN COM PAINEL DE RESUMO EXECUTIVO E EDIÇÃO DIRETA) ---
+    # --- ABA: FINANCEIRO (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro Global de Parceiros")
