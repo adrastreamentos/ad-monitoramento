@@ -185,7 +185,7 @@ if 'logged_in' not in st.session_state:
 
 if 'acao_clientes' not in st.session_state: st.session_state.acao_clientes = "Listar"
 if 'num_veiculos_state' not in st.session_state: st.session_state.num_veiculos_state = 1
-if 'rk' not in st.session_state: st.session_state.rk = 0 # Chave inteligente para forçar limpeza da tela
+if 'rk' not in st.session_state: st.session_state.rk = 0 
 
 if 'reset_keys' not in st.session_state:
     st.session_state.reset_keys = {
@@ -242,7 +242,6 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     with st.sidebar:
-        # Exibição otimizada da logo usando cache (Não trava o aplicativo)
         if not st.session_state.is_admin:
             logo_bytes = fetch_logo_cached(st.session_state.nome_empresa)
             if logo_bytes and len(logo_bytes) > 10:
@@ -356,31 +355,52 @@ else:
     with tabs[tab_idx]:
         st.header("👤 Gerenciamento de Clientes e Frotas Multi-Veículos")
         
-        acao_clientes = st.radio("Ação Clientes:", ["Listar", "Incluir Novo", "Importação em Lote", "Editar", "Excluir"], horizontal=True)
+        # Bloqueio inteligente: Parceiro não tem o botão 'Excluir', apenas 'Solicitar Exclusão'
+        opcoes_acao = ["Listar", "Incluir Novo", "Importação em Lote", "Editar"]
+        if st.session_state.is_admin:
+            opcoes_acao.append("Excluir")
+        else:
+            opcoes_acao.append("Solicitar Exclusão")
+
+        acao_clientes = st.radio("Ação Clientes:", opcoes_acao, horizontal=True)
         st.markdown("---")
         
         empresas_disp = fetch_data("SELECT nome FROM empresas")
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
 
         if acao_clientes == "Listar":
-            q_completa = """
-                SELECT c.id, c.nome, c.documento, c.endereco, c.telefone, v.tipo_veic, v.placa, v.modelo, v.cor, c.empresa, c.status 
+            # Geração do CSV mantendo as placas e todos os dados abertos para Excel
+            q_csv = """
+                SELECT c.nome as "Cliente", c.documento as "CPF/CNPJ", c.telefone as "Telefone", c.empresa as "Empresa", v.tipo_veic as "Tipo", v.placa as "Placa", v.modelo as "Modelo", v.cor as "Cor", c.status as "Status"
                 FROM clientes c JOIN veiculos v ON c.id = v.cliente_id
             """
             if not st.session_state.is_admin:
-                q_completa += f" WHERE c.empresa='{st.session_state.nome_empresa}'"
+                q_csv += f" WHERE c.empresa='{st.session_state.nome_empresa}'"
+            res_csv = fetch_data(q_csv)
+            if res_csv:
+                st.download_button(label="📥 Baixar Base Completa de Frotas (CSV)", data=pd.DataFrame(res_csv).to_csv(index=False).encode('utf-8'), file_name="Base_Clientes_Frotas.csv", mime="text/csv")
             
-            res_geral = fetch_data(q_completa)
+            # Geração da TELA agrupada (Mostra apenas o cliente e QTD de veículos, sem repetir)
+            q_tela = """
+                SELECT c.id, c.nome, c.documento, c.telefone, c.empresa, c.status, COUNT(v.id) as qtd_veiculos
+                FROM clientes c 
+                LEFT JOIN veiculos v ON c.id = v.cliente_id
+            """
+            if not st.session_state.is_admin:
+                q_tela += f" WHERE c.empresa='{st.session_state.nome_empresa}'"
+            q_tela += " GROUP BY c.id, c.nome, c.documento, c.telefone, c.empresa, c.status ORDER BY c.nome"
             
-            if res_geral:
-                df_geral = pd.DataFrame(res_geral)
-                st.download_button(label="📥 Baixar Base Completa de Frotas (CSV)", data=df_geral.to_csv(index=False).encode('utf-8'), file_name="Base_Clientes_Frotas.csv", mime="text/csv")
-                
-                empresas_ativas = df_geral['empresa'].unique()
+            res_tela = fetch_data(q_tela)
+            
+            if res_tela:
+                df_tela = pd.DataFrame(res_tela)
+                empresas_ativas = df_tela['empresa'].unique()
                 for emp_ativa in empresas_ativas:
-                    with st.expander(f"📁 Clientes e Frotas da Empresa: {emp_ativa}"):
-                        df_emp = df_geral[df_geral['empresa'] == emp_ativa]
-                        st.dataframe(df_emp[['nome', 'documento', 'placa', 'modelo', 'cor', 'status']], use_container_width=True)
+                    with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
+                        df_emp = df_tela[df_tela['empresa'] == emp_ativa]
+                        df_display = df_emp[['nome', 'documento', 'telefone', 'qtd_veiculos', 'status']].copy()
+                        df_display.columns = ['Cliente', 'CPF/CNPJ', 'Telefone', 'Qtd. Veículos', 'Status']
+                        st.dataframe(df_display, use_container_width=True)
                 
                 st.markdown("---")
                 st.subheader("🔍 Visualizar Ficha Completa do Cliente")
@@ -438,7 +458,6 @@ else:
             else:
                 st.subheader("📝 Cadastro de Novo Cliente e Seus Veículos")
                 
-                # O uso da chave (rk) garante que toda a tela limpe magicamente quando o registro for salvo
                 rk = st.session_state.rk
                 
                 st.markdown("<div class='ficha-box'>", unsafe_allow_html=True)
@@ -454,7 +473,6 @@ else:
                 
                 col_b1, col_b2 = st.columns([1, 4])
                 with col_b1:
-                    # Botão blindado. Não apaga o formulário ao adicionar mais linhas.
                     if st.button("➕ Adicionar Veículo", type="secondary"):
                         st.session_state.num_veiculos_state += 1
                         st.rerun()
@@ -494,7 +512,6 @@ else:
                         total_cad = len(validos)
                         msg_veic = f"1 veículo" if total_cad == 1 else f"{total_cad} veículos"
 
-                        # Limpa toda a tela para o próximo registro
                         st.session_state.num_veiculos_state = 1
                         st.session_state.rk += 1 
                         
@@ -629,6 +646,11 @@ else:
                                 st.rerun()
                 else:
                     st.warning("Nenhum cliente encontrado.")
+        
+        elif acao_clientes == "Solicitar Exclusão":
+            st.warning("⚠️ **Ação Restrita:** Por medidas de segurança e controle de faturamento, a exclusão direta de clientes ou veículos foi desabilitada para contas parceiras.")
+            st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao Suporte Oficial informando a placa e o motivo.")
+            st.markdown(gerar_link_whatsapp(f"Solicitação de Exclusão de Cadastro - Parceiro: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
     tab_idx += 1
 
     # --- ABA: RELATÓRIOS ---
@@ -851,12 +873,9 @@ else:
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
             col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
             col_m2.metric("💵 Valor Unitário Aplicado", f"R$ {valor_por_veiculo:.2f}")
-            col_m3.metric("💳 Fatura Calculada", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
-            col_m4.metric("📌 Status da Fatura", f"{status_visual}")
+            col_m3.metric("💳 Faturamento Previsto Atual", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
+            col_m4.metric("📌 Status Atual", f"{status_visual}")
 
-            if status_pag == "Pago":
-                st.info(f"💡 **Valor Quitado Registrado:** R$ {valor_pago_efetivo:.2f} (Com juros/acréscimos aplicados, se houver).")
-            
             st.markdown("---")
             st.subheader("🔍 Consulta de Faturas Anteriores por Mês")
             
@@ -897,117 +916,15 @@ else:
                 
         tab_idx += 1
 
-    # --- ABA: PARCEIROS E FINANCEIRO (ADMINISTRADOR) ---
-    if st.session_state.is_admin and tab_idx < len(tabs):
-        with tabs[tab_idx]:
-            st.header("🏢 Gerenciamento de Empresas Parceiras e Precificação")
-            
-            acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
-            st.markdown("---")
-            
-            empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas")
-            df_empresas = pd.DataFrame(empresas_res) if empresas_res else pd.DataFrame()
-            
-            if acao_parceiros == "Listar":
-                if not df_empresas.empty:
-                    for _, emp in df_empresas.iterrows():
-                        with st.expander(f"📁 Empresa: {emp['nome']}"):
-                            st.write(f"**CNPJ/Senha:** {emp['cnpj']} | **Responsável:** {emp['responsavel']}")
-                            st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
-                            servico_vinculado = emp['servicos'] if 'servicos' in emp and emp['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
-                            valor_unit = emp['valor_veiculo'] if ('valor_veiculo' in emp and emp['valor_veiculo'] is not None) else 3.00
-                            dia_v = emp['dia_vencimento'] if ('dia_vencimento' in emp and emp['dia_vencimento'] is not None) else 10
-                            stat_pag = emp['status_pagamento'] if ('status_pagamento' in emp and emp['status_pagamento'] is not None) else "Pendente"
-                            val_pago_ef = emp['valor_pago'] if ('valor_pago' in emp and emp['valor_pago'] is not None) else 0.00
-                            
-                            st.write(f"**Pacote:** {servico_vinculado} | **Preço/Veículo:** R$ {valor_unit:.2f} | **Vencimento:** Dia {dia_v}")
-                            st.write(f"**Status Fatura:** {stat_pag} | **Valor Pago Registrado:** R$ {val_pago_ef:.2f}")
-                else:
-                    st.info("Nenhuma empresa parceira cadastrada.")
-            
-            elif acao_parceiros == "Incluir Nova":
-                with st.form("nova_empresa", clear_on_submit=True):
-                    e_nome = st.text_input("Nome da Empresa (Será o Login) *")
-                    e_cnpj = st.text_input("CNPJ (Será a Senha) *")
-                    e_end = st.text_input("Endereço")
-                    e_tel = st.text_input("Telefone")
-                    e_resp = st.text_input("Responsável")
-                    e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
-                    e_valor = st.number_input("Valor por Veículo (R$) *", min_value=0.0, value=3.00, format="%.2f")
-                    e_venc = st.number_input("Dia de Vencimento da Fatura *", min_value=1, max_value=31, value=10)
-                    
-                    if st.form_submit_button("Registrar Parceiro"):
-                        if e_nome and e_cnpj:
-                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
-                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
-                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.")
-                            st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
-                            st.rerun()
-                        else:
-                            st.error("Nome e CNPJ são obrigatórios.")
-                            
-            elif acao_parceiros in ["Editar", "Excluir"]:
-                if empresas_res:
-                    lista_opcoes_e = [f"{e['id']} - {e['nome']}" for e in empresas_res]
-                    
-                    k_edit_emp = st.session_state.reset_keys['edit_emp']
-                    emp_selecionada = st.selectbox("🔍 Selecione a Empresa na lista (ou digite para buscar):", [""] + lista_opcoes_e, key=f"sb_edit_emp_{k_edit_emp}")
-                    
-                    if emp_selecionada:
-                        if st.button("❌ Fechar Seleção", key="btn_close_edit_emp"):
-                            st.session_state.reset_keys['edit_emp'] += 1
-                            st.rerun()
-
-                        id_emp = int(emp_selecionada.split(" - ")[0])
-                        dados_e = next(item for item in empresas_res if item["id"] == id_emp)
-                        
-                        if acao_parceiros == "Editar":
-                            with st.form(f"form_edit_emp", clear_on_submit=True):
-                                ne_nome = st.text_input("Nome", value=dados_e['nome'])
-                                ne_resp = st.text_input("Responsável", value=dados_e['responsavel'])
-                                ne_tel = st.text_input("Telefone", value=dados_e['telefone'])
-                                ne_end = st.text_input("Endereço", value=dados_e['endereco'])
-                                
-                                serv_atual = dados_e['servicos'] if 'servicos' in dados_e and dados_e['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
-                                opcoes_s = ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"]
-                                idx_serv = opcoes_s.index(serv_atual) if serv_atual in opcoes_s else 0
-                                ne_servicos = st.selectbox("Serviços Contratados", opcoes_s, index=idx_serv)
-
-                                val_atual = dados_e['valor_veiculo'] if ('valor_veiculo' in dados_e and dados_e['valor_veiculo'] is not None) else 3.00
-                                ne_valor = st.number_input("Valor por Veículo (R$)", min_value=0.0, value=float(val_atual), format="%.2f")
-
-                                venc_atual = dados_e['dia_vencimento'] if ('dia_vencimento' in dados_e and dados_e['dia_vencimento'] is not None) else 10
-                                ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
-
-                                if st.form_submit_button("💾 Salvar Alterações"):
-                                    execute_query("UPDATE empresas SET nome=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
-                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
-                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}")
-                                    st.session_state.flash_msg = "Alterações salvas com sucesso!"
-                                    st.session_state.reset_keys['edit_emp'] += 1
-                                    st.rerun()
-                        
-                        elif acao_parceiros == "Excluir":
-                            st.warning(f"Tem certeza que deseja excluir a empresa **{dados_e['nome']}**?")
-                            if st.button("🗑️ Excluir Parceiro"):
-                                execute_query("DELETE FROM empresas WHERE id=%s", (id_emp,))
-                                registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.")
-                                st.session_state.flash_msg = "Empresa excluída com sucesso!"
-                                st.session_state.reset_keys['edit_emp'] += 1
-                                st.rerun()
-                else:
-                    st.warning("Nenhuma empresa encontrada.")
-        tab_idx += 1
-
-    # --- ABA: FINANCEIRO (SÓ ADMIN) ---
+    # --- ABA: FINANCEIRO (SÓ ADMIN COM PAINEL DE RESUMO EXECUTIVO E EDIÇÃO DIRETA) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
             st.header("💰 Controle Financeiro Global de Parceiros")
-            st.info("ℹ️ Painel executivo financeiro com o resumo consolidado a receber, valores atrasados e valores quitados de todos os parceiros.")
+            st.info("ℹ️ Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.")
             
             empresas_cad = fetch_data("SELECT id, nome, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas")
             
-            total_a_receber = 0.0
+            total_faturamento_previsto = 0.0
             total_atrasado = 0.0
             total_pago = 0.0
             
@@ -1027,27 +944,28 @@ else:
                     qtd_v = res_v[0]['qtd'] if res_v else 0
                     valor_calc = qtd_v * val_unit
                     
+                    # Acumula TODO MUNDO globalmente no Faturamento Previsto
+                    total_faturamento_previsto += valor_calc
+                    
                     if "Pago" in status_calculado:
                         total_pago += v_pago_ef if v_pago_ef > 0 else valor_calc
-                    elif "Vencida / Atrasada" in status_calculado or "Vence Hoje" in status_calculado:
+                    if "Vencida" in status_calculado or "Vence Hoje" in status_calculado:
                         total_atrasado += valor_calc
-                    else:
-                        total_a_receber += valor_calc
                     
                     dados_financeiro_global.append({
                         "Empresa Parceira": nome_emp,
                         "Veículos Ativos": qtd_v,
                         "Valor Unitário": f"R$ {val_unit:.2f}",
                         "Vencimento": f"Dia {dia_v}",
-                        "Faturamento Estimado": f"R$ {valor_calc:.2f}",
+                        "Faturamento Atual Ativo": f"R$ {valor_calc:.2f}",
                         "Valor Pago Registrado": f"R$ {v_pago_ef:.2f}",
-                        "Status": status_calculado
+                        "Status Atual": status_calculado
                     })
             
             col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-            col_kpi1.metric("💵 Valor a Receber (Em Dias / Próximos)", f"R$ {total_a_receber:.2f}")
+            col_kpi1.metric("💵 Faturamento Previsto (Frota Ativa Global)", f"R$ {total_faturamento_previsto:.2f}")
             col_kpi2.metric("🔴 Valor Atrasado / Vencido", f"R$ {total_atrasado:.2f}", delta_color="inverse")
-            col_kpi3.metric("🟢 Valor Pago (Quitado)", f"R$ {total_pago:.2f}")
+            col_kpi3.metric("🟢 Valor Pago (Neste Ciclo)", f"R$ {total_pago:.2f}")
             
             st.markdown("---")
             
@@ -1179,7 +1097,7 @@ else:
                 aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
                 
                 if aud_sel_excluir != "":
-                    if st.button("❌ Fechar Seleção", key="btn_close_edit_emp"):
+                    if st.button("❌ Fechar Seleção", key="btn_close_aud_del"):
                         st.session_state.reset_keys['aud_del'] += 1
                         st.rerun()
                         
