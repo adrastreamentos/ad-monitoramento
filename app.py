@@ -57,6 +57,7 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id SERIAL PRIMARY KEY, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT, servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)', valor_veiculo REAL DEFAULT 3.00, dia_vencimento INTEGER DEFAULT 10, status_pagamento TEXT DEFAULT 'Pendente', valor_pago REAL DEFAULT 0.00, logo_binario BYTEA)''')
     c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_fatura_calculada REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS notificacoes (id SERIAL PRIMARY KEY, data_hora TEXT, empresa TEXT, mensagem TEXT, lida BOOLEAN DEFAULT FALSE)''')
     
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
@@ -286,6 +287,19 @@ else:
         st.markdown("### 📞 Suporte Oficial")
         st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Empresa Logada: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
 
+    # --- PAINEL CENTRAL DE ALERTAS PARA O ADMINISTRADOR ---
+    if st.session_state.is_admin:
+        alertas = fetch_data("SELECT * FROM notificacoes WHERE lida = FALSE ORDER BY id DESC")
+        if alertas:
+            st.markdown("### 🚨 Central de Alertas (Novos Cadastros)")
+            for alerta in alertas:
+                col_al1, col_al2 = st.columns([5, 1])
+                col_al1.error(f"🔴 **NOVO VEÍCULO ADICIONADO ({alerta['empresa']}):** {alerta['mensagem']} - *{alerta['data_hora']}*")
+                if col_al2.button("Limpar Aviso", key=f"limpar_notif_{alerta['id']}", use_container_width=True):
+                    execute_query("UPDATE notificacoes SET lida = TRUE WHERE id = %s", (alerta['id'],))
+                    st.rerun()
+            st.markdown("---")
+
     if st.session_state.is_admin:
         abas = ["🚨 Central 24h", "👤 Clientes", "📖 Relatórios", "🏢 Empresas", "💰 Financeiro", "🕵️ Auditoria"]
     else:
@@ -425,7 +439,7 @@ else:
                     veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
                     
                     if st.button("❌ Fechar Ficha Cadastral", key="btn_close_ficha_cli"):
-                        st.session_state.reset_keys['ficha_cli'] = k_ficha_cli + 1
+                        limpar_tela()
                         st.rerun()
 
                     st.markdown(f"""
@@ -512,11 +526,15 @@ else:
                         msg_veic = f"1 veículo" if total_cad == 1 else f"{total_cad} veículos"
 
                         registrar_auditoria("Cadastro", "Clientes", f"Cliente {f_nome} cadastrado com {msg_veic}.")
-                        st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso!"
                         
-                        # Chama a limpeza global
-                        limpar_tela()
+                        # --- NOTIFICAÇÃO PARA O ADMIN ---
+                        agora_notif = get_horario_brasil_str()
+                        execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
+                                      (agora_notif, f_emp, f"Novo cliente '{f_nome}' cadastrado com {msg_veic}."))
+
+                        st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso!"
                         st.session_state.num_veiculos_state = 1
+                        limpar_tela()
                         st.rerun()
                     else:
                         st.error("Preencha o Nome, CPF/CNPJ e pelo menos a Placa de um veículo.")
@@ -592,6 +610,12 @@ else:
                         conn.commit()
                         st.cache_data.clear()        
                         registrar_auditoria("Importação Lote", "Clientes", f"Importação CSV: {importados_clientes} clientes e {importados_veiculos} veículos.")
+                        
+                        # --- NOTIFICAÇÃO PARA O ADMIN ---
+                        agora_notif = get_horario_brasil_str()
+                        execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
+                                      (agora_notif, emp_lote, f"Importação via planilha concluída: {importados_clientes} cliente(s) e {importados_veiculos} veículo(s)."))
+
                         st.session_state.flash_msg = f"Sucesso! {importados_clientes} clientes agrupados/criados e {importados_veiculos} veículos inseridos."
                         limpar_tela()
                         st.rerun()
@@ -700,6 +724,11 @@ else:
                                 for nv in validos_novos:
                                     execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
                                                     (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor']))
+                                    
+                                    # --- NOTIFICAÇÃO PARA O ADMIN (VEÍCULO EXTRA) ---
+                                    agora_notif = get_horario_brasil_str()
+                                    execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
+                                                  (agora_notif, dados_cliente_sel['empresa'], f"Adicionou um veículo extra ({nv['placa']}) para o cliente {en_nome}."))
 
                                 registrar_auditoria("Edição", "Clientes", f"Dados e veículos do cliente {en_nome} atualizados.")
                                 st.session_state.flash_msg = "Cliente e veículos atualizados com sucesso!"
@@ -1106,31 +1135,29 @@ else:
                 for emp in empresas_cad:
                     nome_emp = emp['nome']
                     val_unit = emp['valor_veiculo'] if emp['valor_veiculo'] is not None else 3.00
-                    dia_v = emp['dia_vencimento'] if emp['dia_vencimento'] is not None else 10
+                    dia_venc = emp['dia_vencimento'] if emp['dia_vencimento'] is not None else 10
                     stat_p = emp['status_pagamento'] if emp['status_pagamento'] is not None else "Pendente"
                     v_pago_ef = emp['valor_pago'] if emp['valor_pago'] is not None else 0.00
                     
-                    status_calculado = calcular_status_fatura(stat_p, dia_v)
+                    status_calculado = calcular_status_fatura(stat_p, dia_venc)
                     
                     q_v = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
                     res_v = fetch_data(q_v, (nome_emp,))
                     qtd_v = res_v[0]['qtd'] if res_v else 0
                     valor_calc = qtd_v * val_unit
                     
-                    # Faturamento Previsto é a projeção real com base nos carros ativos hoje
                     total_faturamento_previsto += valor_calc
                     
                     if "Vencida" in status_calculado or "Vence Hoje" in status_calculado:
                         total_atrasado += valor_calc
                         
-                    # O valor pago é ESTRITAMENTE o valor real que foi registrado na aba
                     total_pago += v_pago_ef
                     
                     dados_financeiro_global.append({
                         "Empresa Parceira": nome_emp,
                         "Veículos Ativos": qtd_v,
                         "Valor Unitário": f"R$ {val_unit:.2f}",
-                        "Vencimento": f"Dia {dia_v}",
+                        "Vencimento": f"Dia {dia_venc}",
                         "Faturamento Previsto": f"R$ {valor_calc:.2f}",
                         "Valor Pago Registrado": f"R$ {v_pago_ef:.2f}",
                         "Status Atual": status_calculado
