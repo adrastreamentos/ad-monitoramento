@@ -63,7 +63,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id SERIAL PRIMARY KEY, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
     
-    # Limpeza de fantasmas
     empresas_fantasmas = ('Fortia', 'FORTIA', 'Cartrack', 'CARTRACK', 'Car Tracker', 'CAR TRACKER')
     try:
         c.execute("DELETE FROM veiculos WHERE cliente_id IN (SELECT id FROM clientes WHERE empresa IN %s)", (empresas_fantasmas,))
@@ -76,7 +75,6 @@ def init_db():
 
     conn.close()
 
-# CACHE ATIVO PARA DADOS GERAIS
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -86,7 +84,6 @@ def fetch_data(query, params=()):
     conn.close()
     return data
 
-# CACHE EXCLUSIVO E BLINDADO PARA A LOGO
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
     try:
@@ -308,7 +305,6 @@ else:
                 st.session_state["termo_busca_ativo"] = busca_op
                 
             if "termo_busca_ativo" in st.session_state and st.session_state["termo_busca_ativo"]:
-                # Busca inteligente que ignora letras maiúsculas/minúsculas usando ILIKE
                 termo = f"%{st.session_state['termo_busca_ativo']}%"
                 q_busca = """
                     SELECT c.nome, c.documento, c.telefone, c.empresa, v.placa, v.modelo, v.cor, v.tipo_veic 
@@ -380,8 +376,9 @@ else:
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
 
         if acao_clientes == "Listar":
-            # --- BUSCA INTELIGENTE GERAL ---
-            busca_cli = st.text_input("🔍 Busca Inteligente (Digite Nome, Placa ou CPF - Mínimo 3 letras):")
+            
+            # --- BUSCA INTELIGENTE ---
+            busca_cli = st.text_input("🔍 Busca Inteligente (Digite Nome, Placa ou CPF - Mín. 3 letras):", placeholder="Ex: Cláudio, 000.000.000-00, QXC1234")
             
             q_tela = """
                 SELECT c.id as cli_id, c.nome, c.documento, c.telefone, c.empresa, c.status, 
@@ -399,7 +396,7 @@ else:
                 q_tela += " AND (c.nome ILIKE %s OR c.documento ILIKE %s OR EXISTS (SELECT 1 FROM veiculos v2 WHERE v2.cliente_id = c.id AND v2.placa ILIKE %s))"
                 params_tela.extend([termo, termo, termo])
                 
-            q_tela += " ORDER BY c.nome"
+            q_tela += " ORDER BY c.empresa, c.nome"
             
             res_tela = fetch_data(q_tela, tuple(params_tela))
             
@@ -407,11 +404,10 @@ else:
                 df_tela = pd.DataFrame(res_tela)
                 empresas_ativas = df_tela['empresa'].unique()
                 
-                # --- O VISUAL "NORMALZINHO" QUE VOCÊ PEDIU ---
+                # --- EXIBIÇÃO EM PASTAS "NORMALZINHA" ---
                 for emp_ativa in empresas_ativas:
-                    with st.expander(f"📁 Clientes e Frotas da Empresa: {emp_ativa}"):
+                    with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
                         df_emp = df_tela[df_tela['empresa'] == emp_ativa]
-                        # Mostra o cliente apenas uma vez, sem repetir, com a contagem exata de carros
                         df_display = df_emp[['nome', 'documento', 'telefone', 'qtd_veiculos', 'status']].copy()
                         df_display.columns = ['Cliente', 'CPF/CNPJ', 'Telefone', 'Qtd. Veículos', 'Status']
                         st.dataframe(df_display, use_container_width=True)
@@ -419,11 +415,10 @@ else:
                 st.markdown("---")
                 st.subheader("🔍 Visualizar Ficha Completa do Cliente")
                 
-                # O Selectbox reflete exatamente os resultados da Busca Inteligente
                 lista_ficha_op = [""] + [f"{row['cli_id']} - {row['nome']} (CPF/CNPJ: {row['documento']}) - [{row['empresa']}]" for _, row in df_tela.iterrows()]
                 
                 k_ficha_cli = st.session_state.reset_keys['ficha_cli']
-                cli_ficha_sel = st.selectbox("Selecione o cliente abaixo para detalhar a ficha completa e visualizar todos os seus veículos:", lista_ficha_op, key=f"sb_ficha_cli_{k_ficha_cli}")
+                cli_ficha_sel = st.selectbox("Selecione o cliente abaixo para ver a ficha completa e detalhar todos os seus veículos:", lista_ficha_op, key=f"sb_ficha_cli_{k_ficha_cli}")
                 
                 if cli_ficha_sel != "":
                     id_cli_ficha = int(cli_ficha_sel.split(" - ")[0])
@@ -530,60 +525,81 @@ else:
                             
         elif acao_clientes == "Importação em Lote":
             st.subheader("📥 Importação Inteligente de Clientes e Frotas via CSV")
-            st.info("O sistema criará o cliente automaticamente (se já não existir pelo CPF/CNPJ) e agrupará os veículos na conta dele.")
+            st.info("O sistema criará o cliente uma única vez e agrupará todos os veículos vinculados ao mesmo CPF/CNPJ de forma automática, sem criar duplicatas.")
             
-            emp_lote = st.selectbox("Selecione a Empresa de destino:", opcoes_emp, key="emp_lote_sel")
+            emp_lote = st.selectbox("Selecione a Empresa de destino para a importação:", opcoes_emp, key="emp_lote_sel")
             
+            # Template EXATO com as informações que você pediu
             df_exemplo = pd.DataFrame({
                 "Nome": ["João da Silva", "João da Silva"],
-                "Documento": ["123.456.789-00", "123.456.789-00"],
+                "CPF / CNPJ": ["123.456.789-00", "123.456.789-00"],
                 "Endereço": ["Rua A, 100", "Rua A, 100"],
                 "Telefone": ["(84) 99999-1111", "(84) 99999-1111"],
-                "Tipo Veículo": ["Carro", "Moto"],
+                "Tipo": ["Carro", "Moto"],
                 "Placa": ["ABC-1234", "XYZ-5678"],
                 "Modelo": ["Fiat Palio", "Honda CG"],
                 "Cor": ["Prata", "Vermelha"]
             })
-            st.download_button(label="📄 Baixar Planilha Modelo (CSV)", data=df_exemplo.to_csv(index=False).encode('utf-8'), file_name="Modelo_Importacao.csv", mime="text/csv")
+            st.download_button(label="📄 Baixar Planilha Modelo (CSV)", data=df_exemplo.to_csv(index=False).encode('utf-8'), file_name="Modelo_Importacao_Frotas.csv", mime="text/csv")
             
-            arquivo_csv = st.file_uploader("Escolha o arquivo CSV", type=["csv"])
+            arquivo_csv = st.file_uploader("Escolha a sua planilha CSV preenchida", type=["csv"])
             if arquivo_csv is not None:
                 try:
-                    df_import = pd.read_csv(arquivo_csv)
-                    if st.button("🚀 Processar Importação"):
-                        importados = 0
-                        for _, row in df_import.iterrows():
-                            nome = str(row.get("Nome", ""))
-                            doc = str(row.get("Documento", ""))
-                            end = str(row.get("Endereço", ""))
-                            tel = str(row.get("Telefone", ""))
-                            tipo = str(row.get("Tipo Veículo", "Carro"))
-                            placa = str(row.get("Placa", ""))
-                            modelo = str(row.get("Modelo", ""))
-                            cor = str(row.get("Cor", ""))
+                    df_import = pd.read_csv(arquivo_csv).fillna("")
+                    if st.button("🚀 Processar Importação Inteligente"):
+                        importados_clientes = 0
+                        importados_veiculos = 0
+                        
+                        col_doc = "CPF / CNPJ" if "CPF / CNPJ" in df_import.columns else ("Documento" if "Documento" in df_import.columns else None)
+                        if not col_doc:
+                            st.error("ERRO: A coluna 'CPF / CNPJ' não foi encontrada na sua planilha. Por favor, baixe o modelo acima.")
+                            st.stop()
+
+                        conn = get_db_connection()
+                        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+                        # AGRUPAMENTO INTELIGENTE: Pega o CSV e agrupa todas as linhas que têm o mesmo CPF
+                        for doc, group in df_import.groupby(col_doc):
+                            doc_str = str(doc).strip()
+                            if not doc_str: continue
                             
-                            if nome and placa:
-                                conn = get_db_connection()
-                                cur = conn.cursor(cursor_factory=RealDictCursor)
-                                cur.execute("SELECT id FROM clientes WHERE documento=%s AND empresa=%s", (doc, emp_lote))
-                                cli_res = cur.fetchone()
+                            primeira_linha = group.iloc[0]
+                            nome = str(primeira_linha.get("Nome", "")).strip()
+                            end = str(primeira_linha.get("Endereço", "")).strip()
+                            tel = str(primeira_linha.get("Telefone", "")).strip()
+                            
+                            if not nome: continue
+
+                            # Verifica se o cliente já existe para não duplicar
+                            cur.execute("SELECT id FROM clientes WHERE documento=%s AND empresa=%s", (doc_str, emp_lote))
+                            cli_res = cur.fetchone()
+                            
+                            if cli_res:
+                                cli_id = cli_res['id']
+                            else:
+                                cur.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status) VALUES (%s,%s,%s,%s,%s,'Ativo') RETURNING id", 
+                                            (nome, doc_str, end, tel, emp_lote))
+                                cli_id = cur.fetchone()['id']
+                                importados_clientes += 1
                                 
-                                if cli_res:
-                                    cli_id = cli_res['id']
-                                else:
-                                    cur.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status) VALUES (%s,%s,%s,%s,%s,'Ativo') RETURNING id", 
-                                                (nome, doc, end, tel, emp_lote))
-                                    cli_id = cur.fetchone()['id']
-                                    
-                                cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
-                                            (cli_id, tipo, placa, modelo, cor))
-                                conn.commit()
-                                conn.close()
-                                importados += 1
+                            # Insere todos os veículos deste cliente em lote
+                            for _, row in group.iterrows():
+                                tipo = str(row.get("Tipo", "Carro")).strip()
+                                placa = str(row.get("Placa", "")).strip()
+                                modelo = str(row.get("Modelo", "")).strip()
+                                cor = str(row.get("Cor", "")).strip()
+                                
+                                if placa:
+                                    cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
+                                                (cli_id, tipo, placa, modelo, cor))
+                                    importados_veiculos += 1
+
+                        conn.commit()
+                        conn.close()
                         
                         st.cache_data.clear()        
-                        registrar_auditoria("Importação Lote", "Clientes", f"{importados} registros importados via CSV.")
-                        st.session_state.flash_msg = f"Importação concluída! {importados} registros processados."
+                        registrar_auditoria("Importação Lote", "Clientes", f"Importação CSV: {importados_clientes} clientes e {importados_veiculos} veículos.")
+                        st.session_state.flash_msg = f"Sucesso! {importados_clientes} clientes agrupados/criados e {importados_veiculos} veículos inseridos."
                         st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao processar CSV: {e}")
@@ -599,20 +615,17 @@ else:
             if "termo_cli_ativo" in st.session_state and st.session_state["termo_cli_ativo"]:
                 termo_c = f"%{st.session_state['termo_cli_ativo']}%"
                 
-                # ILIKE ignora letras maiúsculas/minúsculas perfeitamente
                 q_cli_busca = """
-                    SELECT c.id, c.nome, c.documento 
-                    FROM clientes c 
+                    SELECT DISTINCT c.id, c.nome, c.documento FROM clientes c 
                     WHERE (c.nome ILIKE %s OR c.documento ILIKE %s OR EXISTS (SELECT 1 FROM veiculos v WHERE v.cliente_id = c.id AND v.placa ILIKE %s))
                 """
                 params_busca = [termo_c, termo_c, termo_c]
-                
+
                 if not st.session_state.is_admin:
                     q_cli_busca += " AND c.empresa = %s"
                     params_busca.append(st.session_state.nome_empresa)
                 
                 res_cli_busca = fetch_data(q_cli_busca, tuple(params_busca))
-                
                 if res_cli_busca:
                     opcoes_cli = [f"{item['id']} - {item['nome']} (CPF/CNPJ: {item['documento']})" for item in res_cli_busca]
                     
@@ -910,7 +923,7 @@ else:
                 else:
                     st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
-        tab_idx += 1  # FIM DO BLOCO PARCEIRO
+        tab_idx += 1
 
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
@@ -1012,7 +1025,7 @@ else:
                                 st.rerun()
                 else:
                     st.warning("Nenhuma empresa encontrada.")
-        tab_idx += 1 # FIM DO BLOCO EMPRESAS (ADMIN)
+        tab_idx += 1 
 
     # --- ABA: FINANCEIRO (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
@@ -1035,14 +1048,13 @@ else:
                     stat_p = emp['status_pagamento'] if emp['status_pagamento'] is not None else "Pendente"
                     v_pago_ef = emp['valor_pago'] if emp['valor_pago'] is not None else 0.00
                     
-                    status_calculado = calcular_status_fatura(stat_p, dia_venc)
+                    status_calculado = calcular_status_fatura(stat_p, dia_v)
                     
                     q_v = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
                     res_v = fetch_data(q_v, (nome_emp,))
                     qtd_v = res_v[0]['qtd'] if res_v else 0
                     valor_calc = qtd_v * val_unit
                     
-                    # Acumula TODO MUNDO globalmente no Faturamento Previsto (Recebível baseado em cadastros reais da hora)
                     total_faturamento_previsto += valor_calc
                     
                     if "Pago" in status_calculado:
