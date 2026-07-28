@@ -5,6 +5,7 @@ import urllib.parse
 import base64
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import io
 import os
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
@@ -71,7 +72,6 @@ def fetch_data(query, params=()):
     conn.close()
     return data
 
-# Função sem cache dedicada para buscar imagens binárias da logo com segurança
 def fetch_logo_direto(query, params=()):
     conn = get_db_connection()
     c = conn.cursor(cursor_factory=RealDictCursor)
@@ -234,11 +234,15 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     with st.sidebar:
-        # Exibir a logo do parceiro na barra lateral (usando função sem cache para evitar erro)
+        # Exibir a logo do parceiro com conversor io.BytesIO seguro
         if not st.session_state.is_admin:
             res_logo_sb = fetch_logo_direto("SELECT logo_binario FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
             if res_logo_sb and res_logo_sb[0].get('logo_binario'):
-                st.image(res_logo_sb[0]['logo_binario'], width=140)
+                try:
+                    img_bytes = bytes(res_logo_sb[0]['logo_binario'])
+                    st.image(io.BytesIO(img_bytes), width=140)
+                except Exception:
+                    pass
 
         st.write(f"👤 **Conectado como:** {st.session_state.nome_empresa}")
         
