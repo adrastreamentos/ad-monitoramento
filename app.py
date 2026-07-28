@@ -5,6 +5,7 @@ import urllib.parse
 import base64
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import os
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -45,7 +46,16 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS empresas (id SERIAL PRIMARY KEY, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT, servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)', valor_veiculo REAL DEFAULT 3.00, dia_vencimento INTEGER DEFAULT 10, status_pagamento TEXT DEFAULT 'Pendente')''')
+    c.execute('''CREATE TABLE IF NOT EXISTS empresas (id SERIAL PRIMARY KEY, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT, servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)', valor_veiculo REAL DEFAULT 3.00, dia_vencimento INTEGER DEFAULT 10, status_pagamento TEXT DEFAULT 'Pendente', valor_pago REAL DEFAULT 0.00, logo_url TEXT DEFAULT '')''')
+    
+    # Migração caso as colunas novas ainda não existam no banco da nuvem
+    try:
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_url TEXT DEFAULT '';")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id SERIAL PRIMARY KEY, nome TEXT, documento TEXT, endereco TEXT, telefone TEXT, empresa TEXT, status TEXT DEFAULT 'Ativo')''')
     c.execute('''CREATE TABLE IF NOT EXISTS veiculos (id SERIAL PRIMARY KEY, cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE, tipo_veic TEXT, placa TEXT, modelo TEXT, cor TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id SERIAL PRIMARY KEY, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
@@ -55,7 +65,6 @@ def init_db():
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
-    """Guarda o resultado das buscas na memória por 2 minutos para não travar a tela"""
     conn = get_db_connection()
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
@@ -64,7 +73,6 @@ def fetch_data(query, params=()):
     return data
 
 def execute_query(query, params=()):
-    """Salva a informação na nuvem e limpa a memória cache para a tela atualizar na hora"""
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(query, params)
@@ -761,13 +769,23 @@ else:
     # --- ABA: MEU FATURAMENTO (EXCLUSIVO PARA EMPRESAS PARCEIRAS) ---
     if not st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
+            # Exibir Logo da Empresa Parceira se estiver cadastrada
+            res_emp_info = fetch_data("SELECT servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago, logo_url FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+            
+            if res_emp_info:
+                logo_arquivo = res_emp_info[0].get('logo_url', '')
+                if logo_arquivo and os.path.exists(logo_arquivo):
+                    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
+                    with col_l2:
+                        st.image(logo_arquivo, width=200)
+
             st.header("💰 Meu Faturamento e Frotas Ativas")
             
-            res_emp_info = fetch_data("SELECT servicos, valor_veiculo, dia_vencimento, status_pagamento FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
             servico_emp = res_emp_info[0]['servicos'] if res_emp_info else "Ambos"
             valor_por_veiculo = res_emp_info[0]['valor_veiculo'] if (res_emp_info and res_emp_info[0]['valor_veiculo'] is not None) else 3.00
             dia_venc = res_emp_info[0]['dia_vencimento'] if (res_emp_info and res_emp_info[0]['dia_vencimento'] is not None) else 10
             status_pag = res_emp_info[0]['status_pagamento'] if (res_emp_info and res_emp_info[0]['status_pagamento'] is not None) else "Pendente"
+            valor_pago_efetivo = res_emp_info[0]['valor_pago'] if (res_emp_info and res_emp_info[0]['valor_pago'] is not None) else 0.00
             
             status_visual = calcular_status_fatura(status_pag, dia_venc)
 
@@ -796,8 +814,11 @@ else:
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
             col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
             col_m2.metric("💵 Valor Unitário Aplicado", f"R$ {valor_por_veiculo:.2f}")
-            col_m3.metric("💳 Fatura Fechada", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
+            col_m3.metric("💳 Fatura Calculada", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
             col_m4.metric("📌 Status da Fatura", f"{status_visual}")
+
+            if status_pag == "Pago":
+                st.info(f"💡 **Valor Quitado Registrado:** R$ {valor_pago_efetivo:.2f} (Com juros/acréscimos aplicados, se houver).")
             
             st.markdown("---")
             st.subheader("📋 Detalhamento da Frota Faturada")
@@ -840,7 +861,10 @@ else:
                             valor_unit = emp['valor_veiculo'] if ('valor_veiculo' in emp and emp['valor_veiculo'] is not None) else 3.00
                             dia_v = emp['dia_vencimento'] if ('dia_vencimento' in emp and emp['dia_vencimento'] is not None) else 10
                             stat_pag = emp['status_pagamento'] if ('status_pagamento' in emp and emp['status_pagamento'] is not None) else "Pendente"
-                            st.write(f"**Pacote:** {servico_vinculado} | **Preço/Veículo:** R$ {valor_unit:.2f} | **Vencimento:** Dia {dia_v} | **Status Fatura:** {stat_pag}")
+                            val_pago_ef = emp['valor_pago'] if ('valor_pago' in emp and emp['valor_pago'] is not None) else 0.00
+                            logo_inf = emp['logo_url'] if ('logo_url' in emp and emp['logo_url'] is not None) else "Nenhuma"
+                            st.write(f"**Pacote:** {servico_vinculado} | **Preço/Veículo:** R$ {valor_unit:.2f} | **Vencimento:** Dia {dia_v}")
+                            st.write(f"**Status Fatura:** {stat_pag} | **Valor Pago Registrado:** R$ {val_pago_ef:.2f} | **Arquivo de Logo:** {logo_inf}")
                 else:
                     st.info("Nenhuma empresa parceira cadastrada.")
             
@@ -854,11 +878,12 @@ else:
                     e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
                     e_valor = st.number_input("Valor por Veículo (R$) *", min_value=0.0, value=3.00, format="%.2f")
                     e_venc = st.number_input("Dia de Vencimento da Fatura *", min_value=1, max_value=31, value=10)
+                    e_logo = st.text_input("Nome do arquivo da Logo (ex: logo_centuriao.png)")
                     
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
-                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
-                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente'))
+                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago, logo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
+                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00, e_logo))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.")
                             st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
                             st.rerun()
@@ -898,9 +923,12 @@ else:
                                 venc_atual = dados_e['dia_vencimento'] if ('dia_vencimento' in dados_e and dados_e['dia_vencimento'] is not None) else 10
                                 ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
 
+                                logo_atual = dados_e['logo_url'] if ('logo_url' in dados_e and dados_e['logo_url'] is not None) else ""
+                                ne_logo = st.text_input("Nome do arquivo da Logo (ex: logo_centuriao.png)", value=logo_atual)
+
                                 if st.form_submit_button("💾 Salvar Alterações"):
-                                    execute_query("UPDATE empresas SET nome=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
-                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
+                                    execute_query("UPDATE empresas SET nome=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s, logo_url=%s WHERE id=%s", 
+                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, ne_logo, id_emp))
                                     registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}")
                                     st.session_state.flash_msg = "Alterações salvas com sucesso!"
                                     st.session_state.reset_keys['edit_emp'] += 1
@@ -924,7 +952,7 @@ else:
             st.header("💰 Controle Financeiro Global de Parceiros")
             st.info("ℹ️ Painel executivo financeiro com o resumo consolidado a receber, valores atrasados e valores quitados de todos os parceiros.")
             
-            empresas_cad = fetch_data("SELECT id, nome, valor_veiculo, dia_vencimento, status_pagamento FROM empresas")
+            empresas_cad = fetch_data("SELECT id, nome, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas")
             
             total_a_receber = 0.0
             total_atrasado = 0.0
@@ -937,6 +965,7 @@ else:
                     val_unit = emp['valor_veiculo'] if emp['valor_veiculo'] is not None else 3.00
                     dia_v = emp['dia_vencimento'] if emp['dia_vencimento'] is not None else 10
                     stat_p = emp['status_pagamento'] if emp['status_pagamento'] is not None else "Pendente"
+                    v_pago_ef = emp['valor_pago'] if emp['valor_pago'] is not None else 0.00
                     
                     status_calculado = calcular_status_fatura(stat_p, dia_v)
                     
@@ -946,7 +975,7 @@ else:
                     valor_calc = qtd_v * val_unit
                     
                     if "Pago" in status_calculado:
-                        total_pago += valor_calc
+                        total_pago += v_pago_ef if v_pago_ef > 0 else valor_calc
                     elif "Vencida / Atrasada" in status_calculado or "Vence Hoje" in status_calculado:
                         total_atrasado += valor_calc
                     else:
@@ -958,6 +987,7 @@ else:
                         "Valor Unitário": f"R$ {val_unit:.2f}",
                         "Vencimento": f"Dia {dia_v}",
                         "Faturamento Estimado": f"R$ {valor_calc:.2f}",
+                        "Valor Pago Registrado": f"R$ {v_pago_ef:.2f}",
                         "Status": status_calculado
                     })
             
@@ -973,7 +1003,7 @@ else:
                 st.dataframe(df_fin_global, use_container_width=True)
                 
                 st.markdown("---")
-                st.subheader("⚡ Atualizar Pagamento e Valor da Fatura")
+                st.subheader("⚡ Atualizar Pagamento e Valor da Fatura (Com Juros/Acréscimos)")
                 
                 if 'k_fin' not in st.session_state:
                     st.session_state.k_fin = 0
@@ -989,20 +1019,32 @@ else:
                     dados_emp_fin = next(item for item in empresas_cad if item["nome"] == emp_escolhida_pagto)
                     val_atual = dados_emp_fin['valor_veiculo'] if dados_emp_fin['valor_veiculo'] is not None else 3.00
                     stat_atual = dados_emp_fin['status_pagamento'] if dados_emp_fin['status_pagamento'] is not None else "Pendente"
+                    vp_atual = dados_emp_fin['valor_pago'] if dados_emp_fin['valor_pago'] is not None else 0.00
                     
+                    # Calcula uma sugestão base com base nos veículos ativos
+                    q_v_calc = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
+                    res_v_calc = fetch_data(q_v_calc, (emp_escolhida_pagto,))
+                    qtd_v_calc = res_v_calc[0]['qtd'] if res_v_calc else 0
+                    sugestao_total = qtd_v_calc * val_atual
+                    if vp_atual == 0.0:
+                        vp_atual = sugestao_total
+
                     with st.form("form_atualiza_status_pagto", clear_on_submit=True):
                         st.write(f"**Empresa Selecionada:** {emp_escolhida_pagto}")
-                        col_f1, col_f2 = st.columns(2)
+                        col_f1, col_f2, col_f3 = st.columns(3)
                         
-                        novo_valor = col_f1.number_input("Valor Unitário por Veículo (Pode incluir juros/acréscimos):", min_value=0.0, value=float(val_atual), format="%.2f")
+                        novo_valor_unit = col_f1.number_input("Novo Valor Unitário por Veículo:", min_value=0.0, value=float(val_atual), format="%.2f")
+                        
+                        # NOVO CAMPO: Valor exato pago pelo cliente (incluindo juros/acréscimos)
+                        novo_valor_pago = col_f2.number_input("Valor Total Pago (Com Juros/Acréscimos se houver):", min_value=0.0, value=float(vp_atual), format="%.2f")
                         
                         opcoes_st_fin = ["Pendente", "Pago"]
                         idx_st_fin = opcoes_st_fin.index(stat_atual) if stat_atual in opcoes_st_fin else 0
-                        novo_status_pagto = col_f2.selectbox("Status da Fatura:", opcoes_st_fin, index=idx_st_fin)
+                        novo_status_pagto = col_f3.selectbox("Status da Fatura:", opcoes_st_fin, index=idx_st_fin)
                         
-                        if st.form_submit_button("💾 Salvar Pagamento e Valor"):
-                            execute_query("UPDATE empresas SET status_pagamento=%s, valor_veiculo=%s WHERE nome=%s", (novo_status_pagto, novo_valor, emp_escolhida_pagto))
-                            registrar_auditoria("Financeiro", "Faturamento", f"Status de {emp_escolhida_pagto} alterado para {novo_status_pagto} e valor para R$ {novo_valor:.2f}")
+                        if st.form_submit_button("💾 Salvar Pagamento e Valores"):
+                            execute_query("UPDATE empresas SET status_pagamento=%s, valor_veiculo=%s, valor_pago=%s WHERE nome=%s", (novo_status_pagto, novo_valor_unit, novo_valor_pago, emp_escolhida_pagto))
+                            registrar_auditoria("Financeiro", "Faturamento", f"Fatura de {emp_escolhida_pagto} alterada para {novo_status_pagto} | Valor Pago: R$ {novo_valor_pago:.2f}")
                             st.session_state.flash_msg = f"Financeiro da empresa {emp_escolhida_pagto} atualizado com sucesso!"
                             st.session_state.k_fin += 1
                             st.rerun()
