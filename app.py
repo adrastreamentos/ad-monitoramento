@@ -119,7 +119,11 @@ def get_horario_brasil_str():
     return get_horario_brasil().strftime("%d/%m/%Y %H:%M:%S")
 
 def registrar_auditoria(acao, modulo, detalhes, empresa_rel=None):
-    usuario = st.session_state.get('nome_empresa', 'AD RASTREAMENTO VEICULAR')
+    # --- MELHORIA: IDENTIFICAÇÃO DO ADMINISTRADOR ---
+    if st.session_state.get('is_admin'):
+        usuario = "AD ADMIN"
+    else:
+        usuario = st.session_state.get('nome_empresa', 'Desconhecido')
     
     # Adiciona a marcação do "Alvo" se a ação foi feita com uma empresa específica
     if empresa_rel:
@@ -323,7 +327,6 @@ else:
                     st.rerun()
             st.markdown("---")
 
-    # Adicionado a aba "Auditoria" também para o parceiro
     if st.session_state.is_admin:
         abas = ["🚨 Central 24h", "👤 Clientes", "📖 Relatórios", "🏢 Empresas", "💰 Financeiro", "🕵️ Auditoria"]
     else:
@@ -787,7 +790,6 @@ else:
                                 if ids_para_excluir:
                                     ids_tuple = tuple(ids_para_excluir)
                                     
-                                    # Puxar os nomes das empresas afetadas para a auditoria
                                     empresas_afetadas = fetch_data("SELECT DISTINCT empresa FROM clientes WHERE id IN %s", (ids_tuple,))
                                     nomes_empresas = ", ".join([e['empresa'] for e in empresas_afetadas]) if empresas_afetadas else ""
 
@@ -863,7 +865,9 @@ else:
                         st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
-                        lista_sel_fr = [""] + [f"{h['id']} - {h['placa']} ({h['tipo']} - {h['status']})" for h in res_fr]
+                        
+                        # --- MELHORIA: EXIBIÇÃO DA PLACA, NOME DO CLIENTE E HORÁRIO NO SELECTBOX ---
+                        lista_sel_fr = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_fr]
                         
                         k_rel_fr = st.session_state.reset_keys['rel_fr']
                         reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", lista_sel_fr, key=f"sb_rel_fr_{k_rel_fr}")
@@ -958,7 +962,9 @@ else:
                         st.dataframe(df_mon[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha de Monitoramento")
-                        lista_sel_mon = [""] + [f"{h['id']} - {h['placa']} ({h['data_hora']})" for h in res_mon]
+                        
+                        # --- MELHORIA: EXIBIÇÃO DA PLACA, NOME DO CLIENTE E HORÁRIO NO SELECTBOX ---
+                        lista_sel_mon = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_mon]
                         
                         k_rel_mon = st.session_state.reset_keys['rel_mon']
                         reg_sel_mon = st.selectbox("Selecione um registro para visualizar:", lista_sel_mon, key=f"sb_rel_mon_{k_rel_mon}")
@@ -1327,9 +1333,7 @@ else:
             q_aud = "SELECT * FROM auditoria WHERE 1=1"
             p_aud = []
             
-            # --- FILTRO DE VISÃO DO PARCEIRO (AUDITORIA BIDIRECIONAL) ---
             if not st.session_state.is_admin:
-                # O Parceiro só vê o que ele fez OU o que foi feito tendo a empresa dele como alvo
                 q_aud += " AND (usuario = %s OR detalhes ILIKE %s)"
                 p_aud.extend([st.session_state.nome_empresa, f"%Alvo: {st.session_state.nome_empresa}%"])
                 
@@ -1351,7 +1355,6 @@ else:
 
                 st.dataframe(df_auditoria, use_container_width=True)
                 
-                # Excluir auditoria é exclusividade do administrador
                 if st.session_state.is_admin:
                     st.markdown("### 🗑️ Excluir Registro Específico de Auditoria")
                     lista_aud = [""] + [f"{row['ID']} - {row['Data/Hora']} ({row['Empresa / Usuário']} - {row['Ação']} / {row['Módulo']})" for _, row in df_auditoria.iterrows()]
