@@ -853,15 +853,21 @@ else:
             
             st.markdown("---")
             st.subheader("🔍 Consulta de Faturas Anteriores por Mês")
-            mes_busca_parceiro = st.text_input("Digite o Mês/Ano de referência (Ex: 06/2026 ou 07/2026):", value="")
-            if mes_busca_parceiro:
-                res_hist_p = fetch_data("SELECT * FROM historico_faturas WHERE empresa=%s AND mes_ref=%s", (st.session_state.nome_empresa, mes_busca_parceiro))
-                if res_hist_p:
-                    df_hp = pd.DataFrame(res_hist_p)[['mes_ref', 'total_veiculos', 'valor_unitario', 'valor_pago', 'status', 'data_pagamento']]
-                    df_hp.columns = ['Mês Ref.', 'Veículos', 'Valor Unit.', 'Valor Pago', 'Status', 'Data Pgto']
-                    st.dataframe(df_hp, use_container_width=True)
-                else:
-                    st.info(f"Nenhum registro de fatura encontrado para o mês {mes_busca_parceiro}.")
+            
+            # Busca os meses disponíveis para este parceiro
+            res_meses_p = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas WHERE empresa=%s ORDER BY mes_ref DESC", (st.session_state.nome_empresa,))
+            lista_meses_p = [m['mes_ref'] for m in res_meses_p] if res_meses_p else []
+            
+            if lista_meses_p:
+                mes_busca_parceiro = st.selectbox("Selecione o Mês/Ano de referência:", [""] + lista_meses_p)
+                if mes_busca_parceiro != "":
+                    res_hist_p = fetch_data("SELECT * FROM historico_faturas WHERE empresa=%s AND mes_ref=%s", (st.session_state.nome_empresa, mes_busca_parceiro))
+                    if res_hist_p:
+                        df_hp = pd.DataFrame(res_hist_p)[['mes_ref', 'total_veiculos', 'valor_unitario', 'valor_pago', 'status', 'data_pagamento']]
+                        df_hp.columns = ['Mês Ref.', 'Veículos', 'Valor Unit.', 'Valor Pago', 'Status', 'Data Pgto']
+                        st.dataframe(df_hp, use_container_width=True)
+            else:
+                st.info("Nenhum histórico de fatura anterior registrado no momento.")
 
             st.markdown("---")
             st.subheader("📋 Detalhamento da Frota Faturada Atual")
@@ -1043,13 +1049,18 @@ else:
                 
                 st.markdown("---")
                 st.subheader("🔍 Consulta Histórica de Faturas por Mês (Busca Inteligente)")
+                
+                # Busca meses e empresas disponíveis no histórico para os filtros de selectbox
+                res_meses_db = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas ORDER BY mes_ref DESC")
+                lista_meses_adm = ["Todos"] + [m['mes_ref'] for m in res_meses_db] if res_meses_db else ["Todos"]
+                
                 col_h1, col_h2 = st.columns(2)
-                mes_busca_admin = col_h1.text_input("Filtrar por Mês/Ano (Ex: 06/2026):", value="")
+                mes_busca_admin = col_h1.selectbox("Filtrar por Mês/Ano:", lista_meses_adm)
                 emp_busca_admin = col_h2.selectbox("Filtrar por Empresa:", ["Todas"] + [e['nome'] for e in empresas_cad])
 
                 q_hist_adm = "SELECT * FROM historico_faturas WHERE 1=1"
                 p_hist_adm = []
-                if mes_busca_admin:
+                if mes_busca_admin != "Todos":
                     q_hist_adm += " AND mes_ref = %s"
                     p_hist_adm.append(mes_busca_admin)
                 if emp_busca_admin != "Todas":
@@ -1105,7 +1116,6 @@ else:
                         if st.form_submit_button("💾 Salvar Pagamento e Registrar Histórico"):
                             execute_query("UPDATE empresas SET status_pagamento=%s, valor_veiculo=%s, valor_pago=%s WHERE nome=%s", (novo_status_pagto, novo_valor_unit, novo_valor_pago, emp_escolhida_pagto))
                             
-                            # Salva também no histórico mensal para a busca inteligente
                             data_pgto_hoje = get_horario_brasil_str()
                             execute_query("INSERT INTO historico_faturas (mes_ref, empresa, total_veiculos, valor_unitario, valor_pago, status, data_pagamento) VALUES (%s,%s,%s,%s,%s,%s,%s)",
                                           (mes_referencia, emp_escolhida_pagto, qtd_v_calc, novo_valor_unit, novo_valor_pago, novo_status_pagto, data_pgto_hoje))
