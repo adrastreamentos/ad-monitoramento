@@ -62,10 +62,27 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS veiculos (id SERIAL PRIMARY KEY, cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE, tipo_veic TEXT, placa TEXT, modelo TEXT, cor TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id SERIAL PRIMARY KEY, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
-    conn.commit()
+    
+    # =========================================================================
+    # LIMPEZA FORÇADA DE DADOS FANTASMAS (Pedido da Andrea para limpar a base)
+    # =========================================================================
+    empresas_fantasmas = ('Fortia', 'FORTIA', 'Cartrack', 'CARTRACK', 'Car Tracker', 'CAR TRACKER')
+    try:
+        # Exclui veículos atrelados a esses clientes
+        c.execute("DELETE FROM veiculos WHERE cliente_id IN (SELECT id FROM clientes WHERE empresa IN %s)", (empresas_fantasmas,))
+        # Exclui os clientes dessas empresas
+        c.execute("DELETE FROM clientes WHERE empresa IN %s", (empresas_fantasmas,))
+        # Exclui histórico de faturas dessas empresas
+        c.execute("DELETE FROM historico_faturas WHERE empresa IN %s", (empresas_fantasmas,))
+        # Exclui as empresas erradas da raiz
+        c.execute("DELETE FROM empresas WHERE nome IN %s", (empresas_fantasmas,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     conn.close()
 
-# CACHE ATIVO PARA DADOS GERAIS
+# CACHE ATIVO PARA MANTÊ-R O APLICATIVO RÁPIDO
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -75,7 +92,7 @@ def fetch_data(query, params=()):
     conn.close()
     return data
 
-# CACHE EXCLUSIVO E BLINDADO PARA A LOGO
+# CACHE EXCLUSIVO E BLINDADO PARA A LOGO (RESOLVE A LENTIDÃO)
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
     try:
@@ -869,9 +886,9 @@ else:
             col_m1, col_m2, col_m3, col_m4 = st.columns(4)
             col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
             col_m2.metric("💵 Valor Unitário Aplicado", f"R$ {valor_por_veiculo:.2f}")
-            col_m3.metric("💳 Fatura Prevista Atual", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
+            col_m3.metric("💳 Faturamento Previsto Atual", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
             col_m4.metric("📌 Status da Fatura", f"{status_visual}")
-            
+
             st.markdown("---")
             st.subheader("🔍 Consulta de Faturas Anteriores por Mês")
             
@@ -994,7 +1011,7 @@ else:
                                 st.rerun()
                 else:
                     st.warning("Nenhuma empresa encontrada.")
-        tab_idx += 1  # FIM DO BLOCO EMPRESAS (ADMIN)
+        tab_idx += 1
 
     # --- ABA: FINANCEIRO (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
@@ -1142,7 +1159,7 @@ else:
                             st.rerun()
             else:
                 st.info("Nenhuma empresa parceira cadastrada para faturamento.")
-        tab_idx += 1 # FIM DO BLOCO FINANCEIRO (ADMIN)
+        tab_idx += 1
 
     # --- AUDITORIA ---
     if st.session_state.is_admin and tab_idx < len(tabs):
@@ -1177,7 +1194,7 @@ else:
                 aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
                 
                 if aud_sel_excluir != "":
-                    if st.button("❌ Fechar Seleção", key="btn_close_aud_del_sel"):
+                    if st.button("❌ Fechar Seleção", key="btn_close_aud_del"):
                         st.session_state.reset_keys['aud_del'] += 1
                         st.rerun()
                         
