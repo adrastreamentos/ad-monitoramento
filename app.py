@@ -65,7 +65,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# CACHE ATIVO PARA MANTÊ-R O APLICATIVO RÁPIDO
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -858,8 +857,7 @@ else:
             res_meses_p = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas WHERE empresa=%s ORDER BY mes_ref DESC", (st.session_state.nome_empresa,))
             lista_meses_p = [m['mes_ref'] for m in res_meses_p] if res_meses_p else []
             
-            # Campo flexível: permite selecionar de uma lista ou digitar novo mês
-            mes_busca_parceiro = st.selectbox("Selecione ou digite o Mês/Ano de referência:", ["Selecione..."] + lista_meses_p)
+            mes_busca_parceiro = st.selectbox("Selecione o Mês/Ano de referência:", ["Selecione..."] + lista_meses_p)
             digita_mes_p = st.text_input("Ou digite o mês diretamente (Ex: 06/2026):", value="")
             
             mes_alvo_p = digita_mes_p.strip() if digita_mes_p.strip() else (mes_busca_parceiro if mes_busca_parceiro != "Selecione..." else "")
