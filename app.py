@@ -75,6 +75,7 @@ def init_db():
 
     conn.close()
 
+# CACHE ATIVO PARA DADOS GERAIS
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -84,6 +85,7 @@ def fetch_data(query, params=()):
     conn.close()
     return data
 
+# CACHE EXCLUSIVO E BLINDADO PARA A LOGO
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
     try:
@@ -599,10 +601,10 @@ else:
                     st.error(f"Erro ao processar CSV: {e}")
             
         elif acao_clientes in ["Editar", "Excluir"]:
-            with st.form("form_busca_cliente", clear_on_submit=False):
-                busca = st.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF - Mín. 3 letras):")
-                btn_pesq = st.form_submit_button("Pesquisar")
-                
+            # Removido st.form para a busca e botões funcionarem de forma livre e dinâmica
+            busca = st.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF - Mín. 3 letras):")
+            btn_pesq = st.button("Pesquisar", type="primary")
+            
             if btn_pesq and busca and len(busca) >= 3:
                 st.session_state["termo_cli_ativo"] = busca
                 
@@ -637,20 +639,19 @@ else:
                             dados_cliente_sel = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_c_sel,))[0]
                             veiculos_cliente = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
                             
-                            st.markdown(f"**Cliente em Edição:** {dados_cliente_sel['nome']} | **Documento:** {dados_cliente_sel['documento']}")
+                            st.markdown("---")
+                            st.write("📝 **Atualizando Dados Cadastrais:**")
+                            en_nome = st.text_input("Nome", value=dados_cliente_sel['nome'], key=f"e_nome_{id_c_sel}")
+                            en_doc = st.text_input("CPF/CNPJ", value=dados_cliente_sel['documento'], key=f"e_doc_{id_c_sel}")
+                            en_end = st.text_input("Endereço", value=dados_cliente_sel.get('endereco', ''), key=f"e_end_{id_c_sel}")
+                            en_tel = st.text_input("Telefone", value=dados_cliente_sel['telefone'], key=f"e_tel_{id_c_sel}")
                             
-                            with st.form(f"form_edit_cad_{id_c_sel}", clear_on_submit=True):
-                                st.write("📝 **Atualizando Dados Cadastrais:**")
-                                en_nome = st.text_input("Nome", value=dados_cliente_sel['nome'])
-                                en_doc = st.text_input("CPF/CNPJ", value=dados_cliente_sel['documento'])
-                                en_end = st.text_input("Endereço", value=dados_cliente_sel.get('endereco', ''))
-                                en_tel = st.text_input("Telefone", value=dados_cliente_sel['telefone'])
-                                
-                                st.markdown("---")
-                                st.write("🚗 **Atualizando Veículos Vinculados:**")
-                                veiculos_editados = []
+                            st.markdown("---")
+                            st.write("🚗 **Veículos Já Vinculados (Edite os dados abaixo):**")
+                            veiculos_editados = []
+                            if veiculos_cliente:
                                 for idx, v in enumerate(veiculos_cliente):
-                                    st.write(f"**Veículo {idx+1}**")
+                                    st.write(f"**Veículo {idx+1} (Placa Atual: {v['placa']})**")
                                     vc1, vc2, vc3, vc4 = st.columns(4)
                                     tipos_v = ["Carro", "Moto", "Caminhão", "Outro"]
                                     t_idx = tipos_v.index(v['tipo_veic']) if v['tipo_veic'] in tipos_v else 0
@@ -661,16 +662,54 @@ else:
                                     e_cor = vc4.text_input(f"Cor", value=v['cor'], key=f"e_c_{v['id']}")
                                     
                                     veiculos_editados.append({"id": v['id'], "tipo": e_tipo, "placa": e_placa, "modelo": e_modelo, "cor": e_cor})
-                                    st.markdown("---")
-                                    
-                                if st.form_submit_button("💾 Salvar Alterações (Cliente e Veículos)"):
-                                    execute_query("UPDATE clientes SET nome=%s, documento=%s, endereco=%s, telefone=%s WHERE id=%s", (en_nome, en_doc, en_end, en_tel, id_c_sel))
-                                    for v_ed in veiculos_editados:
-                                        execute_query("UPDATE veiculos SET tipo_veic=%s, placa=%s, modelo=%s, cor=%s WHERE id=%s", (v_ed['tipo'], v_ed['placa'], v_ed['modelo'], v_ed['cor'], v_ed['id']))
-                                    registrar_auditoria("Edição", "Clientes", f"Dados e veículos do cliente {en_nome} atualizados.")
-                                    st.session_state.flash_msg = "Cadastro completo atualizado com sucesso!"
-                                    st.session_state.reset_keys['edit_cli'] += 1
+                            else:
+                                st.info("Este cliente ainda não possui nenhum veículo cadastrado.")
+
+                            st.markdown("---")
+                            st.write("➕ **Adicionar Novos Veículos a Este Cliente:**")
+                            
+                            # Memória de estado só para os novos carros inseridos na edição
+                            if f"novos_v_{id_c_sel}" not in st.session_state:
+                                st.session_state[f"novos_v_{id_c_sel}"] = 0
+                                
+                            col_add1, col_add2 = st.columns([1, 4])
+                            with col_add1:
+                                if st.button("➕ Novo Veículo", type="secondary", key=f"btn_add_nv_{id_c_sel}"):
+                                    st.session_state[f"novos_v_{id_c_sel}"] += 1
                                     st.rerun()
+                            with col_add2:
+                                if st.session_state[f"novos_v_{id_c_sel}"] > 0:
+                                    if st.button("➖ Remover Último", type="secondary", key=f"btn_rem_nv_{id_c_sel}"):
+                                        st.session_state[f"novos_v_{id_c_sel}"] -= 1
+                                        st.rerun()
+
+                            novos_veiculos_dados = []
+                            for i in range(st.session_state[f"novos_v_{id_c_sel}"]):
+                                st.markdown(f"**Novo Veículo {i+1}**")
+                                vc1, vc2, vc3, vc4 = st.columns(4)
+                                n_tipo = vc1.selectbox(f"Tipo ", ["Carro", "Moto", "Caminhão", "Outro"], key=f"n_t_{i}_{id_c_sel}")
+                                n_placa = vc2.text_input(f"Placa * ", key=f"n_p_{i}_{id_c_sel}")
+                                n_modelo = vc3.text_input(f"Modelo ", key=f"n_m_{i}_{id_c_sel}")
+                                n_cor = vc4.text_input(f"Cor ", key=f"n_c_{i}_{id_c_sel}")
+                                novos_veiculos_dados.append({"tipo": n_tipo, "placa": n_placa, "modelo": n_modelo, "cor": n_cor})
+
+                            st.markdown("<br>", unsafe_allow_html=True)
+                            if st.button("💾 Salvar Todas as Alterações", type="primary", key=f"btn_salvar_edit_{id_c_sel}"):
+                                execute_query("UPDATE clientes SET nome=%s, documento=%s, endereco=%s, telefone=%s WHERE id=%s", (en_nome, en_doc, en_end, en_tel, id_c_sel))
+                                
+                                for v_ed in veiculos_editados:
+                                    execute_query("UPDATE veiculos SET tipo_veic=%s, placa=%s, modelo=%s, cor=%s WHERE id=%s", (v_ed['tipo'], v_ed['placa'], v_ed['modelo'], v_ed['cor'], v_ed['id']))
+                                
+                                validos_novos = [nv for nv in novos_veiculos_dados if nv['placa'].strip()]
+                                for nv in validos_novos:
+                                    execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
+                                                    (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor']))
+
+                                registrar_auditoria("Edição", "Clientes", f"Dados e veículos do cliente {en_nome} atualizados.")
+                                st.session_state.flash_msg = "Cliente e veículos atualizados com sucesso!"
+                                st.session_state.reset_keys['edit_cli'] += 1
+                                st.session_state[f"novos_v_{id_c_sel}"] = 0
+                                st.rerun()
 
                     elif acao_clientes == "Excluir":
                         clientes_selecionados = st.multiselect("Selecione um ou mais Clientes para Excluir:", opcoes_cli, key=f"ms_excluir_cli_{k_edit_cli}")
