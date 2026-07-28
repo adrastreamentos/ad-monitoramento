@@ -37,7 +37,6 @@ st.markdown("""
 # --- CONEXÃO COM SUPABASE (POSTGRESQL) ---
 def get_db_connection():
     try:
-        # Puxa a string de conexão configurada nos Secrets do Streamlit
         return psycopg2.connect(st.secrets["SUPABASE_URL"])
     except Exception as e:
         st.error(f"Erro de conexão com a Nuvem (Supabase): {e}")
@@ -69,7 +68,6 @@ def execute_query(query, params=()):
     conn.commit()
     conn.close()
 
-# Inicializa o banco na nuvem caso as tabelas ainda não existam
 init_db()
 
 # --- FUNÇÕES ÚTEIS E REGRAS DE NEGÓCIO ---
@@ -269,7 +267,7 @@ else:
                                 if st.form_submit_button("Salvar Ocorrência"):
                                     agora = get_horario_brasil_str()
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                              (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
+                                                  (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
                                     st.session_state["termo_busca_ativo"] = ""
                                     st.session_state.flash_msg = "Salvo e enviado para relatórios como EM ANDAMENTO!"
@@ -283,7 +281,7 @@ else:
                                 if st.form_submit_button("Salvar Monitoramento"):
                                     agora = get_horario_brasil_str()
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                              (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
+                                                  (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
                                     registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}")
                                     st.session_state["termo_busca_ativo"] = ""
                                     st.session_state.flash_msg = "Salvo com sucesso!"
@@ -410,9 +408,51 @@ else:
                             st.rerun()
                         else:
                             st.error("Preencha Nome, CPF/CNPJ e ao menos uma Placa.")
-        elif acao_clientes in ["Editar", "Excluir"]:
-            # Lógica de edição/exclusão mantida (adaptada para PostgreSQL)
-            pass # (Limitando a visualização aqui para brevidade do bloco, mas funcionando igual com fetch_data)
+        
+        elif acao_clientes == "Editar":
+            q_clientes = "SELECT id, nome, documento FROM clientes"
+            if not st.session_state.is_admin: q_clientes += f" WHERE empresa='{st.session_state.nome_empresa}'"
+            clientes_db = fetch_data(q_clientes)
+            
+            if clientes_db:
+                k_edit_cli = st.session_state.reset_keys['edit_cli']
+                cli_edit_sel = st.selectbox("Selecione o Cliente:", [""] + [f"{c['id']} - {c['nome']} ({c['documento']})" for c in clientes_db], key=f"sb_edit_cli_{k_edit_cli}")
+                if cli_edit_sel != "":
+                    if st.button("❌ Cancelar Edição"):
+                        st.session_state.reset_keys['edit_cli'] += 1
+                        st.rerun()
+                        
+                    id_c = int(cli_edit_sel.split(" - ")[0])
+                    dados_c = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_c,))[0]
+                    with st.form("form_edit_cli", clear_on_submit=True):
+                        e_nome = st.text_input("Nome", dados_c['nome'])
+                        e_end = st.text_input("Endereço", dados_c['endereco'])
+                        e_tel = st.text_input("Telefone", dados_c['telefone'])
+                        e_status = st.selectbox("Status", ["Ativo", "Inativo"], index=0 if dados_c['status'] == "Ativo" else 1)
+                        if st.form_submit_button("Salvar Edição"):
+                            execute_query("UPDATE clientes SET nome=%s, endereco=%s, telefone=%s, status=%s WHERE id=%s", 
+                                          (e_nome, e_end, e_tel, e_status, id_c))
+                            st.session_state.flash_msg = "Cliente atualizado!"
+                            st.session_state.reset_keys['edit_cli'] += 1
+                            st.rerun()
+                            
+        elif acao_clientes == "Excluir":
+            if not st.session_state.is_admin:
+                st.error("Apenas administradores podem excluir clientes.")
+            else:
+                clientes_del = fetch_data("SELECT id, nome, documento FROM clientes")
+                if clientes_del:
+                    k_del_cli = st.session_state.reset_keys['edit_cli']
+                    cli_del_sel = st.selectbox("Selecione o Cliente para Excluir:", [""] + [f"{c['id']} - {c['nome']}" for c in clientes_del], key=f"sb_del_cli_{k_del_cli}")
+                    if cli_del_sel != "":
+                        id_del = int(cli_del_sel.split(" - ")[0])
+                        st.warning("⚠️ Atenção: Isso apagará o cliente e TODOS os veículos vinculados a ele.")
+                        if st.button("🚨 CONFIRMAR EXCLUSÃO"):
+                            execute_query("DELETE FROM clientes WHERE id=%s", (id_del,))
+                            registrar_auditoria("Exclusão", "Clientes", f"Cliente ID {id_del} removido.")
+                            st.session_state.flash_msg = "Cliente e veículos excluídos!"
+                            st.session_state.reset_keys['edit_cli'] += 1
+                            st.rerun()
     tab_idx += 1
 
     # --- ABA: RELATÓRIOS ---
@@ -496,48 +536,169 @@ else:
             c4.metric("Status", status_visual)
         tab_idx += 1
 
-    # --- ABA: EMPRESAS / FINANCEIRO (ADMIN) ---
+    # --- ABA: EMPRESAS / PARCEIROS (ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
-            st.header("🏢 Parceiros")
-            # Logica de empresas resumida para visualização...
+            st.header("🏢 Gerenciamento de Parceiros")
+            acao_empresa = st.radio("Ações Empresa:", ["Listar", "Nova Empresa", "Editar", "Excluir"], horizontal=True)
+            st.markdown("---")
+
+            if acao_empresa == "Listar":
+                empresas_db = fetch_data("SELECT * FROM empresas ORDER BY id")
+                if empresas_db:
+                    st.dataframe(pd.DataFrame(empresas_db), use_container_width=True)
+                else:
+                    st.info("Nenhuma empresa cadastrada no momento.")
+
+            elif acao_empresa == "Nova Empresa":
+                with st.form("form_nova_empresa", clear_on_submit=True):
+                    c1, c2 = st.columns(2)
+                    n_nome = c1.text_input("Nome da Empresa *")
+                    n_cnpj = c2.text_input("CNPJ / CPF")
+                    n_end = c1.text_input("Endereço Completo")
+                    n_tel = c2.text_input("Telefone de Contato")
+                    n_resp = c1.text_input("Responsável (Dono/Gerente)")
+                    n_serv = c2.selectbox("Pacote de Serviços", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto/Roubo", "Apenas Monitoramento"])
+                    n_val = c1.number_input("Valor Cobrado por Veículo (R$)", value=3.00, format="%.2f")
+                    n_dia = c2.number_input("Dia Fixo de Vencimento", min_value=1, max_value=31, value=10)
+
+                    if st.form_submit_button("💾 Salvar Nova Empresa"):
+                        if n_nome:
+                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", 
+                                          (n_nome, n_cnpj, n_end, n_tel, n_resp, n_serv, n_val, n_dia))
+                            registrar_auditoria("Cadastro", "Empresas", f"Empresa {n_nome} adicionada ao sistema.")
+                            st.session_state.flash_msg = "Empresa cadastrada com sucesso!"
+                            st.rerun()
+                        else:
+                            st.error("O campo 'Nome da Empresa' é obrigatório.")
+            
+            elif acao_empresa == "Editar":
+                empresas_edit = fetch_data("SELECT id, nome FROM empresas")
+                if empresas_edit:
+                    k_edit_emp = st.session_state.reset_keys['edit_emp']
+                    emp_edit_sel = st.selectbox("Selecione a Empresa:", [""] + [f"{e['id']} - {e['nome']}" for e in empresas_edit], key=f"sb_edit_emp_{k_edit_emp}")
+                    
+                    if emp_edit_sel != "":
+                        if st.button("❌ Cancelar Edição"):
+                            st.session_state.reset_keys['edit_emp'] += 1
+                            st.rerun()
+                            
+                        id_e = int(emp_edit_sel.split(" - ")[0])
+                        dados_e = fetch_data("SELECT * FROM empresas WHERE id=%s", (id_e,))[0]
+                        
+                        with st.form("form_edit_emp", clear_on_submit=True):
+                            c1, c2 = st.columns(2)
+                            e_nome = c1.text_input("Nome da Empresa", dados_e['nome'])
+                            e_cnpj = c2.text_input("CNPJ", dados_e['cnpj'])
+                            e_end = c1.text_input("Endereço", dados_e['endereco'])
+                            e_tel = c2.text_input("Telefone", dados_e['telefone'])
+                            e_resp = c1.text_input("Responsável", dados_e['responsavel'])
+                            e_serv = c2.selectbox("Serviços", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto/Roubo", "Apenas Monitoramento"], index=["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto/Roubo", "Apenas Monitoramento"].index(dados_e['servicos']))
+                            
+                            if st.form_submit_button("💾 Salvar Alterações"):
+                                execute_query("UPDATE empresas SET nome=%s, cnpj=%s, endereco=%s, telefone=%s, responsavel=%s, servicos=%s WHERE id=%s", 
+                                              (e_nome, e_cnpj, e_end, e_tel, e_resp, e_serv, id_e))
+                                registrar_auditoria("Edição", "Empresas", f"Dados da empresa ID {id_e} alterados.")
+                                st.session_state.flash_msg = "Empresa atualizada!"
+                                st.session_state.reset_keys['edit_emp'] += 1
+                                st.rerun()
+                                
+            elif acao_empresa == "Excluir":
+                empresas_del = fetch_data("SELECT id, nome FROM empresas")
+                if empresas_del:
+                    k_del_emp = st.session_state.reset_keys['edit_emp']
+                    emp_del_sel = st.selectbox("Selecione a Empresa para Excluir:", [""] + [f"{e['id']} - {e['nome']}" for e in empresas_del], key=f"sb_del_emp_{k_del_emp}")
+                    if emp_del_sel != "":
+                        id_del_emp = int(emp_del_sel.split(" - ")[0])
+                        st.warning("⚠️ Atenção: Excluir a empresa fará com que os clientes vinculados a ela fiquem órfãos.")
+                        if st.button("🚨 CONFIRMAR EXCLUSÃO"):
+                            execute_query("DELETE FROM empresas WHERE id=%s", (id_del_emp,))
+                            registrar_auditoria("Exclusão", "Empresas", f"Empresa ID {id_del_emp} removida do banco.")
+                            st.session_state.flash_msg = "Empresa excluída permanentemente!"
+                            st.session_state.reset_keys['edit_emp'] += 1
+                            st.rerun()
         tab_idx += 1
         
+    # --- ABA: CONTROLE FINANCEIRO GLOBAL (ADMIN) ---
+    if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
-            st.header("💰 Controle Financeiro Global")
-            empresas_cad = fetch_data("SELECT nome, valor_veiculo, dia_vencimento, status_pagamento FROM empresas")
+            st.header("💰 Painel Executivo Financeiro")
             
-            if empresas_cad:
-                df_fin = pd.DataFrame(empresas_cad)
+            empresas_cad = fetch_data("SELECT nome, valor_veiculo, dia_vencimento, status_pagamento FROM empresas")
+            total_receber = 0.0
+            total_atrasado = 0.0
+            total_pago = 0.0
+            
+            dados_tabela_fin = []
+            
+            for emp in empresas_cad:
+                veic_count = fetch_data("SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'", (emp['nome'],))
+                qtd_veiculos = veic_count[0]['qtd'] if veic_count else 0
+                val_unit = emp['valor_veiculo'] if emp['valor_veiculo'] else 3.00
+                val_total = qtd_veiculos * val_unit
+                
+                status_fatura = calcular_status_fatura(emp['status_pagamento'], emp['dia_vencimento'])
+                
+                dados_tabela_fin.append({
+                    "Empresa": emp['nome'],
+                    "Veículos Ativos": qtd_veiculos,
+                    "Valor Unitário": f"R$ {val_unit:.2f}",
+                    "Total Fatura": f"R$ {val_total:.2f}",
+                    "Vencimento": f"Dia {emp['dia_vencimento']}",
+                    "Status": status_fatura
+                })
+                
+                if "Pago" in status_fatura:
+                    total_pago += val_total
+                elif "Atrasada" in status_fatura:
+                    total_atrasado += val_total
+                else:
+                    total_receber += val_total
+                    
+            # Painel de Indicadores
+            c1, c2, c3 = st.columns(3)
+            c1.metric("🟡 A Receber (Faturas Abertas)", f"R$ {total_receber:.2f}")
+            c2.metric("🔴 Inadimplência (Atrasado)", f"R$ {total_atrasado:.2f}")
+            c3.metric("🟢 Faturamento Líquido (Pago)", f"R$ {total_pago:.2f}")
+            
+            st.markdown("---")
+            if dados_tabela_fin:
+                df_fin = pd.DataFrame(dados_tabela_fin)
                 st.dataframe(df_fin, use_container_width=True)
                 
-                st.markdown("### ⚡ Editar Fatura do Parceiro")
+                st.markdown("### ⚡ Editar Valores e Dar Baixa de Pagamento")
                 k_fin = st.session_state.reset_keys['fin_pgto']
-                emp_sel_fin = st.selectbox("Empresa:", [""] + [e['nome'] for e in empresas_cad], key=f"sel_fin_{k_fin}")
+                emp_sel_fin = st.selectbox("Selecione a Empresa para gerenciar a fatura:", [""] + [e['nome'] for e in empresas_cad], key=f"sel_fin_{k_fin}")
                 
                 if emp_sel_fin != "":
-                    if st.button("❌ Fechar Seleção"):
+                    if st.button("❌ Cancelar Seleção"):
                         st.session_state.reset_keys['fin_pgto'] += 1
                         st.rerun()
                         
                     dados_e_fin = next(e for e in empresas_cad if e['nome'] == emp_sel_fin)
                     with st.form("form_fin", clear_on_submit=True):
+                        c1, c2 = st.columns(2)
                         v_atual = dados_e_fin['valor_veiculo'] if dados_e_fin['valor_veiculo'] else 3.00
                         s_atual = dados_e_fin['status_pagamento'] if dados_e_fin['status_pagamento'] else "Pendente"
                         
-                        nv_valor = st.number_input("Valor Unitário (Adicionar Juros/Correção)", value=float(v_atual), format="%.2f")
-                        nv_status = st.selectbox("Status", ["Pendente", "Pago"], index=["Pendente", "Pago"].index(s_atual))
+                        nv_valor = c1.number_input("Valor Unitário (Adicionar Juros/Correção)", value=float(v_atual), format="%.2f")
+                        nv_status = c2.selectbox("Alterar Status da Fatura", ["Pendente", "Pago"], index=["Pendente", "Pago"].index(s_atual))
                         
-                        if st.form_submit_button("💾 Salvar Faturamento"):
+                        if st.form_submit_button("💾 Salvar Atualização Financeira"):
                             execute_query("UPDATE empresas SET valor_veiculo=%s, status_pagamento=%s WHERE nome=%s", (nv_valor, nv_status, emp_sel_fin))
-                            st.session_state.flash_msg = "Financeiro Atualizado!"
+                            registrar_auditoria("Financeiro", "Faturamento", f"Fatura de {emp_sel_fin} alterada para {nv_status}.")
+                            st.session_state.flash_msg = "Status financeiro e valores atualizados!"
                             st.session_state.reset_keys['fin_pgto'] += 1
                             st.rerun()
         tab_idx += 1
 
-    # --- AUDITORIA ---
+    # --- ABA: AUDITORIA RASTREÁVEL (ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
-            st.header("🕵️ Auditoria")
-            df_aud = pd.DataFrame(fetch_data("SELECT * FROM auditoria ORDER BY id DESC"))
-            if not df_aud.empty: st.dataframe(df_aud, use_container_width=True)
+            st.header("🕵️ Auditoria e Rastreabilidade")
+            st.markdown("Registro de todas as ações de usuários, modificações de faturas e inserções no banco de dados.")
+            df_aud = pd.DataFrame(fetch_data("SELECT data_hora as Data, acao as Ação, modulo as Módulo, detalhes as Detalhes, usuario as Usuário FROM auditoria ORDER BY id DESC LIMIT 500"))
+            if not df_aud.empty: 
+                st.dataframe(df_aud, use_container_width=True)
+            else:
+                st.info("Nenhum registro de auditoria encontrado ainda.")
