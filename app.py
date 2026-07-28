@@ -234,18 +234,13 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     with st.sidebar:
-        # Exibição segura da logo (apenas se existir dados válidos no banco)
         if not st.session_state.is_admin:
             try:
                 res_logo_sb = fetch_logo_direto("SELECT logo_binario FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
                 if res_logo_sb and len(res_logo_sb) > 0:
                     logo_dado = res_logo_sb[0].get('logo_binario')
                     if logo_dado is not None:
-                        if isinstance(logo_dado, memoryview):
-                            logo_bytes = bytes(logo_dado)
-                        else:
-                            logo_bytes = bytes(logo_dado)
-                        
+                        logo_bytes = bytes(logo_dado) if isinstance(logo_dado, memoryview) else bytes(logo_dado)
                         if len(logo_bytes) > 10:
                             st.image(io.BytesIO(logo_bytes), width=140)
             except Exception:
@@ -253,7 +248,6 @@ else:
 
         st.write(f"👤 **Conectado como:** {st.session_state.nome_empresa}")
         
-        # Botão direto para o parceiro adicionar/alterar sua própria logo
         if not st.session_state.is_admin:
             with st.expander("🖼️ Enviar / Alterar Minha Logo"):
                 up_logo = st.file_uploader("Escolha a imagem (PNG/JPG)", type=["png", "jpg", "jpeg"], key="up_logo_parceiro")
@@ -880,7 +874,8 @@ else:
             acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
             st.markdown("---")
             
-            empresas_res = fetch_data("SELECT * FROM empresas")
+            # Buscando apenas colunas de texto/número para evitar carregar a foto no cache do Admin
+            empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas")
             df_empresas = pd.DataFrame(empresas_res) if empresas_res else pd.DataFrame()
             
             if acao_parceiros == "Listar":
@@ -894,9 +889,9 @@ else:
                             dia_v = emp['dia_vencimento'] if ('dia_vencimento' in emp and emp['dia_vencimento'] is not None) else 10
                             stat_pag = emp['status_pagamento'] if ('status_pagamento' in emp and emp['status_pagamento'] is not None) else "Pendente"
                             val_pago_ef = emp['valor_pago'] if ('valor_pago' in emp and emp['valor_pago'] is not None) else 0.00
-                            tem_logo = "Sim" if emp.get('logo_binario') else "Não"
+                            
                             st.write(f"**Pacote:** {servico_vinculado} | **Preço/Veículo:** R$ {valor_unit:.2f} | **Vencimento:** Dia {dia_v}")
-                            st.write(f"**Status Fatura:** {stat_pag} | **Valor Pago Registrado:** R$ {val_pago_ef:.2f} | **Logo Cadastrada:** {tem_logo}")
+                            st.write(f"**Status Fatura:** {stat_pag} | **Valor Pago Registrado:** R$ {val_pago_ef:.2f}")
                 else:
                     st.info("Nenhuma empresa parceira cadastrada.")
             
