@@ -48,6 +48,7 @@ def init_db():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id SERIAL PRIMARY KEY, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT, servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)', valor_veiculo REAL DEFAULT 3.00, dia_vencimento INTEGER DEFAULT 10, status_pagamento TEXT DEFAULT 'Pendente', valor_pago REAL DEFAULT 0.00, logo_binario BYTEA)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
     
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
@@ -107,18 +108,13 @@ def registrar_auditoria(acao, modulo, detalhes):
 
 def calcular_status_fatura(status_banco, dia_venc):
     if status_banco == "Pago": return "🟢 Em Dias (Pago)"
-    
     dia_atual = get_horario_brasil().day
     dia_fechamento = dia_venc - 2 if (dia_venc - 2) > 0 else 1
 
-    if dia_atual == dia_venc: 
-        return "🟠 Vence Hoje"
-    elif dia_atual > dia_venc: 
-        return "🔴 Vencida / Atrasada"
-    elif dia_atual >= dia_fechamento and dia_atual < dia_venc: 
-        return "🟡 Fatura Fechada (Próxima ao Vencimento)"
-    else: 
-        return "🟢 Em Dias"
+    if dia_atual == dia_venc: return "🟠 Vence Hoje"
+    elif dia_atual > dia_venc: return "🔴 Vencida / Atrasada"
+    elif dia_atual >= dia_fechamento and dia_atual < dia_venc: return "🟡 Fatura Fechada (Próxima ao Vencimento)"
+    else: return "🟢 Em Dias"
 
 def gerar_link_whatsapp(contexto):
     telefone = "5584999305771"
@@ -856,7 +852,19 @@ else:
                 st.info(f"💡 **Valor Quitado Registrado:** R$ {valor_pago_efetivo:.2f} (Com juros/acréscimos aplicados, se houver).")
             
             st.markdown("---")
-            st.subheader("📋 Detalhamento da Frota Faturada")
+            st.subheader("🔍 Consulta de Faturas Anteriores por Mês")
+            mes_busca_parceiro = st.text_input("Digite o Mês/Ano de referência (Ex: 06/2026 ou 07/2026):", value="")
+            if mes_busca_parceiro:
+                res_hist_p = fetch_data("SELECT * FROM historico_faturas WHERE empresa=%s AND mes_ref=%s", (st.session_state.nome_empresa, mes_busca_parceiro))
+                if res_hist_p:
+                    df_hp = pd.DataFrame(res_hist_p)[['mes_ref', 'total_veiculos', 'valor_unitario', 'valor_pago', 'status', 'data_pagamento']]
+                    df_hp.columns = ['Mês Ref.', 'Veículos', 'Valor Unit.', 'Valor Pago', 'Status', 'Data Pgto']
+                    st.dataframe(df_hp, use_container_width=True)
+                else:
+                    st.info(f"Nenhum registro de fatura encontrado para o mês {mes_busca_parceiro}.")
+
+            st.markdown("---")
+            st.subheader("📋 Detalhamento da Frota Faturada Atual")
             
             q_detalhe_frota = """
                 SELECT c.nome as cliente, c.documento, v.tipo_veic, v.placa, v.modelo, v.cor 
@@ -1034,6 +1042,29 @@ else:
                 st.dataframe(df_fin_global, use_container_width=True)
                 
                 st.markdown("---")
+                st.subheader("🔍 Consulta Histórica de Faturas por Mês (Busca Inteligente)")
+                col_h1, col_h2 = st.columns(2)
+                mes_busca_admin = col_h1.text_input("Filtrar por Mês/Ano (Ex: 06/2026):", value="")
+                emp_busca_admin = col_h2.selectbox("Filtrar por Empresa:", ["Todas"] + [e['nome'] for e in empresas_cad])
+
+                q_hist_adm = "SELECT * FROM historico_faturas WHERE 1=1"
+                p_hist_adm = []
+                if mes_busca_admin:
+                    q_hist_adm += " AND mes_ref = %s"
+                    p_hist_adm.append(mes_busca_admin)
+                if emp_busca_admin != "Todas":
+                    q_hist_adm += " AND empresa = %s"
+                    p_hist_adm.append(emp_busca_admin)
+                
+                res_hist_adm = fetch_data(q_hist_adm, tuple(p_hist_adm))
+                if res_hist_adm:
+                    df_hadm = pd.DataFrame(res_hist_adm)[['mes_ref', 'empresa', 'total_veiculos', 'valor_unitario', 'valor_pago', 'status', 'data_pagamento']]
+                    df_hadm.columns = ['Mês Ref.', 'Empresa', 'Veículos', 'Valor Unit.', 'Valor Pago', 'Status', 'Data Pgto']
+                    st.dataframe(df_hadm, use_container_width=True)
+                else:
+                    st.info("Nenhum histórico de fatura encontrado para os filtros selecionados.")
+
+                st.markdown("---")
                 st.subheader("⚡ Atualizar Pagamento e Valor da Fatura (Com Juros/Acréscimos)")
                 
                 if 'k_fin' not in st.session_state:
@@ -1061,19 +1092,26 @@ else:
 
                     with st.form("form_atualiza_status_pagto", clear_on_submit=True):
                         st.write(f"**Empresa Selecionada:** {emp_escolhida_pagto}")
-                        col_f1, col_f2, col_f3 = st.columns(3)
+                        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
                         
-                        novo_valor_unit = col_f1.number_input("Novo Valor Unitário por Veículo:", min_value=0.0, value=float(val_atual), format="%.2f")
-                        novo_valor_pago = col_f2.number_input("Valor Total Pago (Com Juros/Acréscimos se houver):", min_value=0.0, value=float(vp_atual), format="%.2f")
+                        novo_valor_unit = col_f1.number_input("Novo Valor Unitário:", min_value=0.0, value=float(val_atual), format="%.2f")
+                        novo_valor_pago = col_f2.number_input("Valor Total Pago:", min_value=0.0, value=float(vp_atual), format="%.2f")
+                        mes_referencia = col_f3.text_input("Mês Ref. (Ex: 06/2026):", value=datetime.now().strftime("%m/%Y"))
                         
                         opcoes_st_fin = ["Pendente", "Pago"]
                         idx_st_fin = opcoes_st_fin.index(stat_atual) if stat_atual in opcoes_st_fin else 0
-                        novo_status_pagto = col_f3.selectbox("Status da Fatura:", opcoes_st_fin, index=idx_st_fin)
+                        novo_status_pagto = col_f4.selectbox("Status:", opcoes_st_fin, index=idx_st_fin)
                         
-                        if st.form_submit_button("💾 Salvar Pagamento e Valores"):
+                        if st.form_submit_button("💾 Salvar Pagamento e Registrar Histórico"):
                             execute_query("UPDATE empresas SET status_pagamento=%s, valor_veiculo=%s, valor_pago=%s WHERE nome=%s", (novo_status_pagto, novo_valor_unit, novo_valor_pago, emp_escolhida_pagto))
-                            registrar_auditoria("Financeiro", "Faturamento", f"Fatura de {emp_escolhida_pagto} alterada para {novo_status_pagto} | Valor Pago: R$ {novo_valor_pago:.2f}")
-                            st.session_state.flash_msg = f"Financeiro da empresa {emp_escolhida_pagto} atualizado com sucesso!"
+                            
+                            # Salva também no histórico mensal para a busca inteligente
+                            data_pgto_hoje = get_horario_brasil_str()
+                            execute_query("INSERT INTO historico_faturas (mes_ref, empresa, total_veiculos, valor_unitario, valor_pago, status, data_pagamento) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                                          (mes_referencia, emp_escolhida_pagto, qtd_v_calc, novo_valor_unit, novo_valor_pago, novo_status_pagto, data_pgto_hoje))
+
+                            registrar_auditoria("Financeiro", "Faturamento", f"Fatura de {emp_escolhida_pagto} (Mês {mes_referencia}) alterada para {novo_status_pagto} | Valor Pago: R$ {novo_valor_pago:.2f}")
+                            st.session_state.flash_msg = f"Financeiro e Histórico de {emp_escolhida_pagto} atualizados com sucesso!"
                             st.session_state.k_fin += 1
                             st.rerun()
             else:
@@ -1113,7 +1151,7 @@ else:
                 aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
                 
                 if aud_sel_excluir != "":
-                    if st.button("❌ Fechar Seleção", key="btn_close_edit_emp"): # Mantém chave limpa
+                    if st.button("❌ Fechar Seleção", key="btn_close_edit_emp"):
                         st.session_state.reset_keys['aud_del'] += 1
                         st.rerun()
                         
