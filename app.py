@@ -234,19 +234,20 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     with st.sidebar:
-        # Exibir a logo do parceiro com proteção absoluta contra erros de formato
+        # Exibição segura da logo (apenas se existir dados válidos no banco)
         if not st.session_state.is_admin:
             try:
                 res_logo_sb = fetch_logo_direto("SELECT logo_binario FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
-                if res_logo_sb and res_logo_sb[0].get('logo_binario'):
-                    raw_logo = res_logo_sb[0]['logo_binario']
-                    if isinstance(raw_logo, memoryview):
-                        raw_logo = bytes(raw_logo)
-                    elif isinstance(raw_logo, bytes):
-                        pass
-                    else:
-                        raw_logo = bytes(raw_logo)
-                    st.image(io.BytesIO(raw_logo), width=140)
+                if res_logo_sb and len(res_logo_sb) > 0:
+                    logo_dado = res_logo_sb[0].get('logo_binario')
+                    if logo_dado is not None:
+                        if isinstance(logo_dado, memoryview):
+                            logo_bytes = bytes(logo_dado)
+                        else:
+                            logo_bytes = bytes(logo_dado)
+                        
+                        if len(logo_bytes) > 10:
+                            st.image(io.BytesIO(logo_bytes), width=140)
             except Exception:
                 pass
 
