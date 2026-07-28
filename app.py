@@ -7,6 +7,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import io
 import os
+import hashlib
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -69,6 +70,14 @@ def init_db():
 
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id SERIAL PRIMARY KEY, nome TEXT, documento TEXT, endereco TEXT, telefone TEXT, empresa TEXT, status TEXT DEFAULT 'Ativo')''')
     c.execute('''CREATE TABLE IF NOT EXISTS veiculos (id SERIAL PRIMARY KEY, cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE, tipo_veic TEXT, placa TEXT, modelo TEXT, cor TEXT)''')
+    
+    # Campo inteligente para chip (Melhoria)
+    try:
+        c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS info_chip TEXT DEFAULT '';")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id SERIAL PRIMARY KEY, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
     conn.commit()
@@ -134,6 +143,18 @@ def gerar_link_whatsapp(contexto):
     return f'<a href="{link}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%;">💬 Solicitar Suporte via WhatsApp</button></a>'
 
 def gerar_relatorio_html(dados_relatorio, empresa_nome):
+    # Lógica para mostrar assinatura digital/protocolo no PDF/HTML se estiver finalizado
+    detalhes_texto = dados_relatorio['detalhes']
+    assinatura_bloco = ""
+    
+    if "PROTOCOLO" in detalhes_texto:
+        assinatura_bloco = f"""
+        <div style="margin-top: 30px; padding: 15px; background-color: #e8f5e9; border-left: 5px solid #2e7d32; border-radius: 5px;">
+            <h4 style="color: #2e7d32; margin-top: 0;">🔐 Assinatura Digital e SLA</h4>
+            <p style="margin: 0; font-size: 14px;">Este documento foi encerrado e validado pela Central de Operações. Os tempos de resposta e protocolos estão registrados na base de dados oficial.</p>
+        </div>
+        """
+
     html_content = f"""
     <html>
     <head>
@@ -158,16 +179,17 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
         <div class="content">
             <div class="field"><span class="label">Empresa Responsável:</span> {empresa_nome}</div>
             <div class="field"><span class="label">ID do Registro:</span> {dados_relatorio['id']}</div>
-            <div class="field"><span class="label">Data e Hora:</span> {dados_relatorio['data_hora']}</div>
+            <div class="field"><span class="label">Data e Hora de Abertura:</span> {dados_relatorio['data_hora']}</div>
             <div class="field"><span class="label">Cliente:</span> {dados_relatorio['cliente']}</div>
             <div class="field"><span class="label">Placa do Veículo:</span> {dados_relatorio['placa']}</div>
             <div class="field"><span class="label">Tipo de Ocorrência:</span> {dados_relatorio['tipo']}</div>
             <div class="field"><span class="label">Status Atual:</span> {dados_relatorio['status']}</div>
             <hr style="border: 0; border-top: 1px solid #ccc; margin: 20px 0;">
-            <div class="field"><span class="label">Detalhes / Dinâmica / Desfecho:</span><br><p>{dados_relatorio['detalhes']}</p></div>
+            <div class="field"><span class="label">Detalhes / Dinâmica / Desfecho:</span><br><p>{detalhes_texto}</p></div>
+            {assinatura_bloco}
         </div>
         <div class="footer">
-            Documento gerado automaticamente pela Central de Operações de Segurança.
+            Documento gerado automaticamente pela Central de Operações de Segurança AD Rastreamento Veicular.
         </div>
     </body>
     </html>
@@ -331,7 +353,7 @@ else:
                 resultados = fetch_data(q_busca, (termo, termo, termo))
                 
                 if resultados:
-                    st.success("Veículos encontrados! Selecione abaixo.")
+                    st.success("Veículos encontrados! Selecione abaixo para iniciar a ocorrência.")
                     placas_disponiveis = [f"{r['placa']} - {r['nome']} ({r['modelo']})" for r in resultados]
                     placa_sel_texto = st.selectbox("Selecione o Veículo para Atendimento:", placas_disponiveis, key=f"sel_veic_{st.session_state.rk}")
                     
@@ -344,15 +366,24 @@ else:
                         
                         if tipo_servico == "Abertura de Furto/Roubo":
                             st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo (Início Automático)</h3>", unsafe_allow_html=True)
-                            tipo_oc = st.selectbox("Natureza", ["Furto", "Roubo"], key=f"nat_{st.session_state.rk}")
-                            local_oc = st.text_input("Localização do Fato", key=f"loc_{st.session_state.rk}")
-                            desc_oc = st.text_area("Descrição / Dinâmica", key=f"desc_{st.session_state.rk}")
-                            st.info("ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO.")
                             
-                            if st.button("Salvar Ocorrência", type="primary"):
+                            col_oc1, col_oc2 = st.columns(2)
+                            tipo_oc = col_oc1.selectbox("Natureza", ["Furto", "Roubo"], key=f"nat_{st.session_state.rk}")
+                            local_oc = col_oc2.text_input("Localização do Fato", key=f"loc_{st.session_state.rk}")
+                            
+                            # --- MELHORIA: STATUS DO CHIP E LINK DE RASTREIO ---
+                            col_chip1, col_chip2 = st.columns(2)
+                            status_chip = col_chip1.text_input("📡 Última Posição / Status do Chip", placeholder="Ex: Operadora Vivo - Ativo / Sem Sinal desde as 10h", key=f"chip_{st.session_state.rk}")
+                            link_rastreio = col_chip2.text_input("🔗 Link de Rastreio (Para Polícia/Cliente)", placeholder="Cole o link web aqui", key=f"link_{st.session_state.rk}")
+                            
+                            desc_oc = st.text_area("Descrição / Dinâmica", key=f"desc_{st.session_state.rk}")
+                            st.info("ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO. O cronômetro de resposta foi iniciado.")
+                            
+                            if st.button("🚨 Salvar Ocorrência", type="primary"):
                                 agora = get_horario_brasil_str()
+                                detalhes_completos = f"Local: {local_oc} | Desc: {desc_oc} | Chip/Posição: {status_chip} | Link Rastreio: {link_rastreio}"
                                 execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                              (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", f"Local: {local_oc} | {desc_oc}", info_veic['empresa']))
+                                              (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", detalhes_completos, info_veic['empresa']))
                                 registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
                                 st.session_state.flash_msg = "Salvo e enviado para relatórios como EM ANDAMENTO!"
                                 limpar_tela()
@@ -360,13 +391,17 @@ else:
                         
                         elif tipo_servico == "Monitoramento Técnico":
                             st.markdown("<h3 style='color: #4a0e4e;'>Monitoramento Técnico</h3>", unsafe_allow_html=True)
-                            evento_mon = st.selectbox("Evento", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"], key=f"eve_{st.session_state.rk}")
+                            col_m1, col_m2 = st.columns(2)
+                            evento_mon = col_m1.selectbox("Evento", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"], key=f"eve_{st.session_state.rk}")
+                            status_chip = col_m2.text_input("📡 Status do Rastreador / Chip", placeholder="Ex: Bloqueado / Normalizado", key=f"chip_m_{st.session_state.rk}")
+                            
                             acao_mon = st.text_area("Ação da Central", key=f"aca_{st.session_state.rk}")
                             
                             if st.button("Salvar Monitoramento", type="primary"):
                                 agora = get_horario_brasil_str()
+                                detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação: {acao_mon}"
                                 execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                              (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", f"Evento: {evento_mon} | Ação: {acao_mon}", info_veic['empresa']))
+                                              (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", detalhes_completos, info_veic['empresa']))
                                 registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}")
                                 st.session_state.flash_msg = "Salvo com sucesso!"
                                 limpar_tela()
@@ -456,8 +491,9 @@ else:
                     """, unsafe_allow_html=True)
                     
                     if veiculos_cli_ficha:
-                        df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor']]
-                        df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor']
+                        # --- MELHORIA: MOSTRAR INFO DO CHIP NA FICHA ---
+                        df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor', 'info_chip']]
+                        df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor', 'Chip/Equipamento']
                         st.dataframe(df_veics, use_container_width=True)
                     else:
                         st.info("Nenhum veículo vinculado a este cliente.")
@@ -499,12 +535,15 @@ else:
                 veiculos_dados = []
                 for i in range(st.session_state.num_veiculos_state):
                     st.markdown(f"**Veículo {i+1}**")
-                    vc1, vc2, vc3, vc4 = st.columns(4)
+                    # --- MELHORIA: 5 COLUNAS PARA INCLUIR O CHIP ---
+                    vc1, vc2, vc3, vc4, vc5 = st.columns([2, 2, 2, 2, 3])
                     t_veic = vc1.selectbox(f"Tipo {i+1}", ["Carro", "Moto", "Caminhão", "Outro"], key=f"in_t_{i}_{rk}")
                     p_veic = vc2.text_input(f"Placa * {i+1}", key=f"in_p_{i}_{rk}")
                     m_veic = vc3.text_input(f"Modelo {i+1}", key=f"in_m_{i}_{rk}")
                     c_veic = vc4.text_input(f"Cor {i+1}", key=f"in_c_{i}_{rk}")
-                    veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic})
+                    chip_veic = vc5.text_input(f"Chip/Equipamento (Opcional)", key=f"in_chip_{i}_{rk}")
+                    
+                    veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic, "info_chip": chip_veic})
                     st.markdown("---")
 
                 if st.button("💾 Salvar Cadastro Completo", type="primary"):
@@ -517,8 +556,8 @@ else:
                         
                         validos = [v for v in veiculos_dados if v['placa'].strip()]
                         for v in validos:
-                            cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
-                                           (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor']))
+                            cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, info_chip) VALUES (%s,%s,%s,%s,%s,%s)", 
+                                           (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor'], v['info_chip']))
                         conn.commit()
                         st.cache_data.clear()
                         
@@ -527,7 +566,6 @@ else:
 
                         registrar_auditoria("Cadastro", "Clientes", f"Cliente {f_nome} cadastrado com {msg_veic}.")
                         
-                        # --- NOTIFICAÇÃO PARA O ADMIN ---
                         agora_notif = get_horario_brasil_str()
                         execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
                                       (agora_notif, f_emp, f"Novo cliente '{f_nome}' cadastrado com {msg_veic}."))
@@ -611,7 +649,6 @@ else:
                         st.cache_data.clear()        
                         registrar_auditoria("Importação Lote", "Clientes", f"Importação CSV: {importados_clientes} clientes e {importados_veiculos} veículos.")
                         
-                        # --- NOTIFICAÇÃO PARA O ADMIN ---
                         agora_notif = get_horario_brasil_str()
                         execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
                                       (agora_notif, emp_lote, f"Importação via planilha concluída: {importados_clientes} cliente(s) e {importados_veiculos} veículo(s)."))
@@ -671,7 +708,8 @@ else:
                             if veiculos_cliente:
                                 for idx, v in enumerate(veiculos_cliente):
                                     st.write(f"**Veículo {idx+1} (Placa Atual: {v['placa']})**")
-                                    vc1, vc2, vc3, vc4 = st.columns(4)
+                                    # --- MELHORIA: INCLUI INFO CHIP NA EDIÇÃO ---
+                                    vc1, vc2, vc3, vc4, vc5 = st.columns([2, 2, 2, 2, 3])
                                     tipos_v = ["Carro", "Moto", "Caminhão", "Outro"]
                                     t_idx = tipos_v.index(v['tipo_veic']) if v['tipo_veic'] in tipos_v else 0
                                     
@@ -679,8 +717,9 @@ else:
                                     e_placa = vc2.text_input(f"Placa", value=v['placa'], key=f"e_p_{v['id']}")
                                     e_modelo = vc3.text_input(f"Modelo", value=v['modelo'], key=f"e_m_{v['id']}")
                                     e_cor = vc4.text_input(f"Cor", value=v['cor'], key=f"e_c_{v['id']}")
+                                    e_chip = vc5.text_input(f"Chip/Equipamento", value=v.get('info_chip', ''), key=f"e_ch_{v['id']}")
                                     
-                                    veiculos_editados.append({"id": v['id'], "tipo": e_tipo, "placa": e_placa, "modelo": e_modelo, "cor": e_cor})
+                                    veiculos_editados.append({"id": v['id'], "tipo": e_tipo, "placa": e_placa, "modelo": e_modelo, "cor": e_cor, "info_chip": e_chip})
                             else:
                                 st.info("Este cliente ainda não possui nenhum veículo cadastrado.")
 
@@ -704,12 +743,13 @@ else:
                             novos_veiculos_dados = []
                             for i in range(st.session_state[f"novos_v_{id_c_sel}"]):
                                 st.markdown(f"**Novo Veículo {i+1}**")
-                                vc1, vc2, vc3, vc4 = st.columns(4)
+                                vc1, vc2, vc3, vc4, vc5 = st.columns([2, 2, 2, 2, 3])
                                 n_tipo = vc1.selectbox(f"Tipo ", ["Carro", "Moto", "Caminhão", "Outro"], key=f"n_t_{i}_{id_c_sel}")
                                 n_placa = vc2.text_input(f"Placa * ", key=f"n_p_{i}_{id_c_sel}")
                                 n_modelo = vc3.text_input(f"Modelo ", key=f"n_m_{i}_{id_c_sel}")
                                 n_cor = vc4.text_input(f"Cor ", key=f"n_c_{i}_{id_c_sel}")
-                                novos_veiculos_dados.append({"tipo": n_tipo, "placa": n_placa, "modelo": n_modelo, "cor": n_cor})
+                                n_chip = vc5.text_input(f"Chip/Equipamento ", key=f"n_ch_{i}_{id_c_sel}")
+                                novos_veiculos_dados.append({"tipo": n_tipo, "placa": n_placa, "modelo": n_modelo, "cor": n_cor, "info_chip": n_chip})
 
                             st.markdown("<br>", unsafe_allow_html=True)
                             
@@ -718,14 +758,13 @@ else:
                                 execute_query("UPDATE clientes SET nome=%s, documento=%s, endereco=%s, telefone=%s WHERE id=%s", (en_nome, en_doc, en_end, en_tel, id_c_sel))
                                 
                                 for v_ed in veiculos_editados:
-                                    execute_query("UPDATE veiculos SET tipo_veic=%s, placa=%s, modelo=%s, cor=%s WHERE id=%s", (v_ed['tipo'], v_ed['placa'], v_ed['modelo'], v_ed['cor'], v_ed['id']))
+                                    execute_query("UPDATE veiculos SET tipo_veic=%s, placa=%s, modelo=%s, cor=%s, info_chip=%s WHERE id=%s", (v_ed['tipo'], v_ed['placa'], v_ed['modelo'], v_ed['cor'], v_ed['info_chip'], v_ed['id']))
                                 
                                 validos_novos = [nv for nv in novos_veiculos_dados if nv['placa'].strip()]
                                 for nv in validos_novos:
-                                    execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
-                                                    (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor']))
+                                    execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, info_chip) VALUES (%s,%s,%s,%s,%s,%s)", 
+                                                    (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor'], nv['info_chip']))
                                     
-                                    # --- NOTIFICAÇÃO PARA O ADMIN (VEÍCULO EXTRA) ---
                                     agora_notif = get_horario_brasil_str()
                                     execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
                                                   (agora_notif, dados_cliente_sel['empresa'], f"Adicionou um veículo extra ({nv['placa']}) para o cliente {en_nome}."))
@@ -863,10 +902,24 @@ else:
                                 st.write("🟢 **Finalizar Atendimento:**")
                                 desfecho = st.text_area("Informe o desfecho do caso (ex: Veículo recuperado com sucesso)", key=f"desfecho_{id_r}")
                                 if st.button("✅ Concluir e Finalizar Ocorrência", key=f"btn_concluir_fr_{id_r}"):
-                                    novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho}"
+                                    # --- MELHORIA: SLA E ASSINATURA DIGITAL ---
+                                    agora = get_horario_brasil()
+                                    try:
+                                        dt_abertura = datetime.strptime(dados_fr['data_hora'], "%d/%m/%Y %H:%M:%S")
+                                        dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
+                                        tempo_decorrido = agora - dt_abertura
+                                        horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
+                                        minutos, _ = divmod(resto, 60)
+                                        sla_str = f"{int(horas)}h e {int(minutos)}m"
+                                    except Exception:
+                                        sla_str = "Não calculado"
+
+                                    protocolo = f"AD-{id_r}-{agora.strftime('%Y%m%d%H%M')}"
+                                    novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho} | SLA DE RESPOSTA: {sla_str} | PROTOCOLO: {protocolo}"
+                                    
                                     execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, id_r))
-                                    registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada.")
-                                    st.session_state.flash_msg = "Ocorrência finalizada com sucesso!"
+                                    registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada. Protocolo: {protocolo}")
+                                    st.session_state.flash_msg = "Ocorrência finalizada e protocolada com sucesso!"
                                     limpar_tela()
                                     st.rerun()
                             
@@ -1148,6 +1201,8 @@ else:
                     
                     total_faturamento_previsto += valor_calc
                     
+                    if "Pago" in status_calculado:
+                        pass
                     if "Vencida" in status_calculado or "Vence Hoje" in status_calculado:
                         total_atrasado += valor_calc
                         
