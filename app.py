@@ -377,11 +377,10 @@ else:
 
         if acao_clientes == "Listar":
             
-            # --- BUSCA INTELIGENTE ---
             busca_cli = st.text_input("🔍 Busca Inteligente (Digite Nome, Placa ou CPF - Mín. 3 letras):", placeholder="Ex: Cláudio, 000.000.000-00, QXC1234")
             
             q_tela = """
-                SELECT c.id as cli_id, c.nome, c.documento, c.telefone, c.empresa, c.status, 
+                SELECT c.id as cli_id, c.nome, c.documento, c.telefone, c.empresa, c.status, c.endereco,
                        (SELECT COUNT(v.id) FROM veiculos v WHERE v.cliente_id = c.id) as qtd_veiculos
                 FROM clientes c 
                 WHERE 1=1
@@ -404,7 +403,6 @@ else:
                 df_tela = pd.DataFrame(res_tela)
                 empresas_ativas = df_tela['empresa'].unique()
                 
-                # --- EXIBIÇÃO EM PASTAS "NORMALZINHA" ---
                 for emp_ativa in empresas_ativas:
                     with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
                         df_emp = df_tela[df_tela['empresa'] == emp_ativa]
@@ -529,7 +527,6 @@ else:
             
             emp_lote = st.selectbox("Selecione a Empresa de destino para a importação:", opcoes_emp, key="emp_lote_sel")
             
-            # Template EXATO com as informações que você pediu
             df_exemplo = pd.DataFrame({
                 "Nome": ["João da Silva", "João da Silva"],
                 "CPF / CNPJ": ["123.456.789-00", "123.456.789-00"],
@@ -558,7 +555,6 @@ else:
                         conn = get_db_connection()
                         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-                        # AGRUPAMENTO INTELIGENTE: Pega o CSV e agrupa todas as linhas que têm o mesmo CPF
                         for doc, group in df_import.groupby(col_doc):
                             doc_str = str(doc).strip()
                             if not doc_str: continue
@@ -570,7 +566,6 @@ else:
                             
                             if not nome: continue
 
-                            # Verifica se o cliente já existe para não duplicar
                             cur.execute("SELECT id FROM clientes WHERE documento=%s AND empresa=%s", (doc_str, emp_lote))
                             cli_res = cur.fetchone()
                             
@@ -582,7 +577,6 @@ else:
                                 cli_id = cur.fetchone()['id']
                                 importados_clientes += 1
                                 
-                            # Insere todos os veículos deste cliente em lote
                             for _, row in group.iterrows():
                                 tipo = str(row.get("Tipo", "Carro")).strip()
                                 placa = str(row.get("Placa", "")).strip()
@@ -626,49 +620,80 @@ else:
                     params_busca.append(st.session_state.nome_empresa)
                 
                 res_cli_busca = fetch_data(q_cli_busca, tuple(params_busca))
+                
                 if res_cli_busca:
                     opcoes_cli = [f"{item['id']} - {item['nome']} (CPF/CNPJ: {item['documento']})" for item in res_cli_busca]
-                    
                     k_edit_cli = st.session_state.reset_keys['edit_cli']
-                    cli_escolhido = st.selectbox("Selecione o Cliente na lista encontrada:", [""] + opcoes_cli, key=f"sb_edit_cli_{k_edit_cli}")
                     
-                    if cli_escolhido != "":
-                        if st.button("❌ Fechar Seleção", key="btn_close_edit_cli"):
-                            st.session_state.reset_keys['edit_cli'] += 1
-                            st.rerun()
-                            
-                        id_c_sel = int(cli_escolhido.split(" - ")[0])
-                        dados_cliente_sel = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_c_sel,))[0]
-                        veiculos_cliente = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
+                    if acao_clientes == "Editar":
+                        cli_escolhido = st.selectbox("Selecione o Cliente para Editar:", [""] + opcoes_cli, key=f"sb_edit_cli_{k_edit_cli}")
                         
-                        st.markdown(f"**Cliente:** {dados_cliente_sel['nome']} | **Documento:** {dados_cliente_sel['documento']}")
-                        st.write("🚗 **Veículos vinculados:**")
-                        for v in veiculos_cliente:
-                            st.write(f"- Placa: **{v['placa']}** | Modelo: {v['modelo']} | Cor: {v['cor']}")
-                            
-                        if acao_clientes == "Editar":
-                            with st.form(f"form_edit_cad_{id_c_sel}", clear_on_submit=True):
-                                st.write("**Atualizando Dados:**")
-                                en_nome = st.text_input("Nome", value=dados_cliente_sel['nome'])
-                                en_doc = st.text_input("CPF/CNPJ", value=dados_cliente_sel['documento'])
-                                en_tel = st.text_input("Telefone", value=dados_cliente_sel['telefone'])
-                                if st.form_submit_button("💾 Salvar Alterações"):
-                                    execute_query("UPDATE clientes SET nome=%s, documento=%s, telefone=%s WHERE id=%s", (en_nome, en_doc, en_tel, id_c_sel))
-                                    registrar_auditoria("Edição", "Clientes", f"Dados cadastrais do cliente ID {id_c_sel} atualizados.")
-                                    st.session_state.flash_msg = "Atualizado com sucesso!"
-                                    st.session_state.reset_keys['edit_cli'] += 1
-                                    st.rerun()
-                                    
-                        elif acao_clientes == "Excluir":
-                            st.warning("Atenção: Excluir o cliente removerá o cadastro e todos os veículos vinculados a ele.")
-                            if st.button("🗑️ Excluir Cliente e Frotas", key=f"btn_excluir_cli_{id_c_sel}"):
-                                execute_query("DELETE FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
-                                execute_query("DELETE FROM clientes WHERE id=%s", (id_c_sel,))
-                                registrar_auditoria("Exclusão", "Clientes", f"Cliente ID {id_c_sel} e frotas excluídos.")
-                                st.session_state.flash_msg = "Cliente excluído com sucesso!"
-                                st.session_state["termo_cli_ativo"] = ""
+                        if cli_escolhido != "":
+                            if st.button("❌ Fechar Seleção", key="btn_close_edit_cli"):
                                 st.session_state.reset_keys['edit_cli'] += 1
                                 st.rerun()
+                                
+                            id_c_sel = int(cli_escolhido.split(" - ")[0])
+                            dados_cliente_sel = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_c_sel,))[0]
+                            veiculos_cliente = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
+                            
+                            st.markdown(f"**Cliente em Edição:** {dados_cliente_sel['nome']} | **Documento:** {dados_cliente_sel['documento']}")
+                            
+                            with st.form(f"form_edit_cad_{id_c_sel}", clear_on_submit=True):
+                                st.write("📝 **Atualizando Dados Cadastrais:**")
+                                en_nome = st.text_input("Nome", value=dados_cliente_sel['nome'])
+                                en_doc = st.text_input("CPF/CNPJ", value=dados_cliente_sel['documento'])
+                                en_end = st.text_input("Endereço", value=dados_cliente_sel.get('endereco', ''))
+                                en_tel = st.text_input("Telefone", value=dados_cliente_sel['telefone'])
+                                
+                                st.markdown("---")
+                                st.write("🚗 **Atualizando Veículos Vinculados:**")
+                                veiculos_editados = []
+                                for idx, v in enumerate(veiculos_cliente):
+                                    st.write(f"**Veículo {idx+1}**")
+                                    vc1, vc2, vc3, vc4 = st.columns(4)
+                                    tipos_v = ["Carro", "Moto", "Caminhão", "Outro"]
+                                    t_idx = tipos_v.index(v['tipo_veic']) if v['tipo_veic'] in tipos_v else 0
+                                    
+                                    e_tipo = vc1.selectbox(f"Tipo", tipos_v, index=t_idx, key=f"e_t_{v['id']}")
+                                    e_placa = vc2.text_input(f"Placa", value=v['placa'], key=f"e_p_{v['id']}")
+                                    e_modelo = vc3.text_input(f"Modelo", value=v['modelo'], key=f"e_m_{v['id']}")
+                                    e_cor = vc4.text_input(f"Cor", value=v['cor'], key=f"e_c_{v['id']}")
+                                    
+                                    veiculos_editados.append({"id": v['id'], "tipo": e_tipo, "placa": e_placa, "modelo": e_modelo, "cor": e_cor})
+                                    st.markdown("---")
+                                    
+                                if st.form_submit_button("💾 Salvar Alterações (Cliente e Veículos)"):
+                                    execute_query("UPDATE clientes SET nome=%s, documento=%s, endereco=%s, telefone=%s WHERE id=%s", (en_nome, en_doc, en_end, en_tel, id_c_sel))
+                                    for v_ed in veiculos_editados:
+                                        execute_query("UPDATE veiculos SET tipo_veic=%s, placa=%s, modelo=%s, cor=%s WHERE id=%s", (v_ed['tipo'], v_ed['placa'], v_ed['modelo'], v_ed['cor'], v_ed['id']))
+                                    registrar_auditoria("Edição", "Clientes", f"Dados e veículos do cliente {en_nome} atualizados.")
+                                    st.session_state.flash_msg = "Cadastro completo atualizado com sucesso!"
+                                    st.session_state.reset_keys['edit_cli'] += 1
+                                    st.rerun()
+
+                    elif acao_clientes == "Excluir":
+                        clientes_selecionados = st.multiselect("Selecione um ou mais Clientes para Excluir:", opcoes_cli, key=f"ms_excluir_cli_{k_edit_cli}")
+                        
+                        if clientes_selecionados:
+                            st.warning("⚠️ **Atenção:** Excluir estes clientes removerá os cadastros e TODOS os veículos vinculados a eles!")
+                            if st.button("🗑️ Confirmar Exclusão Múltipla"):
+                                ids_para_excluir = [int(c.split(" - ")[0]) for c in clientes_selecionados]
+                                if ids_para_excluir:
+                                    ids_tuple = tuple(ids_para_excluir)
+                                    conn = get_db_connection()
+                                    cur = conn.cursor()
+                                    cur.execute("DELETE FROM veiculos WHERE cliente_id IN %s", (ids_tuple,))
+                                    cur.execute("DELETE FROM clientes WHERE id IN %s", (ids_tuple,))
+                                    conn.commit()
+                                    conn.close()
+                                    st.cache_data.clear()
+                                    
+                                    registrar_auditoria("Exclusão", "Clientes", f"{len(ids_para_excluir)} cliente(s) e frotas excluídos em lote.")
+                                    st.session_state.flash_msg = f"{len(ids_para_excluir)} cliente(s) excluído(s) com sucesso!"
+                                    st.session_state["termo_cli_ativo"] = ""
+                                    st.session_state.reset_keys['edit_cli'] += 1
+                                    st.rerun()
                 else:
                     st.warning("Nenhum cliente encontrado com este termo.")
         
@@ -923,7 +948,7 @@ else:
                 else:
                     st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
-        tab_idx += 1
+        tab_idx += 1  # FIM DO BLOCO PARCEIRO
 
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
@@ -1025,7 +1050,7 @@ else:
                                 st.rerun()
                 else:
                     st.warning("Nenhuma empresa encontrada.")
-        tab_idx += 1 
+        tab_idx += 1 # FIM DO BLOCO EMPRESAS (ADMIN)
 
     # --- ABA: FINANCEIRO (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
