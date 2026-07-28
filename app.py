@@ -5,7 +5,7 @@ import urllib.parse
 import base64
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import io
+import os
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -48,7 +48,6 @@ def init_db():
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id SERIAL PRIMARY KEY, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT, servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)', valor_veiculo REAL DEFAULT 3.00, dia_vencimento INTEGER DEFAULT 10, status_pagamento TEXT DEFAULT 'Pendente', valor_pago REAL DEFAULT 0.00, logo_binario BYTEA)''')
     
-    # Migração caso a coluna de logo binária ainda não exista
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_binario BYTEA;")
@@ -65,6 +64,15 @@ def init_db():
 
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
+    conn = get_db_connection()
+    c = conn.cursor(cursor_factory=RealDictCursor)
+    c.execute(query, params)
+    data = c.fetchall()
+    conn.close()
+    return data
+
+# Função sem cache dedicada para buscar imagens binárias da logo com segurança
+def fetch_logo_direto(query, params=()):
     conn = get_db_connection()
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
@@ -226,9 +234,9 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     with st.sidebar:
-        # Exibir a logo do parceiro na barra lateral se ele tiver enviado uma
+        # Exibir a logo do parceiro na barra lateral (usando função sem cache para evitar erro)
         if not st.session_state.is_admin:
-            res_logo_sb = fetch_data("SELECT logo_binario FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+            res_logo_sb = fetch_logo_direto("SELECT logo_binario FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
             if res_logo_sb and res_logo_sb[0].get('logo_binario'):
                 st.image(res_logo_sb[0]['logo_binario'], width=140)
 
@@ -1070,7 +1078,7 @@ else:
             if filtro_mes_aud:
                 q_aud += " WHERE data_hora LIKE %s"
                 p_aud.append(f"%{filtro_mes_aud}%")
-            q_aud += " ORDER BY id DIRETO" if False else " ORDER BY id DESC"
+            q_aud += " ORDER BY id DESC"
             
             res_aud = fetch_data(q_aud, tuple(p_aud))
             
