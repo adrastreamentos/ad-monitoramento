@@ -63,7 +63,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# CACHE REATIVADO PARA DEIXAR O APLICATIVO RÁPIDO
+# CACHE ATIVO PARA MANTÊ-R O APLICATIVO RÁPIDO
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -73,7 +73,6 @@ def fetch_data(query, params=()):
     conn.close()
     return data
 
-# Função dedicada e sem cache para a logo (evita o erro anterior)
 def fetch_logo_direto(query, params=()):
     conn = get_db_connection()
     c = conn.cursor(cursor_factory=RealDictCursor)
@@ -88,7 +87,7 @@ def execute_query(query, params=()):
     c.execute(query, params)
     conn.commit()
     conn.close()
-    st.cache_data.clear()  # Limpa o cache automaticamente sempre que salvar algo novo
+    st.cache_data.clear()
 
 init_db()
 
@@ -108,13 +107,18 @@ def registrar_auditoria(acao, modulo, detalhes):
 
 def calcular_status_fatura(status_banco, dia_venc):
     if status_banco == "Pago": return "🟢 Em Dias (Pago)"
+    
     dia_atual = get_horario_brasil().day
     dia_fechamento = dia_venc - 2 if (dia_venc - 2) > 0 else 1
 
-    if dia_atual == dia_venc: return "🟠 Vence Hoje"
-    elif dia_atual > dia_venc: return "🔴 Vencida / Atrasada"
-    elif dia_atual >= dia_fechamento and dia_atual < dia_venc: return "🟡 Fatura Fechada (Próxima ao Vencimento)"
-    else: return "🟢 Em Dias"
+    if dia_atual == dia_venc: 
+        return "🟠 Vence Hoje"
+    elif dia_atual > dia_venc: 
+        return "🔴 Vencida / Atrasada"
+    elif dia_atual >= dia_fechamento and dia_atual < dia_venc: 
+        return "🟡 Fatura Fechada (Próxima ao Vencimento)"
+    else: 
+        return "🟢 Em Dias"
 
 def gerar_link_whatsapp(contexto):
     telefone = "5584999305771"
@@ -1109,7 +1113,7 @@ else:
                 aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
                 
                 if aud_sel_excluir != "":
-                    if st.button("❌ Fechar Seleção", key="btn_close_aud_del"):
+                    if st.button("❌ Fechar Seleção", key="btn_close_edit_emp"): # Mantém chave limpa
                         st.session_state.reset_keys['aud_del'] += 1
                         st.rerun()
                         
