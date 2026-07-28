@@ -65,6 +65,7 @@ def init_db():
     conn.commit()
     conn.close()
 
+# CACHE ATIVO PARA MANTÊ-R O APLICATIVO RÁPIDO
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -438,66 +439,82 @@ else:
             else:
                 st.subheader("📝 Cadastro de Novo Cliente e Seus Veículos")
                 
-                with st.form("form_cadastro_multiplo", clear_on_submit=True):
-                    c1, c2 = st.columns(2)
-                    nome_cli = c1.text_input("Nome do Cliente *")
-                    doc_cli = c2.text_input("CPF / CNPJ *")
-                    end_cli = c1.text_input("Endereço")
-                    tel_cli = c2.text_input("Telefone")
-                    emp_cli = c1.selectbox("Empresa (Pasta) *", opcoes_emp)
-                    
+                # Inicializa memória state para formulário de cadastro sem perder dados ao adicionar carros
+                if 'form_cli_nome' not in st.session_state: st.session_state.form_cli_nome = ""
+                if 'form_cli_doc' not in st.session_state: st.session_state.form_cli_doc = ""
+                if 'form_cli_end' not in st.session_state: st.session_state.form_cli_end = ""
+                if 'form_cli_tel' not in st.session_state: st.session_state.form_cli_tel = ""
+                if 'num_veiculos_state' not in st.session_state: st.session_state.num_veiculos_state = 1
+
+                c1, c2 = st.columns(2)
+                f_nome = c1.text_input("Nome do Cliente *", value=st.session_state.form_cli_nome, key="IN_nome")
+                f_doc = c2.text_input("CPF / CNPJ *", value=st.session_state.form_cli_doc, key="IN_doc")
+                f_end = c1.text_input("Endereço", value=st.session_state.form_cli_end, key="IN_end")
+                f_tel = c2.text_input("Telefone", value=st.session_state.form_cli_tel, key="IN_tel")
+                f_emp = c1.selectbox("Empresa (Pasta) *", opcoes_emp, key="IN_emp")
+
+                # Atualiza state
+                st.session_state.form_cli_nome = f_nome
+                st.session_state.form_cli_doc = f_doc
+                st.session_state.form_cli_end = f_end
+                st.session_state.form_cli_tel = f_tel
+
+                st.markdown("---")
+                st.write("🚗 **Frota / Veículos do Cliente:**")
+
+                col_b1, col_b2 = st.columns([1, 4])
+                with col_b1:
+                    if st.button("➕ Adicionar Veículo", key="btn_add_v_state"):
+                        st.session_state.num_veiculos_state += 1
+                        st.rerun()
+                with col_b2:
+                    if st.session_state.num_veiculos_state > 1:
+                        if st.button("➖ Remover Último Veículo", key="btn_rem_v_state"):
+                            st.session_state.num_veiculos_state -= 1
+                            st.rerun()
+
+                veiculos_dados = []
+                for i in range(st.session_state.num_veiculos_state):
+                    st.markdown(f"**Veículo {i+1}**")
+                    vc1, vc2, vc3, vc4 = st.columns(4)
+                    t_veic = vc1.selectbox(f"Tipo {i+1}", ["Carro", "Moto", "Caminhão", "Outro"], key=f"st_t_{i}")
+                    p_veic = vc2.text_input(f"Placa * {i+1}", key=f"st_p_{i}")
+                    m_veic = vc3.text_input(f"Modelo {i+1}", key=f"st_m_{i}")
+                    c_veic = vc4.text_input(f"Cor {i+1}", key=f"st_c_{i}")
+                    veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic})
                     st.markdown("---")
-                    st.write("🚗 **Frota / Veículos do Cliente:**")
-                    
-                    col_b1, col_b2 = st.columns([1, 4])
-                    with col_b1:
-                        if st.form_submit_button("➕ Adicionar Veículo"):
-                            st.session_state.num_veiculos_form += 1
-                            st.rerun()
-                    with col_b2:
-                        if st.session_state.num_veiculos_form > 1:
-                            if st.form_submit_button("➖ Remover Último Veículo"):
-                                st.session_state.num_veiculos_form -= 1
-                                st.rerun()
 
-                    veiculos_dados = []
-                    for i in range(st.session_state.num_veiculos_form):
-                        st.markdown(f"**Veículo {i+1}**")
-                        vc1, vc2, vc3, vc4 = st.columns(4)
-                        t_veic = vc1.selectbox(f"Tipo {i+1}", ["Carro", "Moto", "Caminhão", "Outro"], key=f"t_{i}")
-                        p_veic = vc2.text_input(f"Placa * {i+1}", key=f"p_{i}")
-                        m_veic = vc3.text_input(f"Modelo {i+1}", key=f"m_{i}")
-                        c_veic = vc4.text_input(f"Cor {i+1}", key=f"c_{i}")
-                        veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic})
-                        st.markdown("---")
+                if st.button("💾 Salvar Cadastro Completo", key="btn_salvar_tudo_state"):
+                    if f_nome and f_doc and any(v['placa'] for v in veiculos_dados):
+                        conn = get_db_connection()
+                        cur = conn.cursor(cursor_factory=RealDictCursor)
+                        cur.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status) VALUES (%s,%s,%s,%s,%s,'Ativo') RETURNING id", 
+                                       (f_nome, f_doc, f_end, f_tel, f_emp))
+                        cliente_id = cur.fetchone()['id']
+                        
+                        validos = [v for v in veiculos_dados if v['placa'].strip()]
+                        for v in validos:
+                            cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
+                                           (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor']))
+                        conn.commit()
+                        conn.close()
+                        st.cache_data.clear()
+                        
+                        total_cad = len(validos)
+                        msg_veic = f"1 veículo" if total_cad == 1 else f"{total_cad} veículos"
 
-                    btn_salvar_tudo = st.form_submit_button("💾 Salvar Cadastro Completo")
-                    
-                    if btn_salvar_tudo:
-                        if nome_cli and doc_cli and any(v['placa'] for v in veiculos_dados):
-                            conn = get_db_connection()
-                            cur = conn.cursor(cursor_factory=RealDictCursor)
-                            cur.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status) VALUES (%s,%s,%s,%s,%s,'Ativo') RETURNING id", 
-                                           (nome_cli, doc_cli, end_cli, tel_cli, emp_cli))
-                            cliente_id = cur.fetchone()['id']
-                            
-                            validos = [v for v in veiculos_dados if v['placa'].strip()]
-                            for v in validos:
-                                cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
-                                               (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor']))
-                            conn.commit()
-                            conn.close()
-                            st.cache_data.clear()
-                            
-                            total_cad = len(validos)
-                            msg_veic = f"1 veículo" if total_cad == 1 else f"{total_cad} veículos"
+                        # Limpa estados
+                        st.session_state.form_cli_nome = ""
+                        st.session_state.form_cli_doc = ""
+                        st.session_state.form_cli_end = ""
+                        st.session_state.form_cli_tel = ""
+                        st.session_state.num_veiculos_state = 1
 
-                            st.session_state.num_veiculos_form = 1
-                            registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome_cli} cadastrado com {msg_veic}.")
-                            st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso e tela limpa!"
-                            st.rerun()
-                        else:
-                            st.error("Preencha o Nome, CPF/CNPJ e pelo menos a Placa de um veículo.")
+                        registrar_auditoria("Cadastro", "Clientes", f"Cliente {f_nome} cadastrado com {msg_veic}.")
+                        st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso!"
+                        st.rerun()
+                    else:
+                        st.error("Preencha o Nome, CPF/CNPJ e pelo menos a Placa de um veículo.")
                             
         elif acao_clientes == "Importação em Lote":
             st.subheader("📥 Importação Inteligente de Clientes e Frotas via CSV")
