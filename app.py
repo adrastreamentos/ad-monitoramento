@@ -75,7 +75,6 @@ def init_db():
 
     conn.close()
 
-# CACHE ATIVO PARA DADOS GERAIS
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -85,7 +84,6 @@ def fetch_data(query, params=()):
     conn.close()
     return data
 
-# CACHE EXCLUSIVO E BLINDADO PARA A LOGO
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
     try:
@@ -199,8 +197,7 @@ if 'rk' not in st.session_state: st.session_state.rk = 0
 
 if 'reset_keys' not in st.session_state:
     st.session_state.reset_keys = {
-        'ficha_cli': 0, 'edit_cli': 0, 'rel_fr': 0, 
-        'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0
+        'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0
     }
 
 if 'flash_msg' in st.session_state:
@@ -417,7 +414,7 @@ else:
                 
                 lista_ficha_op = [""] + [f"{row['cli_id']} - {row['nome']} (CPF/CNPJ: {row['documento']}) - [{row['empresa']}]" for _, row in df_tela.iterrows()]
                 
-                k_ficha_cli = st.session_state.reset_keys['ficha_cli']
+                k_ficha_cli = st.session_state.reset_keys.get('ficha_cli', 0)
                 cli_ficha_sel = st.selectbox("Selecione o cliente abaixo para ver a ficha completa e detalhar todos os seus veículos:", lista_ficha_op, key=f"sb_ficha_cli_{k_ficha_cli}")
                 
                 if cli_ficha_sel != "":
@@ -426,7 +423,7 @@ else:
                     veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
                     
                     if st.button("❌ Fechar Ficha Cadastral", key="btn_close_ficha_cli"):
-                        st.session_state.reset_keys['ficha_cli'] += 1
+                        st.session_state.reset_keys['ficha_cli'] = k_ficha_cli + 1
                         st.rerun()
 
                     st.markdown(f"""
@@ -601,7 +598,6 @@ else:
                     st.error(f"Erro ao processar CSV: {e}")
             
         elif acao_clientes in ["Editar", "Excluir"]:
-            # Removido st.form para a busca e botões funcionarem de forma livre e dinâmica
             busca = st.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF - Mín. 3 letras):")
             btn_pesq = st.button("Pesquisar", type="primary")
             
@@ -668,7 +664,6 @@ else:
                             st.markdown("---")
                             st.write("➕ **Adicionar Novos Veículos a Este Cliente:**")
                             
-                            # Memória de estado só para os novos carros inseridos na edição
                             if f"novos_v_{id_c_sel}" not in st.session_state:
                                 st.session_state[f"novos_v_{id_c_sel}"] = 0
                                 
@@ -987,7 +982,7 @@ else:
                 else:
                     st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
-        tab_idx += 1  # FIM DO BLOCO PARCEIRO
+        tab_idx += 1
 
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
@@ -1089,7 +1084,7 @@ else:
                                 st.rerun()
                 else:
                     st.warning("Nenhuma empresa encontrada.")
-        tab_idx += 1 # FIM DO BLOCO EMPRESAS (ADMIN)
+        tab_idx += 1 
 
     # --- ABA: FINANCEIRO (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
@@ -1108,29 +1103,31 @@ else:
                 for emp in empresas_cad:
                     nome_emp = emp['nome']
                     val_unit = emp['valor_veiculo'] if emp['valor_veiculo'] is not None else 3.00
-                    dia_v = emp['dia_vencimento'] if emp['dia_vencimento'] is not None else 10
+                    dia_venc = emp['dia_vencimento'] if emp['dia_vencimento'] is not None else 10
                     stat_p = emp['status_pagamento'] if emp['status_pagamento'] is not None else "Pendente"
                     v_pago_ef = emp['valor_pago'] if emp['valor_pago'] is not None else 0.00
                     
-                    status_calculado = calcular_status_fatura(stat_p, dia_v)
+                    status_calculado = calcular_status_fatura(stat_p, dia_venc)
                     
                     q_v = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
                     res_v = fetch_data(q_v, (nome_emp,))
                     qtd_v = res_v[0]['qtd'] if res_v else 0
                     valor_calc = qtd_v * val_unit
                     
+                    # Faturamento Previsto é a projeção real com base nos carros ativos hoje (para a próxima fatura)
                     total_faturamento_previsto += valor_calc
                     
-                    if "Pago" in status_calculado:
-                        total_pago += v_pago_ef if v_pago_ef > 0 else valor_calc
                     if "Vencida" in status_calculado or "Vence Hoje" in status_calculado:
                         total_atrasado += valor_calc
+                        
+                    # O valor pago é ESTRITAMENTE o valor real que foi registrado/baixado na fatura (ex: R$ 110.00)
+                    total_pago += v_pago_ef
                     
                     dados_financeiro_global.append({
                         "Empresa Parceira": nome_emp,
                         "Veículos Ativos": qtd_v,
                         "Valor Unitário": f"R$ {val_unit:.2f}",
-                        "Vencimento": f"Dia {dia_v}",
+                        "Vencimento": f"Dia {dia_venc}",
                         "Faturamento Previsto": f"R$ {valor_calc:.2f}",
                         "Valor Pago Registrado": f"R$ {v_pago_ef:.2f}",
                         "Status Atual": status_calculado
@@ -1200,10 +1197,7 @@ else:
                     q_v_calc = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
                     res_v_calc = fetch_data(q_v_calc, (emp_escolhida_pagto,))
                     qtd_v_calc = res_v_calc[0]['qtd'] if res_v_calc else 0
-                    sugestao_total = qtd_v_calc * val_atual
-                    if vp_atual == 0.0:
-                        vp_atual = sugestao_total
-
+                    
                     with st.form("form_atualiza_status_pagto", clear_on_submit=True):
                         st.write(f"**Empresa Selecionada:** {emp_escolhida_pagto}")
                         col_f1, col_f2, col_f3, col_f4 = st.columns(4)
