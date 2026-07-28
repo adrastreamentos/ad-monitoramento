@@ -7,7 +7,6 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import io
 import os
-import hashlib
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -71,7 +70,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id SERIAL PRIMARY KEY, nome TEXT, documento TEXT, endereco TEXT, telefone TEXT, empresa TEXT, status TEXT DEFAULT 'Ativo')''')
     c.execute('''CREATE TABLE IF NOT EXISTS veiculos (id SERIAL PRIMARY KEY, cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE, tipo_veic TEXT, placa TEXT, modelo TEXT, cor TEXT)''')
     
-    # Campo inteligente para chip (Melhoria)
     try:
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS info_chip TEXT DEFAULT '';")
         conn.commit()
@@ -120,8 +118,13 @@ def get_horario_brasil():
 def get_horario_brasil_str():
     return get_horario_brasil().strftime("%d/%m/%Y %H:%M:%S")
 
-def registrar_auditoria(acao, modulo, detalhes):
+def registrar_auditoria(acao, modulo, detalhes, empresa_rel=None):
     usuario = st.session_state.get('nome_empresa', 'AD RASTREAMENTO VEICULAR')
+    
+    # Adiciona a marcação do "Alvo" se a ação foi feita com uma empresa específica
+    if empresa_rel:
+        detalhes = f"{detalhes} | Alvo: {empresa_rel}"
+        
     agora = get_horario_brasil_str()
     execute_query("INSERT INTO auditoria (data_hora, acao, modulo, detalhes, usuario) VALUES (%s,%s,%s,%s,%s)", 
                   (agora, acao, modulo, detalhes, usuario))
@@ -143,7 +146,6 @@ def gerar_link_whatsapp(contexto):
     return f'<a href="{link}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%;">💬 Solicitar Suporte via WhatsApp</button></a>'
 
 def gerar_relatorio_html(dados_relatorio, empresa_nome):
-    # Lógica para mostrar assinatura digital/protocolo no PDF/HTML se estiver finalizado
     detalhes_texto = dados_relatorio['detalhes']
     assinatura_bloco = ""
     
@@ -219,7 +221,6 @@ if 'reset_keys' not in st.session_state:
         'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0
     }
 
-# FUNÇÃO MESTRE DE LIMPEZA DE TELA
 def limpar_tela():
     st.session_state.rk += 1
     st.session_state.termo_busca_ativo = ""
@@ -263,7 +264,7 @@ if not st.session_state.logged_in:
                         st.query_params["logged_in"] = "true"
                         st.query_params["admin"] = "false"
                         st.query_params["empresa"] = res[0]['nome']
-                        registrar_auditoria("Acesso", "Login", f"{res[0]['nome']} acessou o sistema.")
+                        registrar_auditoria("Acesso", "Login", f"Acessou o sistema de forma segura.", res[0]['nome'])
                         st.rerun()
                     else:
                         st.error("Acesso Negado: Login ou Senha incorretos.")
@@ -322,10 +323,11 @@ else:
                     st.rerun()
             st.markdown("---")
 
+    # Adicionado a aba "Auditoria" também para o parceiro
     if st.session_state.is_admin:
         abas = ["🚨 Central 24h", "👤 Clientes", "📖 Relatórios", "🏢 Empresas", "💰 Financeiro", "🕵️ Auditoria"]
     else:
-        abas = ["👤 Clientes", "📖 Relatórios", "💰 Meu Faturamento"]
+        abas = ["👤 Clientes", "📖 Relatórios", "💰 Meu Faturamento", "🕵️ Auditoria"]
         
     tabs = st.tabs(abas)
     tab_idx = 0
@@ -371,7 +373,6 @@ else:
                             tipo_oc = col_oc1.selectbox("Natureza", ["Furto", "Roubo"], key=f"nat_{st.session_state.rk}")
                             local_oc = col_oc2.text_input("Localização do Fato", key=f"loc_{st.session_state.rk}")
                             
-                            # --- MELHORIA: STATUS DO CHIP E LINK DE RASTREIO ---
                             col_chip1, col_chip2 = st.columns(2)
                             status_chip = col_chip1.text_input("📡 Última Posição / Status do Chip", placeholder="Ex: Operadora Vivo - Ativo / Sem Sinal desde as 10h", key=f"chip_{st.session_state.rk}")
                             link_rastreio = col_chip2.text_input("🔗 Link de Rastreio (Para Polícia/Cliente)", placeholder="Cole o link web aqui", key=f"link_{st.session_state.rk}")
@@ -384,7 +385,7 @@ else:
                                 detalhes_completos = f"Local: {local_oc} | Desc: {desc_oc} | Chip/Posição: {status_chip} | Link Rastreio: {link_rastreio}"
                                 execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
                                               (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", detalhes_completos, info_veic['empresa']))
-                                registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}")
+                                registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}", info_veic['empresa'])
                                 st.session_state.flash_msg = "Salvo e enviado para relatórios como EM ANDAMENTO!"
                                 limpar_tela()
                                 st.rerun()
@@ -402,7 +403,7 @@ else:
                                 detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação: {acao_mon}"
                                 execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
                                               (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", detalhes_completos, info_veic['empresa']))
-                                registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}")
+                                registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}", info_veic['empresa'])
                                 st.session_state.flash_msg = "Salvo com sucesso!"
                                 limpar_tela()
                                 st.rerun()
@@ -491,7 +492,6 @@ else:
                     """, unsafe_allow_html=True)
                     
                     if veiculos_cli_ficha:
-                        # --- MELHORIA: MOSTRAR INFO DO CHIP NA FICHA ---
                         df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor', 'info_chip']]
                         df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor', 'Chip/Equipamento']
                         st.dataframe(df_veics, use_container_width=True)
@@ -535,7 +535,6 @@ else:
                 veiculos_dados = []
                 for i in range(st.session_state.num_veiculos_state):
                     st.markdown(f"**Veículo {i+1}**")
-                    # --- MELHORIA: 5 COLUNAS PARA INCLUIR O CHIP ---
                     vc1, vc2, vc3, vc4, vc5 = st.columns([2, 2, 2, 2, 3])
                     t_veic = vc1.selectbox(f"Tipo {i+1}", ["Carro", "Moto", "Caminhão", "Outro"], key=f"in_t_{i}_{rk}")
                     p_veic = vc2.text_input(f"Placa * {i+1}", key=f"in_p_{i}_{rk}")
@@ -564,7 +563,7 @@ else:
                         total_cad = len(validos)
                         msg_veic = f"1 veículo" if total_cad == 1 else f"{total_cad} veículos"
 
-                        registrar_auditoria("Cadastro", "Clientes", f"Cliente {f_nome} cadastrado com {msg_veic}.")
+                        registrar_auditoria("Cadastro", "Clientes", f"Cliente {f_nome} cadastrado com {msg_veic}.", f_emp)
                         
                         agora_notif = get_horario_brasil_str()
                         execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
@@ -647,7 +646,7 @@ else:
 
                         conn.commit()
                         st.cache_data.clear()        
-                        registrar_auditoria("Importação Lote", "Clientes", f"Importação CSV: {importados_clientes} clientes e {importados_veiculos} veículos.")
+                        registrar_auditoria("Importação Lote", "Clientes", f"Importação CSV: {importados_clientes} clientes e {importados_veiculos} veículos.", emp_lote)
                         
                         agora_notif = get_horario_brasil_str()
                         execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
@@ -708,7 +707,6 @@ else:
                             if veiculos_cliente:
                                 for idx, v in enumerate(veiculos_cliente):
                                     st.write(f"**Veículo {idx+1} (Placa Atual: {v['placa']})**")
-                                    # --- MELHORIA: INCLUI INFO CHIP NA EDIÇÃO ---
                                     vc1, vc2, vc3, vc4, vc5 = st.columns([2, 2, 2, 2, 3])
                                     tipos_v = ["Carro", "Moto", "Caminhão", "Outro"]
                                     t_idx = tipos_v.index(v['tipo_veic']) if v['tipo_veic'] in tipos_v else 0
@@ -769,7 +767,7 @@ else:
                                     execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
                                                   (agora_notif, dados_cliente_sel['empresa'], f"Adicionou um veículo extra ({nv['placa']}) para o cliente {en_nome}."))
 
-                                registrar_auditoria("Edição", "Clientes", f"Dados e veículos do cliente {en_nome} atualizados.")
+                                registrar_auditoria("Edição", "Clientes", f"Dados e veículos do cliente {en_nome} atualizados.", dados_cliente_sel['empresa'])
                                 st.session_state.flash_msg = "Cliente e veículos atualizados com sucesso!"
                                 st.session_state[f"novos_v_{id_c_sel}"] = 0
                                 limpar_tela()
@@ -788,6 +786,11 @@ else:
                                 ids_para_excluir = [int(c.split(" - ")[0]) for c in clientes_selecionados]
                                 if ids_para_excluir:
                                     ids_tuple = tuple(ids_para_excluir)
+                                    
+                                    # Puxar os nomes das empresas afetadas para a auditoria
+                                    empresas_afetadas = fetch_data("SELECT DISTINCT empresa FROM clientes WHERE id IN %s", (ids_tuple,))
+                                    nomes_empresas = ", ".join([e['empresa'] for e in empresas_afetadas]) if empresas_afetadas else ""
+
                                     conn = get_conn_fast()
                                     cur = conn.cursor()
                                     cur.execute("DELETE FROM veiculos WHERE cliente_id IN %s", (ids_tuple,))
@@ -795,7 +798,7 @@ else:
                                     conn.commit()
                                     st.cache_data.clear()
                                     
-                                    registrar_auditoria("Exclusão", "Clientes", f"{len(ids_para_excluir)} cliente(s) e frotas excluídos em lote.")
+                                    registrar_auditoria("Exclusão", "Clientes", f"{len(ids_para_excluir)} cliente(s) e frotas excluídos em lote.", nomes_empresas)
                                     st.session_state.flash_msg = f"{len(ids_para_excluir)} cliente(s) excluído(s) com sucesso!"
                                     limpar_tela()
                                     st.rerun()
@@ -878,7 +881,7 @@ else:
                                 with col_b2:
                                     if st.button("🗑️ Excluir este Relatório de Ocorrência", key=f"del_rel_fr_{id_r}"):
                                         execute_query("DELETE FROM historico WHERE id=%s", (id_r,))
-                                        registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Ocorrência ID {id_r} excluído pelo administrador.")
+                                        registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Ocorrência ID {id_r} excluído pelo administrador.", dados_fr['empresa'])
                                         st.session_state.flash_msg = "Relatório excluído com sucesso!"
                                         limpar_tela()
                                         st.rerun()
@@ -902,7 +905,6 @@ else:
                                 st.write("🟢 **Finalizar Atendimento:**")
                                 desfecho = st.text_area("Informe o desfecho do caso (ex: Veículo recuperado com sucesso)", key=f"desfecho_{id_r}")
                                 if st.button("✅ Concluir e Finalizar Ocorrência", key=f"btn_concluir_fr_{id_r}"):
-                                    # --- MELHORIA: SLA E ASSINATURA DIGITAL ---
                                     agora = get_horario_brasil()
                                     try:
                                         dt_abertura = datetime.strptime(dados_fr['data_hora'], "%d/%m/%Y %H:%M:%S")
@@ -918,7 +920,7 @@ else:
                                     novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho} | SLA DE RESPOSTA: {sla_str} | PROTOCOLO: {protocolo}"
                                     
                                     execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, id_r))
-                                    registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada. Protocolo: {protocolo}")
+                                    registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada. Protocolo: {protocolo}", dados_fr['empresa'])
                                     st.session_state.flash_msg = "Ocorrência finalizada e protocolada com sucesso!"
                                     limpar_tela()
                                     st.rerun()
@@ -974,7 +976,7 @@ else:
                                 with col_mb2:
                                     if st.button("🗑️ Excluir este Relatório de Monitoramento", key=f"del_rel_mon_{id_m}"):
                                         execute_query("DELETE FROM historico WHERE id=%s", (id_m,))
-                                        registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Monitoramento ID {id_m} excluído pelo administrador.")
+                                        registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Monitoramento ID {id_m} excluído pelo administrador.", dados_mon['empresa'])
                                         st.session_state.flash_msg = "Relatório excluído com sucesso!"
                                         limpar_tela()
                                         st.rerun()
@@ -1111,7 +1113,7 @@ else:
                         if e_nome and e_cnpj:
                             execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
                                           (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
-                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.")
+                            registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.", e_nome)
                             st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
                             limpar_tela()
                             st.rerun()
@@ -1154,7 +1156,7 @@ else:
                                 if st.form_submit_button("💾 Salvar Alterações"):
                                     execute_query("UPDATE empresas SET nome=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
                                                   (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
-                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}")
+                                    registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}", ne_nome)
                                     st.session_state.flash_msg = "Alterações salvas com sucesso!"
                                     limpar_tela()
                                     st.rerun()
@@ -1163,7 +1165,7 @@ else:
                             st.warning(f"Tem certeza que deseja excluir a empresa **{dados_e['nome']}**?")
                             if st.button("🗑️ Excluir Parceiro"):
                                 execute_query("DELETE FROM empresas WHERE id=%s", (id_emp,))
-                                registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.")
+                                registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.", dados_e['nome'])
                                 st.session_state.flash_msg = "Empresa excluída com sucesso!"
                                 limpar_tela()
                                 st.rerun()
@@ -1281,48 +1283,56 @@ else:
                     res_v_calc = fetch_data(q_v_calc, (emp_escolhida_pagto,))
                     qtd_v_calc = res_v_calc[0]['qtd'] if res_v_calc else 0
                     
-                    st.write(f"**Empresa Selecionada:** {emp_escolhida_pagto}")
-                    col_f1, col_f2, col_f3, col_f4 = st.columns(4)
-                    
-                    novo_valor_unit = col_f1.number_input("Novo Valor Unitário:", min_value=0.0, value=float(val_atual), format="%.2f", key=f"fin_v_u_{k_fin}")
-                    novo_valor_pago = col_f2.number_input("Valor Total Pago:", min_value=0.0, value=float(vp_atual), format="%.2f", key=f"fin_v_p_{k_fin}")
-                    
-                    data_atual = get_horario_brasil()
-                    mes_passado = data_atual.replace(day=1) - timedelta(days=1)
-                    sugestao_mes_ref = mes_passado.strftime("%m/%Y")
-                    
-                    mes_referencia = col_f3.text_input("Mês Ref. (Ex: 06/2026):", value=sugestao_mes_ref, key=f"fin_m_r_{k_fin}")
-                    
-                    opcoes_st_fin = ["Pendente", "Pago"]
-                    idx_st_fin = opcoes_st_fin.index(stat_atual) if stat_atual in opcoes_st_fin else 0
-                    novo_status_pagto = col_f4.selectbox("Status:", opcoes_st_fin, index=idx_st_fin, key=f"fin_st_{k_fin}")
-                    
-                    if st.button("💾 Salvar Pagamento e Registrar Histórico", type="primary"):
-                        execute_query("UPDATE empresas SET status_pagamento=%s, valor_veiculo=%s, valor_pago=%s WHERE nome=%s", (novo_status_pagto, novo_valor_unit, novo_valor_pago, emp_escolhida_pagto))
+                    with st.form("form_atualiza_status_pagto", clear_on_submit=True):
+                        st.write(f"**Empresa Selecionada:** {emp_escolhida_pagto}")
+                        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
                         
-                        data_pgto_hoje = get_horario_brasil_str()
-                        val_fatura_calc = qtd_v_calc * novo_valor_unit
+                        novo_valor_unit = col_f1.number_input("Novo Valor Unitário:", min_value=0.0, value=float(val_atual), format="%.2f", key=f"fin_v_u_{k_fin}")
+                        novo_valor_pago = col_f2.number_input("Valor Total Pago:", min_value=0.0, value=float(vp_atual), format="%.2f", key=f"fin_v_p_{k_fin}")
                         
-                        execute_query("INSERT INTO historico_faturas (mes_ref, empresa, total_veiculos, valor_unitario, valor_fatura_calculada, valor_pago, status, data_pagamento) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                                      (mes_referencia, emp_escolhida_pagto, qtd_v_calc, novo_valor_unit, val_fatura_calc, novo_valor_pago, novo_status_pagto, data_pgto_hoje))
+                        data_atual = get_horario_brasil()
+                        mes_passado = data_atual.replace(day=1) - timedelta(days=1)
+                        sugestao_mes_ref = mes_passado.strftime("%m/%Y")
+                        
+                        mes_referencia = col_f3.text_input("Mês Ref. (Ex: 06/2026):", value=sugestao_mes_ref, key=f"fin_m_r_{k_fin}")
+                        
+                        opcoes_st_fin = ["Pendente", "Pago"]
+                        idx_st_fin = opcoes_st_fin.index(stat_atual) if stat_atual in opcoes_st_fin else 0
+                        novo_status_pagto = col_f4.selectbox("Status:", opcoes_st_fin, index=idx_st_fin, key=f"fin_st_{k_fin}")
+                        
+                        if st.form_submit_button("💾 Salvar Pagamento e Registrar Histórico"):
+                            execute_query("UPDATE empresas SET status_pagamento=%s, valor_veiculo=%s, valor_pago=%s WHERE nome=%s", (novo_status_pagto, novo_valor_unit, novo_valor_pago, emp_escolhida_pagto))
+                            
+                            data_pgto_hoje = get_horario_brasil_str()
+                            val_fatura_calc = qtd_v_calc * novo_valor_unit
+                            
+                            execute_query("INSERT INTO historico_faturas (mes_ref, empresa, total_veiculos, valor_unitario, valor_fatura_calculada, valor_pago, status, data_pagamento) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                                          (mes_referencia, emp_escolhida_pagto, qtd_v_calc, novo_valor_unit, val_fatura_calc, novo_valor_pago, novo_status_pagto, data_pgto_hoje))
 
-                        registrar_auditoria("Financeiro", "Faturamento", f"Fatura de {emp_escolhida_pagto} (Mês Ref: {mes_referencia}) alterada para {novo_status_pagto} | Valor Pago: R$ {novo_valor_pago:.2f}")
-                        st.session_state.flash_msg = f"Financeiro e Histórico de {emp_escolhida_pagto} atualizados com sucesso!"
-                        limpar_tela()
-                        st.rerun()
+                            registrar_auditoria("Financeiro", "Faturamento", f"Fatura de {emp_escolhida_pagto} (Mês Ref: {mes_referencia}) alterada para {novo_status_pagto} | Valor Pago: R$ {novo_valor_pago:.2f}", emp_escolhida_pagto)
+                            st.session_state.flash_msg = f"Financeiro e Histórico de {emp_escolhida_pagto} atualizados com sucesso!"
+                            limpar_tela()
+                            st.rerun()
             else:
                 st.info("Nenhuma empresa parceira cadastrada para faturamento.")
         tab_idx += 1
 
     # --- AUDITORIA ---
-    if st.session_state.is_admin and tab_idx < len(tabs):
+    if tab_idx < len(tabs):
         with tabs[tab_idx]:
-            st.header("🕵️ Auditoria e Rastreabilidade")
+            st.header("🕵️ Auditoria e Registros de Atividades")
             mes_atual_padrao = datetime.now().strftime("%m/%Y")
-            filtro_mes_aud = st.text_input("🔍 Busca Inteligente em Auditoria (Mês/Ano ou Texto):", value=mes_atual_padrao, key=f"aud_b_{st.session_state.rk}")
+            filtro_mes_aud = st.text_input("🔍 Busca Inteligente em Registros (Mês/Ano ou Texto):", value=mes_atual_padrao, key=f"aud_b_{st.session_state.rk}")
             
             q_aud = "SELECT * FROM auditoria WHERE 1=1"
             p_aud = []
+            
+            # --- FILTRO DE VISÃO DO PARCEIRO (AUDITORIA BIDIRECIONAL) ---
+            if not st.session_state.is_admin:
+                # O Parceiro só vê o que ele fez OU o que foi feito tendo a empresa dele como alvo
+                q_aud += " AND (usuario = %s OR detalhes ILIKE %s)"
+                p_aud.extend([st.session_state.nome_empresa, f"%Alvo: {st.session_state.nome_empresa}%"])
+                
             if filtro_mes_aud:
                 termo = f"%{filtro_mes_aud}%"
                 q_aud += " AND (data_hora ILIKE %s OR usuario ILIKE %s OR detalhes ILIKE %s)"
@@ -1341,22 +1351,24 @@ else:
 
                 st.dataframe(df_auditoria, use_container_width=True)
                 
-                st.markdown("### 🗑️ Excluir Registro Específico de Auditoria")
-                lista_aud = [""] + [f"{row['ID']} - {row['Data/Hora']} ({row['Empresa / Usuário']} - {row['Ação']} / {row['Módulo']})" for _, row in df_auditoria.iterrows()]
-                
-                k_aud_del = st.session_state.reset_keys['aud_del']
-                aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
-                
-                if aud_sel_excluir != "":
-                    if st.button("❌ Fechar Seleção", key="btn_close_aud_del"):
-                        limpar_tela()
-                        st.rerun()
-                        
-                    id_aud_del = int(aud_sel_excluir.split(" - ")[0])
-                    if st.button("🗑️ Excluir Registro de Auditoria Selecionado", key=f"btn_del_aud_{id_aud_del}"):
-                        execute_query("DELETE FROM auditoria WHERE id=%s", (id_aud_del,))
-                        st.session_state.flash_msg = f"Registro de auditoria ID {id_aud_del} excluído com sucesso!"
-                        limpar_tela()
-                        st.rerun()
+                # Excluir auditoria é exclusividade do administrador
+                if st.session_state.is_admin:
+                    st.markdown("### 🗑️ Excluir Registro Específico de Auditoria")
+                    lista_aud = [""] + [f"{row['ID']} - {row['Data/Hora']} ({row['Empresa / Usuário']} - {row['Ação']} / {row['Módulo']})" for _, row in df_auditoria.iterrows()]
+                    
+                    k_aud_del = st.session_state.reset_keys['aud_del']
+                    aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
+                    
+                    if aud_sel_excluir != "":
+                        if st.button("❌ Fechar Seleção", key="btn_close_aud_del"):
+                            limpar_tela()
+                            st.rerun()
+                            
+                        id_aud_del = int(aud_sel_excluir.split(" - ")[0])
+                        if st.button("🗑️ Excluir Registro de Auditoria Selecionado", key=f"btn_del_aud_{id_aud_del}"):
+                            execute_query("DELETE FROM auditoria WHERE id=%s", (id_aud_del,))
+                            st.session_state.flash_msg = f"Registro de auditoria ID {id_aud_del} excluído com sucesso!"
+                            limpar_tela()
+                            st.rerun()
             else:
                 st.info(f"Nenhum registro de auditoria para os termos buscados.")
