@@ -5,7 +5,7 @@ import urllib.parse
 import base64
 import psycopg2
 from psycopg2.extras import RealDictCursor
-import os
+import io
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -46,12 +46,12 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS empresas (id SERIAL PRIMARY KEY, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT, servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)', valor_veiculo REAL DEFAULT 3.00, dia_vencimento INTEGER DEFAULT 10, status_pagamento TEXT DEFAULT 'Pendente', valor_pago REAL DEFAULT 0.00, logo_url TEXT DEFAULT '')''')
+    c.execute('''CREATE TABLE IF NOT EXISTS empresas (id SERIAL PRIMARY KEY, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT, servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)', valor_veiculo REAL DEFAULT 3.00, dia_vencimento INTEGER DEFAULT 10, status_pagamento TEXT DEFAULT 'Pendente', valor_pago REAL DEFAULT 0.00, logo_binario BYTEA)''')
     
-    # Migração caso as colunas novas ainda não existam no banco da nuvem
+    # Migração caso a coluna de logo binária ainda não exista
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
-        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_url TEXT DEFAULT '';")
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_binario BYTEA;")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -226,7 +226,29 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     with st.sidebar:
+        # Exibir a logo do parceiro na barra lateral se ele tiver enviado uma
+        if not st.session_state.is_admin:
+            res_logo_sb = fetch_data("SELECT logo_binario FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+            if res_logo_sb and res_logo_sb[0].get('logo_binario'):
+                st.image(res_logo_sb[0]['logo_binario'], width=140)
+
         st.write(f"👤 **Conectado como:** {st.session_state.nome_empresa}")
+        
+        # Botão direto para o parceiro adicionar/alterar sua própria logo
+        if not st.session_state.is_admin:
+            with st.expander("🖼️ Enviar / Alterar Minha Logo"):
+                up_logo = st.file_uploader("Escolha a imagem (PNG/JPG)", type=["png", "jpg", "jpeg"], key="up_logo_parceiro")
+                if up_logo is not None:
+                    bytes_img = up_logo.getvalue()
+                    conn = get_db_connection()
+                    cur = conn.cursor()
+                    cur.execute("UPDATE empresas SET logo_binario = %s WHERE nome = %s", (bytes_img, st.session_state.nome_empresa))
+                    conn.commit()
+                    conn.close()
+                    st.cache_data.clear()
+                    st.success("Logo atualizada com sucesso!")
+                    st.rerun()
+
         if st.button("🚪 Sair do Sistema"):
             st.session_state.logged_in = False
             st.session_state.is_admin = False
@@ -769,18 +791,9 @@ else:
     # --- ABA: MEU FATURAMENTO (EXCLUSIVO PARA EMPRESAS PARCEIRAS) ---
     if not st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
-            # Exibir Logo da Empresa Parceira se estiver cadastrada
-            res_emp_info = fetch_data("SELECT servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago, logo_url FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
-            
-            if res_emp_info:
-                logo_arquivo = res_emp_info[0].get('logo_url', '')
-                if logo_arquivo and os.path.exists(logo_arquivo):
-                    col_l1, col_l2, col_l3 = st.columns([1, 2, 1])
-                    with col_l2:
-                        st.image(logo_arquivo, width=200)
-
             st.header("💰 Meu Faturamento e Frotas Ativas")
             
+            res_emp_info = fetch_data("SELECT servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
             servico_emp = res_emp_info[0]['servicos'] if res_emp_info else "Ambos"
             valor_por_veiculo = res_emp_info[0]['valor_veiculo'] if (res_emp_info and res_emp_info[0]['valor_veiculo'] is not None) else 3.00
             dia_venc = res_emp_info[0]['dia_vencimento'] if (res_emp_info and res_emp_info[0]['dia_vencimento'] is not None) else 10
@@ -862,9 +875,9 @@ else:
                             dia_v = emp['dia_vencimento'] if ('dia_vencimento' in emp and emp['dia_vencimento'] is not None) else 10
                             stat_pag = emp['status_pagamento'] if ('status_pagamento' in emp and emp['status_pagamento'] is not None) else "Pendente"
                             val_pago_ef = emp['valor_pago'] if ('valor_pago' in emp and emp['valor_pago'] is not None) else 0.00
-                            logo_inf = emp['logo_url'] if ('logo_url' in emp and emp['logo_url'] is not None) else "Nenhuma"
+                            tem_logo = "Sim" if emp.get('logo_binario') else "Não"
                             st.write(f"**Pacote:** {servico_vinculado} | **Preço/Veículo:** R$ {valor_unit:.2f} | **Vencimento:** Dia {dia_v}")
-                            st.write(f"**Status Fatura:** {stat_pag} | **Valor Pago Registrado:** R$ {val_pago_ef:.2f} | **Arquivo de Logo:** {logo_inf}")
+                            st.write(f"**Status Fatura:** {stat_pag} | **Valor Pago Registrado:** R$ {val_pago_ef:.2f} | **Logo Cadastrada:** {tem_logo}")
                 else:
                     st.info("Nenhuma empresa parceira cadastrada.")
             
@@ -878,12 +891,11 @@ else:
                     e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
                     e_valor = st.number_input("Valor por Veículo (R$) *", min_value=0.0, value=3.00, format="%.2f")
                     e_venc = st.number_input("Dia de Vencimento da Fatura *", min_value=1, max_value=31, value=10)
-                    e_logo = st.text_input("Nome do arquivo da Logo (ex: logo_centuriao.png)")
                     
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
-                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago, logo_url) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
-                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00, e_logo))
+                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
+                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.")
                             st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
                             st.rerun()
@@ -923,12 +935,9 @@ else:
                                 venc_atual = dados_e['dia_vencimento'] if ('dia_vencimento' in dados_e and dados_e['dia_vencimento'] is not None) else 10
                                 ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
 
-                                logo_atual = dados_e['logo_url'] if ('logo_url' in dados_e and dados_e['logo_url'] is not None) else ""
-                                ne_logo = st.text_input("Nome do arquivo da Logo (ex: logo_centuriao.png)", value=logo_atual)
-
                                 if st.form_submit_button("💾 Salvar Alterações"):
-                                    execute_query("UPDATE empresas SET nome=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s, logo_url=%s WHERE id=%s", 
-                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, ne_logo, id_emp))
+                                    execute_query("UPDATE empresas SET nome=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
+                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
                                     registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}")
                                     st.session_state.flash_msg = "Alterações salvas com sucesso!"
                                     st.session_state.reset_keys['edit_emp'] += 1
@@ -1021,7 +1030,6 @@ else:
                     stat_atual = dados_emp_fin['status_pagamento'] if dados_emp_fin['status_pagamento'] is not None else "Pendente"
                     vp_atual = dados_emp_fin['valor_pago'] if dados_emp_fin['valor_pago'] is not None else 0.00
                     
-                    # Calcula uma sugestão base com base nos veículos ativos
                     q_v_calc = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
                     res_v_calc = fetch_data(q_v_calc, (emp_escolhida_pagto,))
                     qtd_v_calc = res_v_calc[0]['qtd'] if res_v_calc else 0
@@ -1034,8 +1042,6 @@ else:
                         col_f1, col_f2, col_f3 = st.columns(3)
                         
                         novo_valor_unit = col_f1.number_input("Novo Valor Unitário por Veículo:", min_value=0.0, value=float(val_atual), format="%.2f")
-                        
-                        # NOVO CAMPO: Valor exato pago pelo cliente (incluindo juros/acréscimos)
                         novo_valor_pago = col_f2.number_input("Valor Total Pago (Com Juros/Acréscimos se houver):", min_value=0.0, value=float(vp_atual), format="%.2f")
                         
                         opcoes_st_fin = ["Pendente", "Pago"]
@@ -1064,7 +1070,7 @@ else:
             if filtro_mes_aud:
                 q_aud += " WHERE data_hora LIKE %s"
                 p_aud.append(f"%{filtro_mes_aud}%")
-            q_aud += " ORDER BY id DESC"
+            q_aud += " ORDER BY id DIRETO" if False else " ORDER BY id DESC"
             
             res_aud = fetch_data(q_aud, tuple(p_aud))
             
