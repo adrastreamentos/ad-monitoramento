@@ -48,11 +48,12 @@ def init_db():
     conn = get_db_connection()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id SERIAL PRIMARY KEY, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT, servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)', valor_veiculo REAL DEFAULT 3.00, dia_vencimento INTEGER DEFAULT 10, status_pagamento TEXT DEFAULT 'Pendente', valor_pago REAL DEFAULT 0.00, logo_binario BYTEA)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_fatura_calculada REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
     
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_binario BYTEA;")
+        c.execute("ALTER TABLE historico_faturas ADD COLUMN IF NOT EXISTS valor_fatura_calculada REAL DEFAULT 0.00;")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -64,7 +65,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-# CACHE ATIVO PARA MANTÊ-R O APLICATIVO RÁPIDO
 @st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_db_connection()
@@ -854,20 +854,16 @@ else:
             st.markdown("---")
             st.subheader("🔍 Consulta de Faturas Anteriores por Mês")
             
-            # Busca os meses disponíveis para este parceiro
             res_meses_p = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas WHERE empresa=%s ORDER BY mes_ref DESC", (st.session_state.nome_empresa,))
-            lista_meses_p = [m['mes_ref'] for m in res_meses_p] if res_meses_p else []
+            lista_meses_p = ["Selecione um mês..."] + [m['mes_ref'] for m in res_meses_p] if res_meses_p else ["Nenhum registro"]
             
-            if lista_meses_p:
-                mes_busca_parceiro = st.selectbox("Selecione o Mês/Ano de referência:", [""] + lista_meses_p)
-                if mes_busca_parceiro != "":
-                    res_hist_p = fetch_data("SELECT * FROM historico_faturas WHERE empresa=%s AND mes_ref=%s", (st.session_state.nome_empresa, mes_busca_parceiro))
-                    if res_hist_p:
-                        df_hp = pd.DataFrame(res_hist_p)[['mes_ref', 'total_veiculos', 'valor_unitario', 'valor_pago', 'status', 'data_pagamento']]
-                        df_hp.columns = ['Mês Ref.', 'Veículos', 'Valor Unit.', 'Valor Pago', 'Status', 'Data Pgto']
-                        st.dataframe(df_hp, use_container_width=True)
-            else:
-                st.info("Nenhum histórico de fatura anterior registrado no momento.")
+            mes_busca_parceiro = st.selectbox("Selecione o Mês/Ano de referência:", lista_meses_p)
+            if mes_busca_parceiro != "Selecione um mês..." and mes_busca_parceiro != "Nenhum registro":
+                res_hist_p = fetch_data("SELECT * FROM historico_faturas WHERE empresa=%s AND mes_ref=%s", (st.session_state.nome_empresa, mes_busca_parceiro))
+                if res_hist_p:
+                    df_hp = pd.DataFrame(res_hist_p)[['mes_ref', 'total_veiculos', 'valor_unitario', 'valor_fatura_calculada', 'valor_pago', 'status', 'data_pagamento']]
+                    df_hp.columns = ['Mês Ref.', 'Veículos', 'Valor Unit.', 'Fatura Calc.', 'Valor Pago', 'Status', 'Data Pgto']
+                    st.dataframe(df_hp, use_container_width=True)
 
             st.markdown("---")
             st.subheader("📋 Detalhamento da Frota Faturada Atual")
@@ -1050,13 +1046,13 @@ else:
                 st.markdown("---")
                 st.subheader("🔍 Consulta Histórica de Faturas por Mês (Busca Inteligente)")
                 
-                # Busca meses e empresas disponíveis no histórico para os filtros de selectbox
+                # Substituído campo de texto livre por selectbox inteligente com setinha
                 res_meses_db = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas ORDER BY mes_ref DESC")
                 lista_meses_adm = ["Todos"] + [m['mes_ref'] for m in res_meses_db] if res_meses_db else ["Todos"]
                 
                 col_h1, col_h2 = st.columns(2)
-                mes_busca_admin = col_h1.selectbox("Filtrar por Mês/Ano:", lista_meses_adm)
-                emp_busca_admin = col_h2.selectbox("Filtrar por Empresa:", ["Todas"] + [e['nome'] for e in empresas_cad])
+                mes_busca_admin = col_h1.selectbox("Filtrar por Mês/Ano de Referência:", lista_meses_adm)
+                emp_busca_admin = col_h2.selectbox("Filtrar por Empresa Parceira:", ["Todas"] + [e['nome'] for e in empresas_cad])
 
                 q_hist_adm = "SELECT * FROM historico_faturas WHERE 1=1"
                 p_hist_adm = []
@@ -1069,8 +1065,8 @@ else:
                 
                 res_hist_adm = fetch_data(q_hist_adm, tuple(p_hist_adm))
                 if res_hist_adm:
-                    df_hadm = pd.DataFrame(res_hist_adm)[['mes_ref', 'empresa', 'total_veiculos', 'valor_unitario', 'valor_pago', 'status', 'data_pagamento']]
-                    df_hadm.columns = ['Mês Ref.', 'Empresa', 'Veículos', 'Valor Unit.', 'Valor Pago', 'Status', 'Data Pgto']
+                    df_hadm = pd.DataFrame(res_hist_adm)[['mes_ref', 'empresa', 'total_veiculos', 'valor_unitario', 'valor_fatura_calculada', 'valor_pago', 'status', 'data_pagamento']]
+                    df_hadm.columns = ['Mês Ref.', 'Empresa', 'Veículos', 'Valor Unit.', 'Fatura Calc.', 'Valor Pago', 'Status', 'Data Pgto']
                     st.dataframe(df_hadm, use_container_width=True)
                 else:
                     st.info("Nenhum histórico de fatura encontrado para os filtros selecionados.")
@@ -1107,7 +1103,13 @@ else:
                         
                         novo_valor_unit = col_f1.number_input("Novo Valor Unitário:", min_value=0.0, value=float(val_atual), format="%.2f")
                         novo_valor_pago = col_f2.number_input("Valor Total Pago:", min_value=0.0, value=float(vp_atual), format="%.2f")
-                        mes_referencia = col_f3.text_input("Mês Ref. (Ex: 06/2026):", value=datetime.now().strftime("%m/%Y"))
+                        
+                        # Sugestão automática do mês postecipado (mês anterior ao atual)
+                        data_atual = get_horario_brasil()
+                        mes_passado = data_atual.replace(day=1) - timedelta(days=1)
+                        sugestao_mes_ref = mes_passado.strftime("%m/%Y")
+                        
+                        mes_referencia = col_f3.text_input("Mês Ref. da Fatura (Ex: 06/2026):", value=sugestao_mes_ref)
                         
                         opcoes_st_fin = ["Pendente", "Pago"]
                         idx_st_fin = opcoes_st_fin.index(stat_atual) if stat_atual in opcoes_st_fin else 0
@@ -1117,10 +1119,13 @@ else:
                             execute_query("UPDATE empresas SET status_pagamento=%s, valor_veiculo=%s, valor_pago=%s WHERE nome=%s", (novo_status_pagto, novo_valor_unit, novo_valor_pago, emp_escolhida_pagto))
                             
                             data_pgto_hoje = get_horario_brasil_str()
-                            execute_query("INSERT INTO historico_faturas (mes_ref, empresa, total_veiculos, valor_unitario, valor_pago, status, data_pagamento) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-                                          (mes_referencia, emp_escolhida_pagto, qtd_v_calc, novo_valor_unit, novo_valor_pago, novo_status_pagto, data_pgto_hoje))
+                            val_fatura_calc = qtd_v_calc * novo_valor_unit
+                            
+                            # Registra ou atualiza o histórico do mês correspondente
+                            execute_query("INSERT INTO historico_faturas (mes_ref, empresa, total_veiculos, valor_unitario, valor_fatura_calculada, valor_pago, status, data_pagamento) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                                          (mes_referencia, emp_escolhida_pagto, qtd_v_calc, novo_valor_unit, val_fatura_calc, novo_valor_pago, novo_status_pagto, data_pgto_hoje))
 
-                            registrar_auditoria("Financeiro", "Faturamento", f"Fatura de {emp_escolhida_pagto} (Mês {mes_referencia}) alterada para {novo_status_pagto} | Valor Pago: R$ {novo_valor_pago:.2f}")
+                            registrar_auditoria("Financeiro", "Faturamento", f"Fatura de {emp_escolhida_pagto} (Mês Ref: {mes_referencia}) alterada para {novo_status_pagto} | Valor Pago: R$ {novo_valor_pago:.2f}")
                             st.session_state.flash_msg = f"Financeiro e Histórico de {emp_escolhida_pagto} atualizados com sucesso!"
                             st.session_state.k_fin += 1
                             st.rerun()
