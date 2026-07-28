@@ -63,18 +63,11 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id SERIAL PRIMARY KEY, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
     
-    # =========================================================================
-    # LIMPEZA FORÇADA DE DADOS FANTASMAS (Pedido da Andrea para limpar a base)
-    # =========================================================================
     empresas_fantasmas = ('Fortia', 'FORTIA', 'Cartrack', 'CARTRACK', 'Car Tracker', 'CAR TRACKER')
     try:
-        # Exclui veículos atrelados a esses clientes
         c.execute("DELETE FROM veiculos WHERE cliente_id IN (SELECT id FROM clientes WHERE empresa IN %s)", (empresas_fantasmas,))
-        # Exclui os clientes dessas empresas
         c.execute("DELETE FROM clientes WHERE empresa IN %s", (empresas_fantasmas,))
-        # Exclui histórico de faturas dessas empresas
         c.execute("DELETE FROM historico_faturas WHERE empresa IN %s", (empresas_fantasmas,))
-        # Exclui as empresas erradas da raiz
         c.execute("DELETE FROM empresas WHERE nome IN %s", (empresas_fantasmas,))
         conn.commit()
     except Exception:
@@ -206,8 +199,7 @@ if 'rk' not in st.session_state: st.session_state.rk = 0
 
 if 'reset_keys' not in st.session_state:
     st.session_state.reset_keys = {
-        'ficha_cli': 0, 'edit_cli': 0, 'rel_fr': 0, 
-        'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0
+        'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0
     }
 
 if 'flash_msg' in st.session_state:
@@ -385,9 +377,10 @@ else:
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
 
         if acao_clientes == "Listar":
+            # Botão de download em CSV cru mantido no topo
             q_csv = """
                 SELECT c.nome as "Cliente", c.documento as "CPF/CNPJ", c.telefone as "Telefone", c.empresa as "Empresa", v.tipo_veic as "Tipo", v.placa as "Placa", v.modelo as "Modelo", v.cor as "Cor", c.status as "Status"
-                FROM clientes c JOIN veiculos v ON c.id = v.cliente_id
+                FROM clientes c LEFT JOIN veiculos v ON c.id = v.cliente_id
             """
             if not st.session_state.is_admin:
                 q_csv += f" WHERE c.empresa='{st.session_state.nome_empresa}'"
@@ -395,76 +388,45 @@ else:
             if res_csv:
                 st.download_button(label="📥 Baixar Base Completa de Frotas (CSV)", data=pd.DataFrame(res_csv).to_csv(index=False).encode('utf-8'), file_name="Base_Clientes_Frotas.csv", mime="text/csv")
             
-            q_tela = """
-                SELECT c.id, c.nome, c.documento, c.telefone, c.empresa, c.status, COUNT(v.id) as qtd_veiculos
+            # --- NOVA LÓGICA DE PASTAS (SEM REPETIÇÃO) ---
+            st.subheader("📋 Lista de Clientes e Frotas")
+            q_lista_cli = """
+                SELECT c.id as cli_id, c.nome, c.documento, c.telefone, c.endereco, c.empresa, c.status, v.tipo_veic, v.placa, v.modelo, v.cor 
                 FROM clientes c 
                 LEFT JOIN veiculos v ON c.id = v.cliente_id
             """
             if not st.session_state.is_admin:
-                q_tela += f" WHERE c.empresa='{st.session_state.nome_empresa}'"
-            q_tela += " GROUP BY c.id, c.nome, c.documento, c.telefone, c.empresa, c.status ORDER BY c.nome"
+                q_lista_cli += f" WHERE c.empresa='{st.session_state.nome_empresa}'"
+            q_lista_cli += " ORDER BY c.empresa, c.nome"
             
-            res_tela = fetch_data(q_tela)
+            res_lista_cli = fetch_data(q_lista_cli)
             
-            if res_tela:
-                df_tela = pd.DataFrame(res_tela)
-                empresas_ativas = df_tela['empresa'].unique()
+            if res_lista_cli:
+                df_lista = pd.DataFrame(res_lista_cli)
+                empresas_ativas = df_lista['empresa'].unique()
+                
                 for emp_ativa in empresas_ativas:
-                    with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
-                        df_emp = df_tela[df_tela['empresa'] == emp_ativa]
-                        df_display = df_emp[['nome', 'documento', 'telefone', 'qtd_veiculos', 'status']].copy()
-                        df_display.columns = ['Cliente', 'CPF/CNPJ', 'Telefone', 'Qtd. Veículos', 'Status']
-                        st.dataframe(df_display, use_container_width=True)
-                
-                st.markdown("---")
-                st.subheader("🔍 Visualizar Ficha Completa do Cliente")
-                
-                q_clientes_validos = """
-                    SELECT DISTINCT c.id, c.nome, c.documento, c.empresa 
-                    FROM clientes c 
-                    JOIN veiculos v ON c.id = v.cliente_id
-                """
-                if not st.session_state.is_admin:
-                    q_clientes_validos += f" WHERE c.empresa='{st.session_state.nome_empresa}'"
-                
-                clientes_para_ficha = fetch_data(q_clientes_validos)
-                lista_ficha_op = [""] + [f"{cli['id']} - {cli['nome']} (CPF/CNPJ: {cli['documento']}) - [{cli['empresa']}]" for cli in clientes_para_ficha]
-                
-                k_ficha_cli = st.session_state.reset_keys['ficha_cli']
-                cli_ficha_sel = st.selectbox("Selecione o cliente para ver a ficha completa e seus veículos:", lista_ficha_op, key=f"sb_ficha_cli_{k_ficha_cli}")
-                
-                if cli_ficha_sel != "":
-                    id_cli_ficha = int(cli_ficha_sel.split(" - ")[0])
-                    dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
-                    veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
+                    if st.session_state.is_admin:
+                        st.markdown(f"### 🏢 Empresa Parceira: {emp_ativa}")
                     
-                    if st.button("❌ Fechar Ficha Cadastral", key="btn_close_ficha_cli"):
-                        st.session_state.reset_keys['ficha_cli'] += 1
-                        st.rerun()
-
-                    st.markdown(f"""
-                    <div class="ficha-box">
-                        <h3 style="color:#4a0e4e; margin-top:0;">📋 Ficha Cadastral Completa</h3>
-                        <p><b>Nome do Cliente:</b> {dados_cli_ficha['nome']}</p>
-                        <p><b>CPF / CNPJ:</b> {dados_cli_ficha['documento']}</p>
-                        <p><b>Endereço:</b> {dados_cli_ficha['endereco']}</p>
-                        <p><b>Telefone:</b> {dados_cli_ficha['telefone']}</p>
-                        <p><b>Empresa Responsável:</b> {dados_cli_ficha['empresa']}</p>
-                        <p><b>Status:</b> {dados_cli_ficha['status']}</p>
-                        <hr style="border: 0; border-top: 2px solid #4a0e4e; margin: 15px 0;">
-                        <h4 style="color:#8b0000;">🚗 Veículos / Frotas Vinculadas ({len(veiculos_cli_ficha)})</h4>
-                    """, unsafe_allow_html=True)
+                    df_emp = df_lista[df_lista['empresa'] == emp_ativa]
+                    clientes_unicos = df_emp[['cli_id', 'nome', 'documento', 'telefone', 'endereco', 'status']].drop_duplicates()
                     
-                    if veiculos_cli_ficha:
-                        df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor']]
-                        df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor']
-                        st.dataframe(df_veics, use_container_width=True)
-                    else:
-                        st.info("Nenhum veículo vinculado a este cliente.")
+                    for _, cli in clientes_unicos.iterrows():
+                        veiculos_do_cliente = df_emp[(df_emp['cli_id'] == cli['cli_id']) & (df_emp['placa'].notnull())]
+                        qtd_v = len(veiculos_do_cliente)
                         
-                    st.markdown("</div>", unsafe_allow_html=True)
+                        # Cria a "pasta" do cliente
+                        with st.expander(f"👤 {cli['nome']} — {qtd_v} veículo(s) cadastrado(s) | Status: {cli['status']}"):
+                            st.write(f"**CPF/CNPJ:** {cli['documento']} | **Telefone:** {cli['telefone']} | **Endereço:** {cli['endereco']}")
+                            if qtd_v > 0:
+                                df_v = veiculos_do_cliente[['tipo_veic', 'placa', 'modelo', 'cor']].copy()
+                                df_v.columns = ['Tipo', 'Placa', 'Modelo', 'Cor']
+                                st.dataframe(df_v, use_container_width=True)
+                            else:
+                                st.info("Nenhum veículo vinculado a este cliente.")
             else:
-                st.info("Nenhum cliente ou veículo cadastrado no momento.")
+                st.info("Nenhum cliente cadastrado no momento.")
                 
         elif acao_clientes == "Incluir Novo":
             if not opcoes_emp:
@@ -889,6 +851,9 @@ else:
             col_m3.metric("💳 Faturamento Previsto Atual", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
             col_m4.metric("📌 Status da Fatura", f"{status_visual}")
 
+            if status_pag == "Pago":
+                st.info(f"💡 **Valor Quitado Registrado:** R$ {valor_pago_efetivo:.2f} (Com juros/acréscimos aplicados, se houver).")
+            
             st.markdown("---")
             st.subheader("🔍 Consulta de Faturas Anteriores por Mês")
             
@@ -909,7 +874,35 @@ else:
                 else:
                     st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
-        tab_idx += 1  # FIM DO BLOCO PARCEIRO
+            st.markdown("---")
+            st.subheader("📋 Detalhamento da Frota Faturada Atual")
+            
+            # --- NOVA LÓGICA DE PASTAS (SEM REPETIÇÃO DE CLIENTES) ---
+            q_detalhe_frota = """
+                SELECT c.id as cli_id, c.nome, c.documento, v.tipo_veic, v.placa, v.modelo, v.cor 
+                FROM veiculos v 
+                JOIN clientes c ON v.cliente_id = c.id 
+                WHERE c.empresa = %s AND c.status = 'Ativo'
+                ORDER BY c.nome
+            """
+            res_frota = fetch_data(q_detalhe_frota, (st.session_state.nome_empresa,))
+            
+            if res_frota:
+                df_frota_parceiro = pd.DataFrame(res_frota)
+                clientes_unicos = df_frota_parceiro[['cli_id', 'nome', 'documento']].drop_duplicates()
+                
+                for _, cli in clientes_unicos.iterrows():
+                    veiculos_do_cliente = df_frota_parceiro[df_frota_parceiro['cli_id'] == cli['cli_id']]
+                    qtd_v = len(veiculos_do_cliente)
+                    
+                    with st.expander(f"👤 {cli['nome']} — {qtd_v} veículo(s)"):
+                        df_v = veiculos_do_cliente[['tipo_veic', 'placa', 'modelo', 'cor']].copy()
+                        df_v.columns = ['Tipo', 'Placa', 'Modelo', 'Cor']
+                        st.dataframe(df_v, use_container_width=True)
+            else:
+                st.info("Nenhum veículo ativo registrado em sua base no momento.")
+                
+        tab_idx += 1
 
     # --- ABA: PARCEIROS (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
@@ -1034,14 +1027,13 @@ else:
                     stat_p = emp['status_pagamento'] if emp['status_pagamento'] is not None else "Pendente"
                     v_pago_ef = emp['valor_pago'] if emp['valor_pago'] is not None else 0.00
                     
-                    status_calculado = calcular_status_fatura(stat_p, dia_v)
+                    status_calculado = calcular_status_fatura(stat_p, dia_venc)
                     
                     q_v = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
                     res_v = fetch_data(q_v, (nome_emp,))
                     qtd_v = res_v[0]['qtd'] if res_v else 0
                     valor_calc = qtd_v * val_unit
                     
-                    # Acumula TODO MUNDO globalmente no Faturamento Previsto (Recebível baseado em cadastros reais)
                     total_faturamento_previsto += valor_calc
                     
                     if "Pago" in status_calculado:
