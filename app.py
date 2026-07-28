@@ -53,7 +53,9 @@ def init_db():
     conn.commit()
     conn.close()
 
+@st.cache_data(ttl=120, show_spinner=False)
 def fetch_data(query, params=()):
+    """Guarda o resultado das buscas na memória por 2 minutos para não travar a tela"""
     conn = get_db_connection()
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
@@ -62,11 +64,13 @@ def fetch_data(query, params=()):
     return data
 
 def execute_query(query, params=()):
+    """Salva a informação na nuvem e limpa a memória cache para a tela atualizar na hora"""
     conn = get_db_connection()
     c = conn.cursor()
     c.execute(query, params)
     conn.commit()
     conn.close()
+    st.cache_data.clear()
 
 init_db()
 
@@ -438,6 +442,7 @@ else:
                                                    (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor']))
                             conn.commit()
                             conn.close()
+                            st.cache_data.clear()
                             
                             st.session_state.num_veiculos_form = 1
                             registrar_auditoria("Cadastro", "Clientes", f"Cliente {nome_cli} cadastrado com múltiplos veículos.")
@@ -498,7 +503,8 @@ else:
                                 conn.commit()
                                 conn.close()
                                 importados += 1
-                                
+                        
+                        st.cache_data.clear()        
                         registrar_auditoria("Importação Lote", "Clientes", f"{importados} registros importados via CSV.")
                         st.session_state.flash_msg = f"Importação concluída! {importados} registros processados."
                         st.rerun()
