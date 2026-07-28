@@ -119,13 +119,11 @@ def get_horario_brasil_str():
     return get_horario_brasil().strftime("%d/%m/%Y %H:%M:%S")
 
 def registrar_auditoria(acao, modulo, detalhes, empresa_rel=None):
-    # --- MELHORIA: IDENTIFICAÇÃO DO ADMINISTRADOR ---
     if st.session_state.get('is_admin'):
         usuario = "AD ADMIN"
     else:
         usuario = st.session_state.get('nome_empresa', 'Desconhecido')
     
-    # Adiciona a marcação do "Alvo" se a ação foi feita com uma empresa específica
     if empresa_rel:
         detalhes = f"{detalhes} | Alvo: {empresa_rel}"
         
@@ -359,7 +357,9 @@ else:
                 
                 if resultados:
                     st.success("Veículos encontrados! Selecione abaixo para iniciar a ocorrência.")
-                    placas_disponiveis = [f"{r['placa']} - {r['nome']} ({r['modelo']})" for r in resultados]
+                    
+                    # --- MELHORIA: EXIBIÇÃO DA EMPRESA NA BUSCA ---
+                    placas_disponiveis = [f"{r['placa']} - {r['nome']} ({r['modelo']}) - {r['empresa']}" for r in resultados]
                     placa_sel_texto = st.selectbox("Selecione o Veículo para Atendimento:", placas_disponiveis, key=f"sel_veic_{st.session_state.rk}")
                     
                     if placa_sel_texto:
@@ -865,8 +865,6 @@ else:
                         st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
-                        
-                        # --- MELHORIA: EXIBIÇÃO DA PLACA, NOME DO CLIENTE E HORÁRIO NO SELECTBOX ---
                         lista_sel_fr = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_fr]
                         
                         k_rel_fr = st.session_state.reset_keys['rel_fr']
