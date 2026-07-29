@@ -64,10 +64,11 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_fatura_calculada REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS notificacoes (id SERIAL PRIMARY KEY, data_hora TEXT, empresa TEXT, mensagem TEXT, lida BOOLEAN DEFAULT FALSE)''')
     
-    # --- NOVA TABELA: ACEITE LGPD ---
-    c.execute('''CREATE TABLE IF NOT EXISTS aceites_lgpd (id SERIAL PRIMARY KEY, empresa TEXT, data_hora TEXT, ip_aceite TEXT DEFAULT 'Sistema Web')''')
+    # --- NOVA TABELA: ACEITE LGPD COM HASH DE ASSINATURA ---
+    c.execute('''CREATE TABLE IF NOT EXISTS aceites_lgpd (id SERIAL PRIMARY KEY, empresa TEXT, data_hora TEXT, ip_aceite TEXT DEFAULT 'Sistema Web', hash_assinatura TEXT)''')
 
     try:
+        c.execute("ALTER TABLE aceites_lgpd ADD COLUMN IF NOT EXISTS hash_assinatura TEXT;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_binario BYTEA;")
         c.execute("ALTER TABLE historico_faturas ADD COLUMN IF NOT EXISTS valor_fatura_calculada REAL DEFAULT 0.00;")
@@ -209,13 +210,76 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
+def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
+    html_content = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Certificado de Aceite LGPD</title>
+        <style>
+            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; line-height: 1.6; }}
+            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 20px; margin-bottom: 30px; }}
+            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
+            .header h3 {{ color: #555; margin: 10px 0 0 0; font-weight: normal; }}
+            .content {{ padding: 20px 40px; text-align: justify; }}
+            .clausula {{ margin-bottom: 15px; }}
+            .assinatura-box {{ margin-top: 50px; background-color: #f9f9f9; border: 1px solid #ddd; padding: 20px; border-radius: 8px; }}
+            .assinatura-title {{ font-size: 16px; font-weight: bold; color: #4a0e4e; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }}
+            .ass-row {{ margin-bottom: 8px; font-size: 14px; }}
+            .ass-label {{ font-weight: bold; color: #555; }}
+            .hash-box {{ margin-top: 15px; padding: 10px; background-color: #e8eaf6; border-left: 4px solid #3f51b5; font-family: monospace; font-size: 13px; word-break: break-all; }}
+            .footer {{ margin-top: 50px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 15px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>AD RASTREAMENTO VEICULAR</h1>
+            <h3>Certificado Oficial de Aceite Eletrônico - LGPD</h3>
+        </div>
+        
+        <div class="content">
+            <p><strong>TERMO DE RESPONSABILIDADE, CONFIDENCIALIDADE E ADEQUAÇÃO À LGPD</strong></p>
+            
+            <p>A <strong>AD Rastreamento Veicular</strong>, sediada em São Gonçalo do Amarante, na qualidade de provedora do software de gestão e telemetria, estabelece as seguintes diretrizes obrigatórias aceitas pela CONTRATANTE/PARCEIRA para o uso da plataforma:</p>
+            
+            <div class="clausula"><strong>1. Sigilo e Confidencialidade:</strong> O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.</div>
+            
+            <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
+            
+            <div class="clausula"><strong>3. Penalidades Legais:</strong> O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).</div>
+        </div>
+        
+        <div class="assinatura-box">
+            <div class="assinatura-title">📜 DADOS DA ASSINATURA ELETRÔNICA</div>
+            <div class="ass-row"><span class="ass-label">Empresa Signatária (Parceiro):</span> {dados_aceite['empresa']}</div>
+            <div class="ass-row"><span class="ass-label">CNPJ Registrado:</span> {cnpj_parceiro}</div>
+            <div class="ass-row"><span class="ass-label">Data e Hora do Aceite:</span> {dados_aceite['data_hora']}</div>
+            <div class="ass-row"><span class="ass-label">Método de Autenticação / Dispositivo:</span> {dados_aceite['ip_aceite']}</div>
+            
+            <div class="hash-box">
+                <strong>Chave de Autenticação Digital (Hash SHA-256):</strong><br>
+                {dados_aceite['hash_assinatura']}
+            </div>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Este código garante a integridade e a validade jurídica deste aceite no banco de dados da Central de Operações.</p>
+        </div>
+        
+        <div class="footer">
+            Documento gerado automaticamente pelo Sistema de Auditoria Interna da AD Rastreamento Veicular.<br>
+            A autenticidade deste documento pode ser verificada mediante cruzamento com o banco de dados oficial (PostgreSQL).
+        </div>
+    </body>
+    </html>
+    """
+    b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
+    return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
+
 # --- CONTROLE DE SESSÃO SEGURO E LIMPEZA DE TELA ---
 if 'logged_in' not in st.session_state:
     if st.query_params.get("logged_in") == "true":
         st.session_state.logged_in = True
         st.session_state.is_admin = (st.query_params.get("admin") == "true")
         st.session_state.nome_empresa = st.query_params.get("empresa", "")
-        st.session_state.lgpd_aceito = True # Presume aceite por link direto já logado
+        st.session_state.lgpd_aceito = True 
     else:
         st.session_state.logged_in = False
         st.session_state.is_admin = False
@@ -231,7 +295,7 @@ if 'last_viewed_cli' not in st.session_state: st.session_state.last_viewed_cli =
 
 if 'reset_keys' not in st.session_state:
     st.session_state.reset_keys = {
-        'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0
+        'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0
     }
 
 def limpar_tela():
@@ -326,7 +390,12 @@ else:
             *Ao clicar em "Eu li e concordo", você assina digitalmente este termo, confirmando estar ciente e de acordo com suas responsabilidades jurídicas no trato dos dados hospedados na Central.*
             """)
             if st.button("✅ Eu li e concordo com os Termos e Políticas", type="primary"):
-                execute_query("INSERT INTO aceites_lgpd (empresa, data_hora) VALUES (%s, %s)", (st.session_state.nome_empresa, get_horario_brasil_str()))
+                agora_str = get_horario_brasil_str()
+                assinatura_bruta = f"{st.session_state.nome_empresa}|{agora_str}|ADRASTREIO"
+                hash_ass = hashlib.sha256(assinatura_bruta.encode('utf-8')).hexdigest()
+                
+                execute_query("INSERT INTO aceites_lgpd (empresa, data_hora, ip_aceite, hash_assinatura) VALUES (%s, %s, %s, %s)", 
+                              (st.session_state.nome_empresa, agora_str, "Acesso Web Autenticado", hash_ass))
                 registrar_auditoria("Aceite LGPD", "Segurança", "Aceitou os termos de privacidade (Assinatura Eletrônica).", st.session_state.nome_empresa)
                 st.session_state.lgpd_aceito = True
                 st.rerun()
@@ -937,9 +1006,8 @@ else:
                                 if st.button("❌ Fechar Ficha", key="fechar_fr_btn"):
                                     limpar_tela()
                                     st.rerun()
-                                    
                             if st.session_state.is_admin:
-                                pass # Removido botão de exclusão de auditoria para blindagem jurídica
+                                pass 
 
                             st.markdown(f'''
                             <div class="ficha-box">
@@ -1228,7 +1296,7 @@ else:
             st.header("💰 Controle Financeiro Global de Parceiros")
             st.info("ℹ️ Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.")
             
-            empresas_cad = fetch_data("SELECT id, nome, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
+            empresas_cad = fetch_data("SELECT id, nome, cnpj, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
             
             total_faturamento_previsto = 0.0
             total_atrasado = 0.0
@@ -1408,9 +1476,33 @@ else:
                 st.subheader("📄 Assinaturas Eletrônicas - Aceites LGPD")
                 st.info("Aqui ficam registrados todos os parceiros que assinaram e concordaram com o Termo de Responsabilidade e Confidencialidade.")
                 res_lgpd_adm = fetch_data("SELECT * FROM aceites_lgpd ORDER BY id DESC")
+                
                 if res_lgpd_adm:
                     df_lgpd = pd.DataFrame(res_lgpd_adm)
-                    df_lgpd.columns = ['ID', 'Empresa', 'Data/Hora do Aceite', 'Meio de Acesso']
-                    st.dataframe(df_lgpd, use_container_width=True)
+                    df_lgpd_visual = df_lgpd[['id', 'empresa', 'data_hora', 'ip_aceite', 'hash_assinatura']].copy()
+                    df_lgpd_visual.columns = ['ID', 'Empresa', 'Data/Hora do Aceite', 'Meio de Acesso', 'Hash (Assinatura Eletrônica)']
+                    st.dataframe(df_lgpd_visual, use_container_width=True)
+                    
+                    st.markdown("### 🖨️ Gerar Certificado de Aceite / PDF")
+                    k_lgpd_cert = st.session_state.reset_keys['lgpd_cert']
+                    lista_aceites = [""] + [f"{a['id']} - {a['empresa']} ({a['data_hora']})" for a in res_lgpd_adm]
+                    aceite_sel = st.selectbox("Selecione a assinatura do parceiro para gerar o documento legal:", lista_aceites, key=f"sel_aceite_{k_lgpd_cert}")
+                    
+                    if aceite_sel != "":
+                        id_a = int(aceite_sel.split(" - ")[0])
+                        dados_a = next(item for item in res_lgpd_adm if item["id"] == id_a)
+                        
+                        # Busca o CNPJ do parceiro na tabela de empresas para colocar no documento
+                        cnpj_res = fetch_data("SELECT cnpj FROM empresas WHERE nome=%s", (dados_a['empresa'],))
+                        cnpj_parceiro = "Migração / Texto Aberto (Requer Login do Parceiro para gerar Criptografia)"
+                        if cnpj_res:
+                            cnpj_parceiro = cnpj_res[0]['cnpj']
+                            
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        st.markdown(gerar_certificado_lgpd_html(dados_a, cnpj_parceiro), unsafe_allow_html=True)
+                        
+                        if st.button("❌ Fechar Gerador de Certificado", key="btn_close_cert"):
+                            limpar_tela()
+                            st.rerun()
                 else:
                     st.info("Nenhuma assinatura registrada ainda.")
