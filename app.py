@@ -8,6 +8,7 @@ from psycopg2.extras import RealDictCursor
 import io
 import os
 import hashlib
+import uuid
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -37,9 +38,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- CRIPTOGRAFIA DE SENHAS (HASH) ---
+# --- CRIPTOGRAFIA DE SENHAS (HASH) E SESSÃO ---
 def hash_senha(senha):
     return hashlib.sha256(senha.encode('utf-8')).hexdigest()
+
+if 'session_uuid' not in st.session_state:
+    st.session_state.session_uuid = str(uuid.uuid4()).split('-')[0].upper()
 
 # --- CONEXÃO COM SUPABASE (POSTGRESQL) OTIMIZADA PARA VELOCIDADE ---
 @st.cache_resource(ttl=3600)
@@ -64,10 +68,11 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_fatura_calculada REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS notificacoes (id SERIAL PRIMARY KEY, data_hora TEXT, empresa TEXT, mensagem TEXT, lida BOOLEAN DEFAULT FALSE)''')
     
-    # --- NOVA TABELA: ACEITE LGPD COM HASH DE ASSINATURA ---
     c.execute('''CREATE TABLE IF NOT EXISTS aceites_lgpd (id SERIAL PRIMARY KEY, empresa TEXT, data_hora TEXT, ip_aceite TEXT DEFAULT 'Sistema Web', hash_assinatura TEXT)''')
 
     try:
+        # Criação da coluna correta para senhas e correções
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS senha TEXT;")
         c.execute("ALTER TABLE aceites_lgpd ADD COLUMN IF NOT EXISTS hash_assinatura TEXT;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_binario BYTEA;")
@@ -211,6 +216,10 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
 def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
+    hash_exibicao = dados_aceite.get('hash_assinatura')
+    if not hash_exibicao:
+        hash_exibicao = "Autenticação Legada (Pré-Criptografia)."
+
     html_content = f"""
     <html>
     <head>
@@ -258,7 +267,7 @@ def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
             
             <div class="hash-box">
                 <strong>Chave de Autenticação Digital (Hash SHA-256):</strong><br>
-                {dados_aceite['hash_assinatura']}
+                {hash_exibicao}
             </div>
             <p style="font-size: 12px; color: #666; margin-top: 10px;">* Este código garante a integridade e a validade jurídica deste aceite no banco de dados da Central de Operações.</p>
         </div>
@@ -343,20 +352,33 @@ if not st.session_state.logged_in:
                     st.rerun()
                 else:
                     senha_criptografada = hash_senha(senha)
-                    res = fetch_data("SELECT nome, cnpj FROM empresas WHERE nome=%s", (user,))
+                    res = fetch_data("SELECT nome, cnpj, senha FROM empresas WHERE nome=%s", (user,))
                     
                     if res:
                         emp_dados = res[0]
-                        senha_salva_no_banco = emp_dados['cnpj']
+                        senha_salva = emp_dados.get('senha')
+                        cnpj_salvo = emp_dados.get('cnpj')
                         
-                        if senha_salva_no_banco == senha_criptografada or senha_salva_no_banco == senha:
-                            if senha_salva_no_banco == senha:
-                                execute_query("UPDATE empresas SET cnpj=%s WHERE nome=%s", (senha_criptografada, user))
-                            
+                        login_sucesso = False
+                        
+                        # Migração Automática e Verificação
+                        if senha_salva and senha_salva == senha_criptografada:
+                            login_sucesso = True
+                        elif not senha_salva:
+                            # Se o cara ainda usa o texto limpo
+                            if cnpj_salvo == senha:
+                                execute_query("UPDATE empresas SET senha=%s WHERE nome=%s", (senha_criptografada, user))
+                                login_sucesso = True
+                            # Recupera quem foi bugado na atualização passada
+                            elif cnpj_salvo == senha_criptografada:
+                                execute_query("UPDATE empresas SET senha=%s WHERE nome=%s", (senha_criptografada, user))
+                                login_sucesso = True
+                        
+                        if login_sucesso:
                             st.session_state.logged_in = True
                             st.session_state.is_admin = False
                             st.session_state.nome_empresa = emp_dados['nome']
-                            st.session_state.lgpd_aceito = False # Força passar pelo muro LGPD
+                            st.session_state.lgpd_aceito = False 
                             
                             st.query_params["logged_in"] = "true"
                             st.query_params["admin"] = "false"
@@ -401,8 +423,10 @@ else:
                 assinatura_bruta = f"{st.session_state.nome_empresa}|{agora_str}|ADRASTREIO"
                 hash_ass = hashlib.sha256(assinatura_bruta.encode('utf-8')).hexdigest()
                 
+                info_sessao = f"Navegador Web / Sessão Única: {st.session_state.session_uuid}"
+                
                 execute_query("INSERT INTO aceites_lgpd (empresa, data_hora, ip_aceite, hash_assinatura) VALUES (%s, %s, %s, %s)", 
-                              (st.session_state.nome_empresa, agora_str, "Acesso Web Autenticado", hash_ass))
+                              (st.session_state.nome_empresa, agora_str, info_sessao, hash_ass))
                 registrar_auditoria("Aceite LGPD", "Segurança", "Aceitou os termos de privacidade (Assinatura Eletrônica).", st.session_state.nome_empresa)
                 st.session_state.lgpd_aceito = True
                 st.rerun()
@@ -1013,9 +1037,7 @@ else:
                                 if st.button("❌ Fechar Ficha", key="fechar_fr_btn"):
                                     limpar_tela()
                                     st.rerun()
-                            if st.session_state.is_admin:
-                                pass 
-
+                            
                             st.markdown(f'''
                             <div class="ficha-box">
                                 <h4 style="color:#8b0000; text-align:center;">Ficha de Ocorrência nº {dados_fr['id']} ({dados_fr['tipo']})</h4>
@@ -1235,8 +1257,9 @@ else:
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
                             senha_hash = hash_senha(e_cnpj)
-                            execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
-                                          (e_nome, senha_hash, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
+                            # Cuidado extra: salva na coluna cnpj O CNPJ REAL e na coluna senha O HASH
+                            execute_query("INSERT INTO empresas (nome, cnpj, senha, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
+                                          (e_nome, e_cnpj, senha_hash, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.", e_nome)
                             st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
                             limpar_tela()
@@ -1262,6 +1285,7 @@ else:
                         if acao_parceiros == "Editar":
                             with st.form(f"form_edit_emp_{id_emp}", clear_on_submit=True):
                                 ne_nome = st.text_input("Nome", value=dados_e['nome'])
+                                ne_cnpj = st.text_input("CNPJ (Se precisar corrigir)", value=dados_e['cnpj'])
                                 ne_resp = st.text_input("Responsável", value=dados_e['responsavel'])
                                 ne_tel = st.text_input("Telefone", value=dados_e['telefone'])
                                 ne_end = st.text_input("Endereço", value=dados_e['endereco'])
@@ -1278,8 +1302,8 @@ else:
                                 ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
 
                                 if st.form_submit_button("💾 Salvar Alterações"):
-                                    execute_query("UPDATE empresas SET nome=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
-                                                  (ne_nome, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
+                                    execute_query("UPDATE empresas SET nome=%s, cnpj=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
+                                                  (ne_nome, ne_cnpj, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
                                     registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}", ne_nome)
                                     st.session_state.flash_msg = "Alterações salvas com sucesso!"
                                     limpar_tela()
@@ -1500,9 +1524,15 @@ else:
                         dados_a = next(item for item in res_lgpd_adm if item["id"] == id_a)
                         
                         cnpj_res = fetch_data("SELECT cnpj FROM empresas WHERE nome=%s", (dados_a['empresa'],))
-                        cnpj_parceiro = "Migração / Texto Aberto (Requer Login do Parceiro para gerar Criptografia)"
+                        cnpj_parceiro = "Migração / Falta Atualização de Cadastro"
                         if cnpj_res:
-                            cnpj_parceiro = cnpj_res[0]['cnpj']
+                            # Tenta puxar o CNPJ real. Como a gente criptografou em cima dele no passado,
+                            # Se for uma string de 64 caracteres, é o hash antigo, não o CNPJ real.
+                            cnpj_tamanho = len(str(cnpj_res[0]['cnpj']))
+                            if cnpj_tamanho == 64:
+                                cnpj_parceiro = "Migração (O CNPJ precisa ser corrigido na aba Empresas)"
+                            else:
+                                cnpj_parceiro = cnpj_res[0]['cnpj']
                             
                         st.markdown("<br>", unsafe_allow_html=True)
                         st.markdown(gerar_certificado_lgpd_html(dados_a, cnpj_parceiro), unsafe_allow_html=True)
