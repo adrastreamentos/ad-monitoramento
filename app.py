@@ -293,10 +293,17 @@ if 'termo_busca_ativo' not in st.session_state: st.session_state.termo_busca_ati
 if 'termo_cli_ativo' not in st.session_state: st.session_state.termo_cli_ativo = ""
 if 'last_viewed_cli' not in st.session_state: st.session_state.last_viewed_cli = None
 
+# --- VACINA ANTI-ERRO (INJEÇÃO DE CHAVES FALTANTES NO CACHE DO NAVEGADOR) ---
+chaves_necessarias = {
+    'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0
+}
+
 if 'reset_keys' not in st.session_state:
-    st.session_state.reset_keys = {
-        'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0
-    }
+    st.session_state.reset_keys = chaves_necessarias.copy()
+else:
+    for chave, valor_padrao in chaves_necessarias.items():
+        if chave not in st.session_state.reset_keys:
+            st.session_state.reset_keys[chave] = valor_padrao
 
 def limpar_tela():
     st.session_state.rk += 1
@@ -1492,7 +1499,6 @@ else:
                         id_a = int(aceite_sel.split(" - ")[0])
                         dados_a = next(item for item in res_lgpd_adm if item["id"] == id_a)
                         
-                        # Busca o CNPJ do parceiro na tabela de empresas para colocar no documento
                         cnpj_res = fetch_data("SELECT cnpj FROM empresas WHERE nome=%s", (dados_a['empresa'],))
                         cnpj_parceiro = "Migração / Texto Aberto (Requer Login do Parceiro para gerar Criptografia)"
                         if cnpj_res:
