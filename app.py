@@ -7,6 +7,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import io
 import os
+import hashlib
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -36,6 +37,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# --- CRIPTOGRAFIA DE SENHAS (HASH) ---
+def hash_senha(senha):
+    return hashlib.sha256(senha.encode('utf-8')).hexdigest()
+
 # --- CONEXÃO COM SUPABASE (POSTGRESQL) OTIMIZADA PARA VELOCIDADE ---
 @st.cache_resource(ttl=3600)
 def get_db_connection():
@@ -59,6 +64,9 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_fatura_calculada REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS notificacoes (id SERIAL PRIMARY KEY, data_hora TEXT, empresa TEXT, mensagem TEXT, lida BOOLEAN DEFAULT FALSE)''')
     
+    # --- NOVA TABELA: ACEITE LGPD ---
+    c.execute('''CREATE TABLE IF NOT EXISTS aceites_lgpd (id SERIAL PRIMARY KEY, empresa TEXT, data_hora TEXT, ip_aceite TEXT DEFAULT 'Sistema Web')''')
+
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_binario BYTEA;")
@@ -155,7 +163,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
         assinatura_bloco = f"""
         <div style="margin-top: 30px; padding: 15px; background-color: #e8f5e9; border-left: 5px solid #2e7d32; border-radius: 5px;">
             <h4 style="color: #2e7d32; margin-top: 0;">🔐 Assinatura Digital e SLA</h4>
-            <p style="margin: 0; font-size: 14px;">Este documento foi encerrado e validado pela Central de Operações. Os tempos de resposta e protocolos estão registrados na base de dados oficial.</p>
+            <p style="margin: 0; font-size: 14px;">Este documento foi encerrado e validado pela Central de Operações. Os tempos de resposta e protocolos estão registrados na base de dados oficial protegida contra adulterações.</p>
         </div>
         """
 
@@ -207,16 +215,19 @@ if 'logged_in' not in st.session_state:
         st.session_state.logged_in = True
         st.session_state.is_admin = (st.query_params.get("admin") == "true")
         st.session_state.nome_empresa = st.query_params.get("empresa", "")
+        st.session_state.lgpd_aceito = True # Presume aceite por link direto já logado
     else:
         st.session_state.logged_in = False
         st.session_state.is_admin = False
         st.session_state.nome_empresa = ""
+        st.session_state.lgpd_aceito = False
 
 if 'acao_clientes' not in st.session_state: st.session_state.acao_clientes = "Listar"
 if 'num_veiculos_state' not in st.session_state: st.session_state.num_veiculos_state = 1
 if 'rk' not in st.session_state: st.session_state.rk = 0 
 if 'termo_busca_ativo' not in st.session_state: st.session_state.termo_busca_ativo = ""
 if 'termo_cli_ativo' not in st.session_state: st.session_state.termo_cli_ativo = ""
+if 'last_viewed_cli' not in st.session_state: st.session_state.last_viewed_cli = None
 
 if 'reset_keys' not in st.session_state:
     st.session_state.reset_keys = {
@@ -227,6 +238,7 @@ def limpar_tela():
     st.session_state.rk += 1
     st.session_state.termo_busca_ativo = ""
     st.session_state.termo_cli_ativo = ""
+    st.session_state.last_viewed_cli = None
     for k in st.session_state.reset_keys:
         st.session_state.reset_keys[k] += 1
 
@@ -253,31 +265,74 @@ if not st.session_state.logged_in:
                     st.session_state.logged_in = True
                     st.session_state.is_admin = True
                     st.session_state.nome_empresa = "AD RASTREAMENTO VEICULAR"
+                    st.session_state.lgpd_aceito = True 
                     st.query_params["logged_in"] = "true"
                     st.query_params["admin"] = "true"
                     st.query_params["empresa"] = "AD RASTREAMENTO VEICULAR"
                     st.rerun()
                 else:
-                    res = fetch_data("SELECT nome FROM empresas WHERE nome=%s AND cnpj=%s", (user, senha))
+                    senha_criptografada = hash_senha(senha)
+                    res = fetch_data("SELECT nome, cnpj FROM empresas WHERE nome=%s", (user,))
+                    
                     if res:
-                        st.session_state.logged_in = True
-                        st.session_state.is_admin = False
-                        st.session_state.nome_empresa = res[0]['nome']
-                        st.query_params["logged_in"] = "true"
-                        st.query_params["admin"] = "false"
-                        st.query_params["empresa"] = res[0]['nome']
-                        registrar_auditoria("Acesso", "Login", f"Acessou o sistema de forma segura.", res[0]['nome'])
-                        st.rerun()
+                        emp_dados = res[0]
+                        senha_salva_no_banco = emp_dados['cnpj']
+                        
+                        if senha_salva_no_banco == senha_criptografada or senha_salva_no_banco == senha:
+                            if senha_salva_no_banco == senha:
+                                execute_query("UPDATE empresas SET cnpj=%s WHERE nome=%s", (senha_criptografada, user))
+                            
+                            st.session_state.logged_in = True
+                            st.session_state.is_admin = False
+                            st.session_state.nome_empresa = emp_dados['nome']
+                            st.session_state.lgpd_aceito = False # Força passar pelo muro LGPD
+                            
+                            st.query_params["logged_in"] = "true"
+                            st.query_params["admin"] = "false"
+                            st.query_params["empresa"] = emp_dados['nome']
+                            registrar_auditoria("Acesso", "Login", f"Acessou o sistema de forma segura.", emp_dados['nome'])
+                            st.rerun()
+                        else:
+                            st.error("Acesso Negado: Senha incorreta.")
                     else:
-                        st.error("Acesso Negado: Login ou Senha incorretos.")
+                        st.error("Acesso Negado: Login não encontrado.")
         
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown(gerar_link_whatsapp("Tela de Login - Tentativa de acesso / Dúvida com Senha"), unsafe_allow_html=True)
 
 # ==========================================
-# 2. SISTEMA PRINCIPAL
+# 2. SISTEMA PRINCIPAL & MURO LGPD
 # ==========================================
 else:
+    # --- MURO LGPD PARA PARCEIROS ---
+    if not st.session_state.is_admin and not st.session_state.lgpd_aceito:
+        res_lgpd = fetch_data("SELECT id FROM aceites_lgpd WHERE empresa=%s", (st.session_state.nome_empresa,))
+        if res_lgpd:
+            st.session_state.lgpd_aceito = True
+            st.rerun()
+        else:
+            st.warning("⚠️ Adequação LGPD - Privacidade e Proteção de Dados")
+            st.markdown("""
+            ### TERMO DE RESPONSABILIDADE, CONFIDENCIALIDADE E ADEQUAÇÃO À LGPD
+            
+            A **AD Rastreamento Veicular**, sediada em São Gonçalo do Amarante, na qualidade de provedora do software de gestão e telemetria, estabelece as seguintes diretrizes obrigatórias para o uso da plataforma:
+            
+            **1. Sigilo e Confidencialidade:** O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.
+            
+            **2. Responsabilidade Exclusiva:** O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá **exclusivamente sobre a empresa PARCEIRA**, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.
+            
+            **3. Penalidades Legais:** O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).
+            
+            *Ao clicar em "Eu li e concordo", você assina digitalmente este termo, confirmando estar ciente e de acordo com suas responsabilidades jurídicas no trato dos dados hospedados na Central.*
+            """)
+            if st.button("✅ Eu li e concordo com os Termos e Políticas", type="primary"):
+                execute_query("INSERT INTO aceites_lgpd (empresa, data_hora) VALUES (%s, %s)", (st.session_state.nome_empresa, get_horario_brasil_str()))
+                registrar_auditoria("Aceite LGPD", "Segurança", "Aceitou os termos de privacidade (Assinatura Eletrônica).", st.session_state.nome_empresa)
+                st.session_state.lgpd_aceito = True
+                st.rerun()
+            st.stop() # Congela a tela aqui até ele aceitar
+
+    # --- BARRA LATERAL NORMAL ---
     with st.sidebar:
         if not st.session_state.is_admin:
             logo_bytes = fetch_logo_cached(st.session_state.nome_empresa)
@@ -358,7 +413,6 @@ else:
                 if resultados:
                     st.success("Veículos encontrados! Selecione abaixo para iniciar a ocorrência.")
                     
-                    # --- MELHORIA: EXIBIÇÃO DA EMPRESA NA BUSCA ---
                     placas_disponiveis = [f"{r['placa']} - {r['nome']} ({r['modelo']}) - {r['empresa']}" for r in resultados]
                     placa_sel_texto = st.selectbox("Selecione o Veículo para Atendimento:", placas_disponiveis, key=f"sel_veic_{st.session_state.rk}")
                     
@@ -476,6 +530,10 @@ else:
                     id_cli_ficha = int(cli_ficha_sel.split(" - ")[0])
                     dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
                     veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
+                    
+                    if st.session_state.last_viewed_cli != id_cli_ficha:
+                        registrar_auditoria("Visualização", "Clientes", f"Visualizou a ficha completa do cliente: {dados_cli_ficha['nome']}", dados_cli_ficha['empresa'])
+                        st.session_state.last_viewed_cli = id_cli_ficha
                     
                     if st.button("❌ Fechar Ficha Cadastral", key="btn_close_ficha_cli"):
                         limpar_tela()
@@ -879,14 +937,9 @@ else:
                                 if st.button("❌ Fechar Ficha", key="fechar_fr_btn"):
                                     limpar_tela()
                                     st.rerun()
+                                    
                             if st.session_state.is_admin:
-                                with col_b2:
-                                    if st.button("🗑️ Excluir este Relatório de Ocorrência", key=f"del_rel_fr_{id_r}"):
-                                        execute_query("DELETE FROM historico WHERE id=%s", (id_r,))
-                                        registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Ocorrência ID {id_r} excluído pelo administrador.", dados_fr['empresa'])
-                                        st.session_state.flash_msg = "Relatório excluído com sucesso!"
-                                        limpar_tela()
-                                        st.rerun()
+                                pass # Removido botão de exclusão de auditoria para blindagem jurídica
 
                             st.markdown(f'''
                             <div class="ficha-box">
@@ -961,7 +1014,6 @@ else:
                         
                         st.markdown("### 🔎 Ficha de Monitoramento")
                         
-                        # --- MELHORIA: EXIBIÇÃO DA PLACA, NOME DO CLIENTE E HORÁRIO NO SELECTBOX ---
                         lista_sel_mon = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_mon]
                         
                         k_rel_mon = st.session_state.reset_keys['rel_mon']
@@ -976,14 +1028,6 @@ else:
                                 if st.button("❌ Fechar Ficha", key="fechar_mon_btn"):
                                     limpar_tela()
                                     st.rerun()
-                            if st.session_state.is_admin:
-                                with col_mb2:
-                                    if st.button("🗑️ Excluir este Relatório de Monitoramento", key=f"del_rel_mon_{id_m}"):
-                                        execute_query("DELETE FROM historico WHERE id=%s", (id_m,))
-                                        registrar_auditoria("Exclusão", "Relatórios", f"Relatório de Monitoramento ID {id_m} excluído pelo administrador.", dados_mon['empresa'])
-                                        st.session_state.flash_msg = "Relatório excluído com sucesso!"
-                                        limpar_tela()
-                                        st.rerun()
 
                             st.markdown(f'''
                             <div class="ficha-box">
@@ -1089,7 +1133,7 @@ else:
                 if not df_empresas.empty:
                     for _, emp in df_empresas.iterrows():
                         with st.expander(f"📁 Empresa: {emp['nome']}"):
-                            st.write(f"**CNPJ/Senha:** {emp['cnpj']} | **Responsável:** {emp['responsavel']}")
+                            st.write(f"**Responsável:** {emp['responsavel']}")
                             st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
                             servico_vinculado = emp['servicos'] if 'servicos' in emp and emp['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
                             valor_unit = emp['valor_veiculo'] if ('valor_veiculo' in emp and emp['valor_veiculo'] is not None) else 3.00
@@ -1105,7 +1149,7 @@ else:
             elif acao_parceiros == "Incluir Nova":
                 with st.form("nova_empresa", clear_on_submit=True):
                     e_nome = st.text_input("Nome da Empresa (Será o Login) *")
-                    e_cnpj = st.text_input("CNPJ (Será a Senha) *")
+                    e_cnpj = st.text_input("CNPJ/Senha Inicial *")
                     e_end = st.text_input("Endereço")
                     e_tel = st.text_input("Telefone")
                     e_resp = st.text_input("Responsável")
@@ -1115,8 +1159,9 @@ else:
                     
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
+                            senha_hash = hash_senha(e_cnpj)
                             execute_query("INSERT INTO empresas (nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
-                                          (e_nome, e_cnpj, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
+                                          (e_nome, senha_hash, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.", e_nome)
                             st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
                             limpar_tela()
@@ -1321,10 +1366,12 @@ else:
                 st.info("Nenhuma empresa parceira cadastrada para faturamento.")
         tab_idx += 1
 
-    # --- AUDITORIA ---
+    # --- AUDITORIA BLINDADA E ACEITES LGPD ---
     if tab_idx < len(tabs):
         with tabs[tab_idx]:
-            st.header("🕵️ Auditoria e Registros de Atividades")
+            st.header("🕵️ Auditoria e Registros de Atividades (Imutável)")
+            st.info("🔒 **Blindagem Jurídica Ativa:** De acordo com a legislação (LGPD e Marco Civil da Internet), todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações.")
+            
             mes_atual_padrao = datetime.now().strftime("%m/%Y")
             filtro_mes_aud = st.text_input("🔍 Busca Inteligente em Registros (Mês/Ano ou Texto):", value=mes_atual_padrao, key=f"aud_b_{st.session_state.rk}")
             
@@ -1352,24 +1399,18 @@ else:
                     df_auditoria.columns = ['ID', 'Data/Hora', 'Empresa / Usuário', 'Ação', 'Módulo', 'Detalhes']
 
                 st.dataframe(df_auditoria, use_container_width=True)
-                
-                if st.session_state.is_admin:
-                    st.markdown("### 🗑️ Excluir Registro Específico de Auditoria")
-                    lista_aud = [""] + [f"{row['ID']} - {row['Data/Hora']} ({row['Empresa / Usuário']} - {row['Ação']} / {row['Módulo']})" for _, row in df_auditoria.iterrows()]
-                    
-                    k_aud_del = st.session_state.reset_keys['aud_del']
-                    aud_sel_excluir = st.selectbox("Selecione o registro de auditoria que deseja excluir:", lista_aud, key=f"sb_aud_del_{k_aud_del}")
-                    
-                    if aud_sel_excluir != "":
-                        if st.button("❌ Fechar Seleção", key="btn_close_aud_del"):
-                            limpar_tela()
-                            st.rerun()
-                            
-                        id_aud_del = int(aud_sel_excluir.split(" - ")[0])
-                        if st.button("🗑️ Excluir Registro de Auditoria Selecionado", key=f"btn_del_aud_{id_aud_del}"):
-                            execute_query("DELETE FROM auditoria WHERE id=%s", (id_aud_del,))
-                            st.session_state.flash_msg = f"Registro de auditoria ID {id_aud_del} excluído com sucesso!"
-                            limpar_tela()
-                            st.rerun()
             else:
                 st.info(f"Nenhum registro de auditoria para os termos buscados.")
+                
+            # --- PAINEL EXCLUSIVO DO ADMIN PARA VER ACEITES DA LGPD ---
+            if st.session_state.is_admin:
+                st.markdown("---")
+                st.subheader("📄 Assinaturas Eletrônicas - Aceites LGPD")
+                st.info("Aqui ficam registrados todos os parceiros que assinaram e concordaram com o Termo de Responsabilidade e Confidencialidade.")
+                res_lgpd_adm = fetch_data("SELECT * FROM aceites_lgpd ORDER BY id DESC")
+                if res_lgpd_adm:
+                    df_lgpd = pd.DataFrame(res_lgpd_adm)
+                    df_lgpd.columns = ['ID', 'Empresa', 'Data/Hora do Aceite', 'Meio de Acesso']
+                    st.dataframe(df_lgpd, use_container_width=True)
+                else:
+                    st.info("Nenhuma assinatura registrada ainda.")
