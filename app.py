@@ -486,7 +486,7 @@ else:
             st.header("🚨 Central de Operações e Ocorrências 24h")
             
             col_b1, col_b2 = st.columns([4, 1])
-            busca_op_input = col_b1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF)", key=f"busca_op_{st.session_state.rk}")
+            busca_op_input = col_b1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"busca_op_{st.session_state.rk}")
             btn_buscar = col_b2.button("Pesquisar Veículo", use_container_width=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -693,7 +693,7 @@ else:
                     p_veic = vc2.text_input(f"Placa * {i+1}", key=f"in_p_{i}_{rk}")
                     m_veic = vc3.text_input(f"Modelo {i+1}", key=f"in_m_{i}_{rk}")
                     c_veic = vc4.text_input(f"Cor {i+1}", key=f"in_c_{i}_{rk}")
-                    chip_veic = vc5.text_input(f"Chip/Equipamento", key=f"in_chip_{i}_{rk}")
+                    chip_veic = vc5.text_input(f"Chip/Equipamento (Opcional)", key=f"in_chip_{i}_{rk}")
                     
                     veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic, "info_chip": chip_veic})
                     st.markdown("---")
@@ -992,7 +992,7 @@ else:
                 with sub_tabs[idx_sub]:
                     st.subheader("Controle de Ocorrências de Furto e Roubo")
                     col_f1, col_f2 = st.columns(2)
-                    b_fr = col_f1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF)", key=f"b_fr_{st.session_state.rk}")
+                    b_fr = col_f1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"b_fr_{st.session_state.rk}")
                     p_fr = col_f2.text_input("📅 Filtrar por Data (Furto/Roubo)", key=f"p_fr_{st.session_state.rk}")
                     
                     q_fr = "SELECT * FROM historico WHERE tipo IN ('Furto', 'Roubo')"
@@ -1079,7 +1079,7 @@ else:
                 with sub_tabs[idx_sub]:
                     st.subheader("Eventos de Monitoramento Técnico")
                     col_m1, col_m2 = st.columns(2)
-                    b_mon = col_m1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF)", key=f"b_mon_{st.session_state.rk}")
+                    b_mon = col_m1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"b_mon_{st.session_state.rk}")
                     p_mon = col_m2.text_input("📅 Filtrar por Data (Monitoramento)", key=f"p_mon_{st.session_state.rk}")
                     
                     q_mon = "SELECT * FROM historico WHERE tipo='Monitoramento'"
@@ -1167,12 +1167,8 @@ else:
             st.markdown(msg_html, unsafe_allow_html=True)
             st.markdown(f"<p style='font-size: 13px; color: #555; margin-bottom: 20px;'>ℹ️ <b>Pacote Contratado:</b> {servico_emp} | <b>Vencimento:</b> Todo dia {dia_venc} do mês</p>", unsafe_allow_html=True)
             
-            q_conta_veic = """
-                SELECT count(v.id) as total_veiculos 
-                FROM veiculos v 
-                JOIN clientes c ON v.cliente_id = c.id 
-                WHERE c.empresa = %s AND c.status = 'Ativo'
-            """
+            # --- OTIMIZAÇÃO (N+1 Resolvido para Parceiro também, apesar de ser 1 query) ---
+            q_conta_veic = "SELECT count(v.id) as total_veiculos FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
             res_conta = fetch_data(q_conta_veic, (st.session_state.nome_empresa,))
             total_veiculos = res_conta[0]['total_veiculos'] if res_conta else 0
             
@@ -1337,7 +1333,16 @@ else:
             st.header("💰 Controle Financeiro Global")
             st.markdown("<p style='font-size: 13px; color: #666;'>Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.</p>", unsafe_allow_html=True)
             
+            # --- SUPER OTIMIZAÇÃO DE VELOCIDADE (BATCH QUERY N+1 FIX) ---
+            # Busca todas as empresas
             empresas_cad = fetch_data("SELECT id, nome, cnpj, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
+            
+            # Busca as contagens de veículos de TODAS as empresas de uma vez só (Isso acaba com a lentidão!)
+            q_v_global = "SELECT c.empresa, count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.status = 'Ativo' GROUP BY c.empresa"
+            res_v_global = fetch_data(q_v_global)
+            
+            # Cria um dicionário rápido na memória: {'Nome da Empresa': Quantidade de Carros}
+            mapa_qtd_veiculos = {item['empresa']: item['qtd'] for item in res_v_global} if res_v_global else {}
             
             total_faturamento_previsto = 0.0
             total_atrasado = 0.0
@@ -1354,9 +1359,8 @@ else:
                     
                     status_calculado = calcular_status_fatura(stat_p, dia_venc)
                     
-                    q_v = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
-                    res_v = fetch_data(q_v, (nome_emp,))
-                    qtd_v = res_v[0]['qtd'] if res_v else 0
+                    # Puxa a contagem do dicionário instantaneamente, em vez de ir no banco de dados de novo
+                    qtd_v = mapa_qtd_veiculos.get(nome_emp, 0)
                     valor_calc = qtd_v * val_unit
                     
                     total_faturamento_previsto += valor_calc
@@ -1449,9 +1453,7 @@ else:
                     stat_atual = dados_emp_fin['status_pagamento'] if dados_emp_fin['status_pagamento'] is not None else "Pendente"
                     vp_atual = dados_emp_fin['valor_pago'] if dados_emp_fin['valor_pago'] is not None else 0.00
                     
-                    q_v_calc = "SELECT count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
-                    res_v_calc = fetch_data(q_v_calc, (emp_escolhida_pagto,))
-                    qtd_v_calc = res_v_calc[0]['qtd'] if res_v_calc else 0
+                    qtd_v_calc = mapa_qtd_veiculos.get(emp_escolhida_pagto, 0)
                     
                     with st.form("form_atualiza_status_pagto", clear_on_submit=True):
                         st.write(f"**Empresa Selecionada:** {emp_escolhida_pagto}")
