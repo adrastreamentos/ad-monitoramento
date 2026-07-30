@@ -71,7 +71,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS aceites_lgpd (id SERIAL PRIMARY KEY, empresa TEXT, data_hora TEXT, ip_aceite TEXT DEFAULT 'Sistema Web', hash_assinatura TEXT)''')
 
     try:
-        # Criação da coluna correta para senhas e correções
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS senha TEXT;")
         c.execute("ALTER TABLE aceites_lgpd ADD COLUMN IF NOT EXISTS hash_assinatura TEXT;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
@@ -302,7 +301,6 @@ if 'termo_busca_ativo' not in st.session_state: st.session_state.termo_busca_ati
 if 'termo_cli_ativo' not in st.session_state: st.session_state.termo_cli_ativo = ""
 if 'last_viewed_cli' not in st.session_state: st.session_state.last_viewed_cli = None
 
-# --- VACINA ANTI-ERRO (INJEÇÃO DE CHAVES FALTANTES NO CACHE DO NAVEGADOR) ---
 chaves_necessarias = {
     'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0
 }
@@ -361,15 +359,12 @@ if not st.session_state.logged_in:
                         
                         login_sucesso = False
                         
-                        # Migração Automática e Verificação
                         if senha_salva and senha_salva == senha_criptografada:
                             login_sucesso = True
                         elif not senha_salva:
-                            # Se o cara ainda usa o texto limpo
                             if cnpj_salvo == senha:
                                 execute_query("UPDATE empresas SET senha=%s WHERE nome=%s", (senha_criptografada, user))
                                 login_sucesso = True
-                            # Recupera quem foi bugado na atualização passada
                             elif cnpj_salvo == senha_criptografada:
                                 execute_query("UPDATE empresas SET senha=%s WHERE nome=%s", (senha_criptografada, user))
                                 login_sucesso = True
@@ -397,7 +392,6 @@ if not st.session_state.logged_in:
 # 2. SISTEMA PRINCIPAL & MURO LGPD
 # ==========================================
 else:
-    # --- MURO LGPD PARA PARCEIROS ---
     if not st.session_state.is_admin and not st.session_state.lgpd_aceito:
         res_lgpd = fetch_data("SELECT id FROM aceites_lgpd WHERE empresa=%s", (st.session_state.nome_empresa,))
         if res_lgpd:
@@ -430,9 +424,8 @@ else:
                 registrar_auditoria("Aceite LGPD", "Segurança", "Aceitou os termos de privacidade (Assinatura Eletrônica).", st.session_state.nome_empresa)
                 st.session_state.lgpd_aceito = True
                 st.rerun()
-            st.stop() # Congela a tela aqui até ele aceitar
+            st.stop()
 
-    # --- BARRA LATERAL NORMAL ---
     with st.sidebar:
         if not st.session_state.is_admin:
             logo_bytes = fetch_logo_cached(st.session_state.nome_empresa)
@@ -467,7 +460,6 @@ else:
         st.markdown("### 📞 Suporte Oficial")
         st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Empresa Logada: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
 
-    # --- PAINEL CENTRAL DE ALERTAS PARA O ADMINISTRADOR ---
     if st.session_state.is_admin:
         alertas = fetch_data("SELECT * FROM notificacoes WHERE lida = FALSE ORDER BY id DESC")
         if alertas:
@@ -494,7 +486,7 @@ else:
             st.header("🚨 Central de Operações e Ocorrências 24h")
             
             col_b1, col_b2 = st.columns([4, 1])
-            busca_op_input = col_b1.text_input("🔍 Buscar veículo (Digite Nome, Placa ou CPF)", key=f"busca_op_{st.session_state.rk}")
+            busca_op_input = col_b1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF)", key=f"busca_op_{st.session_state.rk}")
             btn_buscar = col_b2.button("Pesquisar Veículo", use_container_width=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -531,11 +523,11 @@ else:
                             local_oc = col_oc2.text_input("Localização do Fato", key=f"loc_{st.session_state.rk}")
                             
                             col_chip1, col_chip2 = st.columns(2)
-                            status_chip = col_chip1.text_input("📡 Última Posição / Status do Chip", placeholder="Ex: Operadora Vivo - Ativo / Sem Sinal desde as 10h", key=f"chip_{st.session_state.rk}")
-                            link_rastreio = col_chip2.text_input("🔗 Link de Rastreio (Para Polícia/Cliente)", placeholder="Cole o link web aqui", key=f"link_{st.session_state.rk}")
+                            status_chip = col_chip1.text_input("📡 Última Posição / Status do Chip", key=f"chip_{st.session_state.rk}")
+                            link_rastreio = col_chip2.text_input("🔗 Link de Rastreio (Para Polícia/Cliente)", key=f"link_{st.session_state.rk}")
                             
                             desc_oc = st.text_area("Descrição / Dinâmica", key=f"desc_{st.session_state.rk}")
-                            st.info("ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO. O cronômetro de resposta foi iniciado.")
+                            st.markdown("<p style='font-size: 13px; color: #555;'>ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO. O cronômetro de resposta foi iniciado.</p>", unsafe_allow_html=True)
                             
                             if st.button("🚨 Salvar Ocorrência", type="primary"):
                                 agora = get_horario_brasil_str()
@@ -551,7 +543,7 @@ else:
                             st.markdown("<h3 style='color: #4a0e4e;'>Monitoramento Técnico</h3>", unsafe_allow_html=True)
                             col_m1, col_m2 = st.columns(2)
                             evento_mon = col_m1.selectbox("Evento", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"], key=f"eve_{st.session_state.rk}")
-                            status_chip = col_m2.text_input("📡 Status do Rastreador / Chip", placeholder="Ex: Bloqueado / Normalizado", key=f"chip_m_{st.session_state.rk}")
+                            status_chip = col_m2.text_input("📡 Status do Rastreador / Chip", key=f"chip_m_{st.session_state.rk}")
                             
                             acao_mon = st.text_area("Ação da Central", key=f"aca_{st.session_state.rk}")
                             
@@ -585,7 +577,7 @@ else:
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
 
         if acao_clientes == "Listar":
-            busca_cli = st.text_input("🔍 Busca Inteligente (Digite Nome, Placa ou CPF - Mín. 3 letras):", placeholder="Ex: Cláudio, 000.000.000-00, QXC1234", key=f"lista_busca_{st.session_state.rk}")
+            busca_cli = st.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"lista_busca_{st.session_state.rk}")
             
             q_tela = """
                 SELECT c.id as cli_id, c.nome, c.documento, c.telefone, c.empresa, c.status, c.endereco,
@@ -701,7 +693,7 @@ else:
                     p_veic = vc2.text_input(f"Placa * {i+1}", key=f"in_p_{i}_{rk}")
                     m_veic = vc3.text_input(f"Modelo {i+1}", key=f"in_m_{i}_{rk}")
                     c_veic = vc4.text_input(f"Cor {i+1}", key=f"in_c_{i}_{rk}")
-                    chip_veic = vc5.text_input(f"Chip/Equipamento (Opcional)", key=f"in_chip_{i}_{rk}")
+                    chip_veic = vc5.text_input(f"Chip/Equipamento", key=f"in_chip_{i}_{rk}")
                     
                     veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic, "info_chip": chip_veic})
                     st.markdown("---")
@@ -739,8 +731,8 @@ else:
                 st.markdown("</div>", unsafe_allow_html=True)
                             
         elif acao_clientes == "Importação em Lote":
-            st.subheader("📥 Importação Inteligente de Clientes e Frotas via CSV")
-            st.info("O sistema criará o cliente uma única vez e agrupará todos os veículos vinculados ao mesmo CPF/CNPJ de forma automática, sem criar duplicatas.")
+            st.subheader("📥 Importação Inteligente via CSV")
+            st.markdown("<p style='font-size: 13px; color: #666;'>O sistema agrupará todos os veículos vinculados ao mesmo documento automaticamente.</p>", unsafe_allow_html=True)
             
             emp_lote = st.selectbox("Selecione a Empresa de destino para a importação:", opcoes_emp, key=f"emp_lote_sel_{st.session_state.rk}")
             
@@ -821,7 +813,7 @@ else:
             
         elif acao_clientes in ["Editar", "Excluir"]:
             col_pesq1, col_pesq2 = st.columns([4, 1])
-            busca = col_pesq1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF - Mín. 3 letras):", key=f"edit_busca_{st.session_state.rk}")
+            busca = col_pesq1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"edit_busca_{st.session_state.rk}")
             btn_pesq = col_pesq2.button("Pesquisar Cliente", type="primary", use_container_width=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -1162,16 +1154,18 @@ else:
             
             status_visual = calcular_status_fatura(status_pag, dia_venc)
 
+            # --- LIMPEZA VISUAL (MENSAGENS MENORES) ---
             if status_visual == "🔴 Vencida / Atrasada":
-                st.error("⚠️ **AVISO FINANCEIRO IMPORTANTE - FATURA ATRASADA:** Identificamos que sua fatura venceu e encontra-se em atraso. Seus serviços encontram-se temporariamente **interrompidos até a quitação do débito**. Por favor, regularize sua situação com o suporte financeiro da Central para o restabelecimento imediato das operações.")
+                msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #ffebee; color: #c62828; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>ATENÇÃO - FATURA ATRASADA:</b> Sua fatura venceu e encontra-se em atraso. Serviços temporariamente suspensos até a quitação.</div>"
             elif status_visual == "🟠 Vence Hoje":
-                st.warning("⚠️ **AVISO FINANCEIRO:** Sua fatura referente ao fechamento do último dia do mês **vence hoje**. Evite transtornos e o bloqueio dos serviços realizando o pagamento.")
+                msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fff3e0; color: #e65100; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>AVISO FINANCEIRO:</b> Sua fatura referente ao fechamento do último mês vence hoje. Evite bloqueios realizando o pagamento.</div>"
             elif status_visual == "🟡 Fatura Fechada (Próxima ao Vencimento)":
-                st.info(f"🔔 **Aviso Financeiro Importante:** Sua fatura foi fechada (corte de 2 dias antes do vencimento dia {dia_venc}). Fique atento para manter seus serviços ativos.")
+                msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fffde7; color: #f57f17; font-size: 13px; margin-bottom: 10px;'>🔔 <b>Aviso Financeiro:</b> Sua fatura foi fechada (corte de 2 dias antes do vencimento dia {dia_venc}). Fique atento.</div>"
             else:
-                st.success("✅ **Situação Financeira Regularizada:** Suas faturas encontram-se em dia. Obrigado por manter sua parceria conosco!")
-
-            st.info(f"ℹ️ **Seu Pacote Contratado:** {servico_emp} | **Valor Unitário:** R$ {valor_por_veiculo:.2f} | **Vencimento:** Todo dia {dia_venc} do mês (Fechamento 2 dias antes)")
+                msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #e8f5e9; color: #2e7d32; font-size: 13px; margin-bottom: 10px;'>✅ <b>Situação Financeira Regularizada:</b> Suas faturas encontram-se em dia. Obrigado por manter sua parceria conosco!</div>"
+            
+            st.markdown(msg_html, unsafe_allow_html=True)
+            st.markdown(f"<p style='font-size: 13px; color: #555; margin-bottom: 20px;'>ℹ️ <b>Pacote Contratado:</b> {servico_emp} | <b>Vencimento:</b> Todo dia {dia_venc} do mês</p>", unsafe_allow_html=True)
             
             q_conta_veic = """
                 SELECT count(v.id) as total_veiculos 
@@ -1184,23 +1178,40 @@ else:
             
             valor_total_fatura = total_veiculos * valor_por_veiculo
             
-            col_m1, col_m2, col_m3, col_m4 = st.columns(4)
-            col_m1.metric("🚗 Total de Veículos Ativos", f"{total_veiculos}")
-            col_m2.metric("💵 Valor Unitário Aplicado", f"R$ {valor_por_veiculo:.2f}")
-            col_m3.metric("💳 Faturamento Previsto Atual", f"R$ {valor_total_fatura:.2f}", delta=f"Vencimento dia {dia_venc}", delta_color="off")
-            col_m4.metric("📌 Status da Fatura", f"{status_visual}")
+            # --- DASHBOARD KPI CUSTOMIZADO E MENOR ---
+            html_kpis = f"""
+            <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
+                <div style="flex: 1; min-width: 150px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #4a0e4e;">
+                    <p style="margin: 0; font-size: 13px; color: #666;">🚗 Veículos Ativos</p>
+                    <h3 style="margin: 5px 0 0 0; color: #333; font-size: 22px;">{total_veiculos}</h3>
+                </div>
+                <div style="flex: 1; min-width: 150px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #4a0e4e;">
+                    <p style="margin: 0; font-size: 13px; color: #666;">💵 Valor Unitário</p>
+                    <h3 style="margin: 5px 0 0 0; color: #333; font-size: 22px;">R$ {valor_por_veiculo:.2f}</h3>
+                </div>
+                <div style="flex: 1; min-width: 150px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #4a0e4e;">
+                    <p style="margin: 0; font-size: 13px; color: #666;">💳 Faturamento Previsto</p>
+                    <h3 style="margin: 5px 0 0 0; color: #333; font-size: 22px;">R$ {valor_total_fatura:.2f}</h3>
+                </div>
+                <div style="flex: 1; min-width: 150px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #8b0000;">
+                    <p style="margin: 0; font-size: 13px; color: #666;">📌 Status da Fatura</p>
+                    <h3 style="margin: 5px 0 0 0; color: #8b0000; font-size: 18px;">{status_visual}</h3>
+                </div>
+            </div>
+            """
+            st.markdown(html_kpis, unsafe_allow_html=True)
 
             if status_pag == "Pago":
-                st.info(f"💡 **Valor Quitado Registrado:** R$ {valor_pago_efetivo:.2f} (Com juros/acréscimos aplicados, se houver).")
+                st.markdown(f"<p style='font-size: 13px; color: #555;'>💡 <b>Valor Quitado Registrado no Mês:</b> R$ {valor_pago_efetivo:.2f}</p>", unsafe_allow_html=True)
             
             st.markdown("---")
-            st.subheader("🔍 Consulta de Faturas Anteriores por Mês")
+            st.subheader("🔍 Consulta Histórica de Faturas")
             
             res_meses_p = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas WHERE empresa=%s ORDER BY mes_ref DESC", (st.session_state.nome_empresa,))
             lista_meses_p = ["Selecione..."] + [m['mes_ref'] for m in res_meses_p] if res_meses_p else ["Selecione..."]
             
-            mes_busca_parceiro = st.selectbox("Selecione o Mês/Ano de referência:", lista_meses_p, key=f"sel_mes_p_{st.session_state.rk}")
-            digita_mes_p = st.text_input("Ou digite o mês diretamente (Ex: 06/2026):", value="", key=f"dig_mes_p_{st.session_state.rk}")
+            mes_busca_parceiro = st.selectbox("Filtrar por Mês/Ano:", lista_meses_p, key=f"sel_mes_p_{st.session_state.rk}")
+            digita_mes_p = st.text_input("Ou digite o mês (Ex: 06/2026):", value="", key=f"dig_mes_p_{st.session_state.rk}")
             
             mes_alvo_p = digita_mes_p.strip() if digita_mes_p.strip() else (mes_busca_parceiro if mes_busca_parceiro != "Selecione..." else "")
 
@@ -1257,7 +1268,6 @@ else:
                     if st.form_submit_button("Registrar Parceiro"):
                         if e_nome and e_cnpj:
                             senha_hash = hash_senha(e_cnpj)
-                            # Cuidado extra: salva na coluna cnpj O CNPJ REAL e na coluna senha O HASH
                             execute_query("INSERT INTO empresas (nome, cnpj, senha, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
                                           (e_nome, e_cnpj, senha_hash, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
                             registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.", e_nome)
@@ -1272,7 +1282,7 @@ else:
                     lista_opcoes_e = [f"{e['id']} - {e['nome']}" for e in empresas_res]
                     
                     k_edit_emp = st.session_state.reset_keys['edit_emp']
-                    emp_selecionada = st.selectbox("🔍 Selecione a Empresa na lista (ou digite para buscar):", [""] + lista_opcoes_e, key=f"sb_edit_emp_{k_edit_emp}")
+                    emp_selecionada = st.selectbox("🔍 Selecione a Empresa na lista:", [""] + lista_opcoes_e, key=f"sb_edit_emp_{k_edit_emp}")
                     
                     if emp_selecionada:
                         if st.button("❌ Fechar Seleção", key="btn_close_edit_emp"):
@@ -1324,8 +1334,8 @@ else:
     # --- ABA: FINANCEIRO (SÓ ADMIN) ---
     if st.session_state.is_admin and tab_idx < len(tabs):
         with tabs[tab_idx]:
-            st.header("💰 Controle Financeiro Global de Parceiros")
-            st.info("ℹ️ Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.")
+            st.header("💰 Controle Financeiro Global")
+            st.markdown("<p style='font-size: 13px; color: #666;'>Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.</p>", unsafe_allow_html=True)
             
             empresas_cad = fetch_data("SELECT id, nome, cnpj, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
             
@@ -1368,28 +1378,40 @@ else:
                         "Status Atual": status_calculado
                     })
             
-            col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
-            col_kpi1.metric("💵 Faturamento Previsto (Frota Ativa Global)", f"R$ {total_faturamento_previsto:.2f}")
-            col_kpi2.metric("🔴 Valor Atrasado / Vencido", f"R$ {total_atrasado:.2f}", delta_color="inverse")
-            col_kpi3.metric("🟢 Valor Pago Registrado", f"R$ {total_pago:.2f}")
-            
-            st.markdown("---")
+            # --- DASHBOARD KPI CUSTOMIZADO ADMIN ---
+            html_kpis_adm = f"""
+            <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
+                <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #4a0e4e;">
+                    <p style="margin: 0; font-size: 13px; color: #666;">💵 Faturamento Previsto (Ativos)</p>
+                    <h3 style="margin: 5px 0 0 0; color: #333; font-size: 22px;">R$ {total_faturamento_previsto:.2f}</h3>
+                </div>
+                <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #c62828;">
+                    <p style="margin: 0; font-size: 13px; color: #666;">🔴 Valor Atrasado / Vencido</p>
+                    <h3 style="margin: 5px 0 0 0; color: #c62828; font-size: 22px;">R$ {total_atrasado:.2f}</h3>
+                </div>
+                <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #2e7d32;">
+                    <p style="margin: 0; font-size: 13px; color: #666;">🟢 Valor Pago Registrado</p>
+                    <h3 style="margin: 5px 0 0 0; color: #2e7d32; font-size: 22px;">R$ {total_pago:.2f}</h3>
+                </div>
+            </div>
+            """
+            st.markdown(html_kpis_adm, unsafe_allow_html=True)
             
             if empresas_cad:
                 df_fin_global = pd.DataFrame(dados_financeiro_global)
                 st.dataframe(df_fin_global, use_container_width=True)
                 
                 st.markdown("---")
-                st.subheader("🔍 Consulta Histórica de Faturas por Mês (Busca Inteligente)")
+                st.subheader("🔍 Consulta Histórica de Faturas")
                 
                 res_meses_db = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas ORDER BY mes_ref DESC")
                 lista_meses_adm = ["Todos"] + [m['mes_ref'] for m in res_meses_db] if res_meses_db else ["Todos"]
                 
                 col_h1, col_h2 = st.columns(2)
-                mes_busca_admin = col_h1.selectbox("Filtrar por Mês/Ano de Referência:", lista_meses_adm, key=f"hist_mes_{st.session_state.rk}")
+                mes_busca_admin = col_h1.selectbox("Filtrar por Mês/Ano:", lista_meses_adm, key=f"hist_mes_{st.session_state.rk}")
                 digita_mes_adm = col_h2.text_input("Ou digite o mês (Ex: 06/2026):", value="", key=f"hist_dig_{st.session_state.rk}")
                 
-                emp_filtro_adm = st.selectbox("Filtrar por Empresa Parceira:", ["Todas"] + [e['nome'] for e in empresas_cad], key=f"hist_emp_{st.session_state.rk}")
+                emp_filtro_adm = st.selectbox("Filtrar por Empresa:", ["Todas"] + [e['nome'] for e in empresas_cad], key=f"hist_emp_{st.session_state.rk}")
 
                 mes_alvo_adm = digita_mes_adm.strip() if digita_mes_adm.strip() else (mes_busca_admin if mes_busca_admin != "Todos" else "")
 
@@ -1411,7 +1433,7 @@ else:
                     st.info("Nenhum histórico de fatura encontrado para os filtros selecionados.")
 
                 st.markdown("---")
-                st.subheader("⚡ Atualizar Pagamento e Valor da Fatura (Com Juros/Acréscimos)")
+                st.subheader("⚡ Atualizar Pagamento e Valor da Fatura")
                 
                 k_fin = st.session_state.reset_keys['fin_pgto']
                 lista_p_nomes = [e['nome'] for e in empresas_cad]
@@ -1468,11 +1490,11 @@ else:
     # --- AUDITORIA BLINDADA E ACEITES LGPD ---
     if tab_idx < len(tabs):
         with tabs[tab_idx]:
-            st.header("🕵️ Auditoria e Registros de Atividades (Imutável)")
-            st.info("🔒 **Blindagem Jurídica Ativa:** De acordo com a legislação (LGPD e Marco Civil da Internet), todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações.")
+            st.header("🕵️ Auditoria e Registros de Atividades")
+            st.markdown("<p style='font-size: 13px; color: #666; margin-bottom: 15px;'>🔒 <b>Blindagem Jurídica Ativa:</b> Todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações de acordo com a LGPD e Marco Civil da Internet.</p>", unsafe_allow_html=True)
             
             mes_atual_padrao = datetime.now().strftime("%m/%Y")
-            filtro_mes_aud = st.text_input("🔍 Busca Inteligente em Registros (Mês/Ano ou Texto):", value=mes_atual_padrao, key=f"aud_b_{st.session_state.rk}")
+            filtro_mes_aud = st.text_input("🔍 Busca (Mês/Ano ou Texto):", value=mes_atual_padrao, key=f"aud_b_{st.session_state.rk}")
             
             q_aud = "SELECT * FROM auditoria WHERE 1=1"
             p_aud = []
@@ -1505,7 +1527,8 @@ else:
             if st.session_state.is_admin:
                 st.markdown("---")
                 st.subheader("📄 Assinaturas Eletrônicas - Aceites LGPD")
-                st.info("Aqui ficam registrados todos os parceiros que assinaram e concordaram com o Termo de Responsabilidade e Confidencialidade.")
+                st.markdown("<p style='font-size: 13px; color: #666;'>Aqui ficam registrados todos os parceiros que assinaram e concordaram com o Termo de Responsabilidade e Confidencialidade.</p>", unsafe_allow_html=True)
+                
                 res_lgpd_adm = fetch_data("SELECT * FROM aceites_lgpd ORDER BY id DESC")
                 
                 if res_lgpd_adm:
@@ -1517,7 +1540,7 @@ else:
                     st.markdown("### 🖨️ Gerar Certificado de Aceite / PDF")
                     k_lgpd_cert = st.session_state.reset_keys['lgpd_cert']
                     lista_aceites = [""] + [f"{a['id']} - {a['empresa']} ({a['data_hora']})" for a in res_lgpd_adm]
-                    aceite_sel = st.selectbox("Selecione a assinatura do parceiro para gerar o documento legal:", lista_aceites, key=f"sel_aceite_{k_lgpd_cert}")
+                    aceite_sel = st.selectbox("Selecione a assinatura do parceiro:", lista_aceites, key=f"sel_aceite_{k_lgpd_cert}")
                     
                     if aceite_sel != "":
                         id_a = int(aceite_sel.split(" - ")[0])
@@ -1526,8 +1549,6 @@ else:
                         cnpj_res = fetch_data("SELECT cnpj FROM empresas WHERE nome=%s", (dados_a['empresa'],))
                         cnpj_parceiro = "Migração / Falta Atualização de Cadastro"
                         if cnpj_res:
-                            # Tenta puxar o CNPJ real. Como a gente criptografou em cima dele no passado,
-                            # Se for uma string de 64 caracteres, é o hash antigo, não o CNPJ real.
                             cnpj_tamanho = len(str(cnpj_res[0]['cnpj']))
                             if cnpj_tamanho == 64:
                                 cnpj_parceiro = "Migração (O CNPJ precisa ser corrigido na aba Empresas)"
@@ -1537,7 +1558,7 @@ else:
                         st.markdown("<br>", unsafe_allow_html=True)
                         st.markdown(gerar_certificado_lgpd_html(dados_a, cnpj_parceiro), unsafe_allow_html=True)
                         
-                        if st.button("❌ Fechar Gerador de Certificado", key="btn_close_cert"):
+                        if st.button("❌ Fechar Gerador", key="btn_close_cert"):
                             limpar_tela()
                             st.rerun()
                 else:
