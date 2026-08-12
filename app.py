@@ -128,14 +128,24 @@ def init_db():
     
     conn.commit()
 
-# CACHE REDUZIDO PARA 2 SEGUNDOS
+# CACHE REDUZIDO PARA 2 SEGUNDOS COM PROTEÇÃO CONTRA DADOS BINÁRIOS
 @st.cache_data(ttl=2, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_conn_fast()
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
     data = c.fetchall()
-    return data
+    
+    # HIGIENIZAÇÃO: Converte dados binários para evitar UnserializableReturnValueError
+    resultado_seguro = []
+    for linha in data:
+        linha_dict = dict(linha)
+        for chave, valor in linha_dict.items():
+            if isinstance(valor, memoryview):
+                linha_dict[chave] = bytes(valor)
+        resultado_seguro.append(linha_dict)
+        
+    return resultado_seguro
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
@@ -771,7 +781,6 @@ else:
                 df_tela = pd.DataFrame(res_tela)
                 empresas_ativas = df_tela['empresa'].unique()
                 
-                # --- VISUALIZAÇÃO OTIMIZADA COM SELETOR DENTRO DA PASTA DA EMPRESA ---
                 for emp_ativa in empresas_ativas:
                     with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
                         df_emp = df_tela[df_tela['empresa'] == emp_ativa]
@@ -787,8 +796,8 @@ else:
                         
                         if cli_ficha_sel != "":
                             id_cli_ficha = int(cli_ficha_sel.split(" - ")[0])
-                            dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
-                            veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
+                            dados_cli_ficha = fetch_data("SELECT id, nome, documento, endereco, telefone, empresa, status FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
+                            veiculos_cli_ficha = fetch_data("SELECT id, cliente_id, tipo_veic, placa, modelo, cor, info_chip FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
                             
                             if st.session_state.last_viewed_cli != id_cli_ficha:
                                 registrar_auditoria("Visualização", "Clientes", f"Visualizou a ficha completa do cliente: {dados_cli_ficha['nome']}", dados_cli_ficha['empresa'])
@@ -1011,8 +1020,8 @@ else:
                         
                         if cli_escolhido != "":
                             id_c_sel = int(cli_escolhido.split(" - ")[0])
-                            dados_cliente_sel = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_c_sel,))[0]
-                            veiculos_cliente = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
+                            dados_cliente_sel = fetch_data("SELECT id, nome, documento, endereco, telefone, empresa, status FROM clientes WHERE id=%s", (id_c_sel,))[0]
+                            veiculos_cliente = fetch_data("SELECT id, cliente_id, tipo_veic, placa, modelo, cor, info_chip FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
                             
                             st.markdown("---")
                             st.write("📝 **Atualizando Dados Cadastrais:**")
@@ -1385,7 +1394,7 @@ else:
         st.header("⚙️ Meu Cadastro Profissional")
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
         
-        res_emp = fetch_data("SELECT * FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+        res_emp = fetch_data("SELECT id, nome, cnpj, endereco, telefone, email, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
         if res_emp:
             dados_emp = res_emp[0]
             
