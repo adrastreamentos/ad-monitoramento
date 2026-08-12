@@ -128,24 +128,14 @@ def init_db():
     
     conn.commit()
 
-# CACHE REDUZIDO PARA 2 SEGUNDOS COM PROTEÇÃO CONTRA DADOS BINÁRIOS
+# CACHE REDUZIDO PARA 2 SEGUNDOS
 @st.cache_data(ttl=2, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_conn_fast()
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
     data = c.fetchall()
-    
-    # HIGIENIZAÇÃO: Converte dados binários para evitar UnserializableReturnValueError
-    resultado_seguro = []
-    for linha in data:
-        linha_dict = dict(linha)
-        for chave, valor in linha_dict.items():
-            if isinstance(valor, memoryview):
-                linha_dict[chave] = bytes(valor)
-        resultado_seguro.append(linha_dict)
-        
-    return resultado_seguro
+    return data
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
@@ -698,8 +688,8 @@ else:
                                     st.session_state.flash_msg = "Salvo com sucesso!"
                                     limpar_tela()
                                     st.rerun()
-                else:
-                    st.warning("Nenhum veículo encontrado com este termo.")
+                    else:
+                        st.warning("Nenhum veículo encontrado com este termo.")
 
     # --- TELA: GESTÃO DE PENDÊNCIAS ---
     elif aba_ativa == "pendencias":
@@ -781,6 +771,7 @@ else:
                 df_tela = pd.DataFrame(res_tela)
                 empresas_ativas = df_tela['empresa'].unique()
                 
+                # --- VISUALIZAÇÃO OTIMIZADA COM SELETOR DENTRO DA PASTA DA EMPRESA ---
                 for emp_ativa in empresas_ativas:
                     with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
                         df_emp = df_tela[df_tela['empresa'] == emp_ativa]
@@ -796,8 +787,8 @@ else:
                         
                         if cli_ficha_sel != "":
                             id_cli_ficha = int(cli_ficha_sel.split(" - ")[0])
-                            dados_cli_ficha = fetch_data("SELECT id, nome, documento, endereco, telefone, empresa, status FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
-                            veiculos_cli_ficha = fetch_data("SELECT id, cliente_id, tipo_veic, placa, modelo, cor, info_chip FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
+                            dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
+                            veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
                             
                             if st.session_state.last_viewed_cli != id_cli_ficha:
                                 registrar_auditoria("Visualização", "Clientes", f"Visualizou a ficha completa do cliente: {dados_cli_ficha['nome']}", dados_cli_ficha['empresa'])
@@ -1020,8 +1011,8 @@ else:
                         
                         if cli_escolhido != "":
                             id_c_sel = int(cli_escolhido.split(" - ")[0])
-                            dados_cliente_sel = fetch_data("SELECT id, nome, documento, endereco, telefone, empresa, status FROM clientes WHERE id=%s", (id_c_sel,))[0]
-                            veiculos_cliente = fetch_data("SELECT id, cliente_id, tipo_veic, placa, modelo, cor, info_chip FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
+                            dados_cliente_sel = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_c_sel,))[0]
+                            veiculos_cliente = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
                             
                             st.markdown("---")
                             st.write("📝 **Atualizando Dados Cadastrais:**")
@@ -1394,31 +1385,53 @@ else:
         st.header("⚙️ Meu Cadastro Profissional")
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
         
-        res_emp = fetch_data("SELECT id, nome, cnpj, endereco, telefone, email, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+        res_emp = fetch_data("SELECT * FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
         if res_emp:
             dados_emp = res_emp[0]
-            
-            st.markdown("### 🔒 Informações Contratuais (Somente Leitura)")
-            col_ro1, col_ro2, col_ro3 = st.columns(3)
-            col_ro1.info(f"**Empresa/Login:** {dados_emp['nome']}")
-            col_ro2.info(f"**CNPJ:** {dados_emp['cnpj']}")
-            col_ro3.info(f"**Serviços:** {dados_emp['servicos']}")
-            
-            col_ro4, col_ro5 = st.columns(2)
             val_veic = dados_emp['valor_veiculo'] if dados_emp['valor_veiculo'] is not None else 0.0
             dia_v = dados_emp['dia_vencimento'] if dados_emp['dia_vencimento'] is not None else 10
-            col_ro4.info(f"**Valor por Veículo:** R$ {val_veic:.2f}")
-            col_ro5.info(f"**Dia de Vencimento:** {dia_v}")
             
-            st.markdown("---")
-            st.markdown("### 📝 Atualização de Dados")
+            st.markdown("### 🔒 Informações Contratuais")
+            
+            # --- NOVO PAINEL HTML COMPACTO PARA SUBSTITUIR OS ST.INFO GIGANTES ---
+            html_readonly = f"""
+            <div style="background-color: #fafafa; border-left: 4px solid #4a0e4e; border-radius: 4px; padding: 15px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
+                    <div>
+                        <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">Empresa / Login</span><br>
+                        <span style="color: #333; font-size: 14px; font-weight: 500;">{dados_emp['nome']}</span>
+                    </div>
+                    <div>
+                        <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">CNPJ</span><br>
+                        <span style="color: #333; font-size: 14px; font-weight: 500;">{dados_emp['cnpj']}</span>
+                    </div>
+                    <div>
+                        <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">Serviços</span><br>
+                        <span style="color: #333; font-size: 14px; font-weight: 500;">{dados_emp['servicos']}</span>
+                    </div>
+                    <div>
+                        <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">Valor por Veículo</span><br>
+                        <span style="color: #333; font-size: 14px; font-weight: 500;">R$ {val_veic:.2f}</span>
+                    </div>
+                    <div>
+                        <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">Dia de Vencimento</span><br>
+                        <span style="color: #333; font-size: 14px; font-weight: 500;">Dia {dia_v}</span>
+                    </div>
+                </div>
+            </div>
+            """
+            st.markdown(html_readonly, unsafe_allow_html=True)
+            
+            st.markdown("### 📝 Atualização de Dados de Contato")
             
             with st.form("form_atualizacao_cadastral"):
-                c_resp = st.text_input("Nome do Responsável", value=dados_emp.get('responsavel', ''))
-                c_tel = st.text_input("Telefone Corporativo / WhatsApp", value=dados_emp.get('telefone', ''))
-                c_email = st.text_input("E-mail Profissional", value=dados_emp.get('email', ''))
-                c_end = st.text_input("Endereço Completo", value=dados_emp.get('endereco', ''))
+                c1, c2 = st.columns(2)
+                c_resp = c1.text_input("Nome do Responsável", value=dados_emp.get('responsavel', ''))
+                c_tel = c2.text_input("Telefone Corporativo / WhatsApp", value=dados_emp.get('telefone', ''))
+                c_email = c1.text_input("E-mail Profissional", value=dados_emp.get('email', ''))
+                c_end = c2.text_input("Endereço Completo", value=dados_emp.get('endereco', ''))
                 
+                st.markdown("<br>", unsafe_allow_html=True)
                 if st.form_submit_button("💾 Salvar Alterações Cadastrais", type="primary"):
                     execute_query("UPDATE empresas SET responsavel=%s, telefone=%s, email=%s, endereco=%s WHERE nome=%s", 
                                   (c_resp, c_tel, c_email, c_end, st.session_state.nome_empresa))
