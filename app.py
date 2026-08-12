@@ -679,7 +679,7 @@ else:
                                             tel_limpo = f"55{tel_limpo}"
                                             
                                         setor_nome = "FINANCEIRO (Faturas/Cobranças)" if "Financeiro" in evento_mon else "TÉCNICO (Manutenção/Offline)"
-                                        msg_wpp = f"🚨 *NO CHAMADO PENDENTE - SETOR {setor_nome}* 🚨\n\n"
+                                        msg_wpp = f"🚨 *NOVO CHAMADO PENDENTE - SETOR {setor_nome}* 🚨\n\n"
                                         msg_wpp += f"🏢 *Base Parceira:* {info_veic['empresa']}\n"
                                         msg_wpp += f"👤 *Cliente:* {info_veic['nome']}\n"
                                         msg_wpp += f"🚗 *Veículo:* {placa_sel} ({info_veic['modelo']})\n"
@@ -1021,8 +1021,8 @@ else:
                         
                         if cli_escolhido != "":
                             id_c_sel = int(cli_escolhido.split(" - ")[0])
-                            dados_cliente_sel = fetch_data("SELECT id, nome, documento, endereco, telefone, empresa FROM clientes WHERE id=%s", (id_c_sel,))[0]
-                            veiculos_cliente = fetch_data("SELECT id, tipo_veic, placa, modelo, cor, info_chip FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
+                            dados_cliente_sel = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_c_sel,))[0]
+                            veiculos_cliente = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_c_sel,))
                             
                             st.markdown("---")
                             st.write("📝 **Atualizando Dados Cadastrais:**")
