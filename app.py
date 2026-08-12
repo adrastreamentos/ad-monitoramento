@@ -23,7 +23,7 @@ st.markdown("""
     div[data-testid="stSidebar"] { background-color: #4a0e4e; }
     div[data-testid="stSidebar"] * { color: white; }
     
-    /* --- NOVO MENU VISUALMENTE SEPARADO (MANTENDO A VELOCIDADE EXTREMA) --- */
+    /* --- MENU VISUALMENTE SEPARADO --- */
     div[role="radiogroup"] { 
         justify-content: center; 
         gap: 15px; 
@@ -127,7 +127,7 @@ def init_db():
     
     conn.commit()
 
-# CACHE REDUZIDO PARA 2 SEGUNDOS: Isso garante que a navegação seja rápida, mas os dados sempre estejam frescos (sem precisar apertar F5).
+# CACHE REDUZIDO PARA 2 SEGUNDOS
 @st.cache_data(ttl=2, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_conn_fast()
@@ -499,7 +499,6 @@ else:
         st.markdown("### 📞 Suporte Oficial")
         st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Empresa Logada: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
 
-    # Lógica de Notificações Laterais
     if st.session_state.is_admin:
         alertas = fetch_data("SELECT * FROM notificacoes WHERE lida = FALSE ORDER BY id DESC")
         if alertas:
@@ -520,7 +519,6 @@ else:
     
     qtd_pend = res_count_pend[0]['c'] if res_count_pend else 0
 
-    # Função para mapear visualmente os nomes das abas
     def formatar_nome_menu(aba_id):
         mapa = {
             "central": "🚨 Central 24h",
@@ -534,7 +532,7 @@ else:
         }
         return mapa.get(aba_id, aba_id)
 
-    # --- OTIMIZAÇÃO DA VELOCIDADE: MENU RADIO SUBSTITUINDO AS LENTAS ST.TABS ---
+    # --- MENU DE NAVEGAÇÃO DINÂMICO E SEPARADO ---
     if st.session_state.is_admin:
         lista_abas = ["central", "pendencias", "clientes", "relatorios", "empresas", "financeiro", "auditoria"]
     else:
@@ -547,11 +545,9 @@ else:
     # RENDERIZAÇÃO CONDICIONAL (SÓ RODA O CÓDIGO DA TELA QUE VOCÊ CLICOU)
     # =======================================================================
 
-    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) ---
     if aba_ativa == "central" and st.session_state.is_admin:
         st.header("🚨 Central de Operações e Ocorrências 24h")
         
-        # --- LÓGICA DE LIMPEZA VISUAL (TELA DO WHATSAPP ISOLADA) ---
         if st.session_state.get('link_transferencia'):
             st.success("✅ Ficha de transferência salva como pendência e pronta para ser enviada!")
             
@@ -570,11 +566,9 @@ else:
             btn_buscar = col_b2.button("Pesquisar Veículo", use_container_width=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # --- LÓGICA RIGOROSA DE LIMPEZA DA BUSCA INTELIGENTE ---
             if btn_buscar and len(busca_op_input) >= 3:
                 st.session_state.termo_busca_ativo = busca_op_input
             elif busca_op_input != st.session_state.get("termo_busca_ativo", ""):
-                # Oculta instantaneamente a pesquisa se a pessoa modificar o texto do input
                 st.session_state.termo_busca_ativo = ""
                 
             if st.session_state.termo_busca_ativo:
@@ -653,7 +647,6 @@ else:
                                 detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação/Motivo: {acao_mon}"
                                 
                                 tipo_hist = "Transferência" if eh_transferencia else "Monitoramento"
-                                # LÓGICA ATUALIZADA: Transferências caem como PENDENTE aguardando ação do parceiro.
                                 status_hist = "PENDENTE" if eh_transferencia else "FINALIZADO"
                                 
                                 execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
@@ -695,7 +688,7 @@ else:
                 else:
                     st.warning("Nenhum veículo encontrado com este termo.")
 
-    # --- TELA: GESTÃO DE PENDÊNCIAS (CHAMADOS FINANCEIROS E TÉCNICOS) ---
+    # --- TELA: GESTÃO DE PENDÊNCIAS ---
     elif aba_ativa == "pendencias":
         st.header("🛠️ Gestão de Chamados e Pendências")
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel de transferências financeiras e técnicas aguardando resolução pela empresa parceira. Finalizar um chamado encerra o documento e o transfere para os Relatórios.</p>", unsafe_allow_html=True)
@@ -775,55 +768,54 @@ else:
                 df_tela = pd.DataFrame(res_tela)
                 empresas_ativas = df_tela['empresa'].unique()
                 
+                # --- VISUALIZAÇÃO OTIMIZADA COM SELETOR DENTRO DA PASTA DA EMPRESA ---
                 for emp_ativa in empresas_ativas:
                     with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
                         df_emp = df_tela[df_tela['empresa'] == emp_ativa]
                         df_display = df_emp[['nome', 'documento', 'telefone', 'qtd_veiculos', 'status']].copy()
                         df_display.columns = ['Cliente', 'CPF/CNPJ', 'Telefone', 'Qtd. Veículos', 'Status']
                         st.dataframe(df_display, use_container_width=True)
-                
-                st.markdown("---")
-                st.subheader("🔍 Visualizar Ficha Completa do Cliente")
-                
-                lista_ficha_op = [""] + [f"{row['cli_id']} - {row['nome']} (CPF/CNPJ: {row['documento']}) - [{row['empresa']}]" for _, row in df_tela.iterrows()]
-                
-                k_ficha_cli = st.session_state.reset_keys.get('ficha_cli', 0)
-                cli_ficha_sel = st.selectbox("Selecione o cliente abaixo para ver a ficha completa e detalhar todos os seus veículos:", lista_ficha_op, key=f"sb_ficha_cli_{k_ficha_cli}")
-                
-                if cli_ficha_sel != "":
-                    id_cli_ficha = int(cli_ficha_sel.split(" - ")[0])
-                    dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
-                    veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
-                    
-                    if st.session_state.last_viewed_cli != id_cli_ficha:
-                        registrar_auditoria("Visualização", "Clientes", f"Visualizou a ficha completa do cliente: {dados_cli_ficha['nome']}", dados_cli_ficha['empresa'])
-                        st.session_state.last_viewed_cli = id_cli_ficha
-                    
-                    if st.button("❌ Fechar Ficha Cadastral", key="btn_close_ficha_cli"):
-                        limpar_tela()
-                        st.rerun()
-
-                    st.markdown(f"""
-                    <div class="ficha-box">
-                        <h3 style="color:#4a0e4e; margin-top:0;">📋 Ficha Cadastral Completa</h3>
-                        <p><b>Nome do Cliente:</b> {dados_cli_ficha['nome']}</p>
-                        <p><b>CPF / CNPJ:</b> {dados_cli_ficha['documento']}</p>
-                        <p><b>Endereço:</b> {dados_cli_ficha['endereco']}</p>
-                        <p><b>Telefone:</b> {dados_cli_ficha['telefone']}</p>
-                        <p><b>Empresa Responsável:</b> {dados_cli_ficha['empresa']}</p>
-                        <p><b>Status:</b> {dados_cli_ficha['status']}</p>
-                        <hr style="border: 0; border-top: 2px solid #4a0e4e; margin: 15px 0;">
-                        <h4 style="color:#8b0000;">🚗 Veículos / Frotas Vinculadas ({len(veiculos_cli_ficha)})</h4>
-                    """, unsafe_allow_html=True)
-                    
-                    if veiculos_cli_ficha:
-                        df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor', 'info_chip']]
-                        df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor', 'Chip/Equipamento']
-                        st.dataframe(df_veics, use_container_width=True)
-                    else:
-                        st.info("Nenhum veículo vinculado a este cliente.")
                         
-                    st.markdown("</div>", unsafe_allow_html=True)
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        lista_ficha_op = [""] + [f"{row['cli_id']} - {row['nome']} (CPF/CNPJ: {row['documento']})" for _, row in df_emp.iterrows()]
+                        k_ficha_cli = st.session_state.reset_keys.get('ficha_cli', 0)
+                        
+                        cli_ficha_sel = st.selectbox(f"🔍 Selecione um cliente da {emp_ativa} para ver a Ficha Completa:", lista_ficha_op, key=f"sb_ficha_cli_{emp_ativa}_{k_ficha_cli}")
+                        
+                        if cli_ficha_sel != "":
+                            id_cli_ficha = int(cli_ficha_sel.split(" - ")[0])
+                            dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
+                            veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
+                            
+                            if st.session_state.last_viewed_cli != id_cli_ficha:
+                                registrar_auditoria("Visualização", "Clientes", f"Visualizou a ficha completa do cliente: {dados_cli_ficha['nome']}", dados_cli_ficha['empresa'])
+                                st.session_state.last_viewed_cli = id_cli_ficha
+                            
+                            if st.button("❌ Fechar Ficha Cadastral", key=f"btn_close_ficha_cli_{id_cli_ficha}_{emp_ativa}"):
+                                limpar_tela()
+                                st.rerun()
+
+                            st.markdown(f"""
+                            <div class="ficha-box">
+                                <h3 style="color:#4a0e4e; margin-top:0;">📋 Ficha Cadastral Completa</h3>
+                                <p><b>Nome do Cliente:</b> {dados_cli_ficha['nome']}</p>
+                                <p><b>CPF / CNPJ:</b> {dados_cli_ficha['documento']}</p>
+                                <p><b>Endereço:</b> {dados_cli_ficha['endereco']}</p>
+                                <p><b>Telefone:</b> {dados_cli_ficha['telefone']}</p>
+                                <p><b>Empresa Responsável:</b> {dados_cli_ficha['empresa']}</p>
+                                <p><b>Status:</b> {dados_cli_ficha['status']}</p>
+                                <hr style="border: 0; border-top: 2px solid #4a0e4e; margin: 15px 0;">
+                                <h4 style="color:#8b0000;">🚗 Veículos / Frotas Vinculadas ({len(veiculos_cli_ficha)})</h4>
+                            """, unsafe_allow_html=True)
+                            
+                            if veiculos_cli_ficha:
+                                df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor', 'info_chip']]
+                                df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor', 'Chip/Equipamento']
+                                st.dataframe(df_veics, use_container_width=True)
+                            else:
+                                st.info("Nenhum veículo vinculado a este cliente.")
+                                
+                            st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.info("Nenhum cliente encontrado para esta busca.")
                 
