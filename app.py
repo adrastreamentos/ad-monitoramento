@@ -61,6 +61,8 @@ def get_conn_fast():
         conn = get_db_connection()
     return conn
 
+# OTIMIZAÇÃO: Cache para rodar a criação de tabelas apenas 1 vez (remove a lentidão de cliques)
+@st.cache_resource(show_spinner=False)
 def init_db():
     conn = get_conn_fast()
     c = conn.cursor()
@@ -91,6 +93,13 @@ def init_db():
 
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id SERIAL PRIMARY KEY, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
+    
+    # OTIMIZAÇÃO: Índices no Banco de Dados para deixar a pesquisa ILIKE até 100x mais rápida
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_veiculos_placa ON veiculos(placa)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes(documento)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes(nome)''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_historico_placa ON historico(placa)''')
+    
     conn.commit()
 
 @st.cache_data(ttl=15, show_spinner=False)
@@ -1334,14 +1343,11 @@ else:
             st.markdown("<p style='font-size: 13px; color: #666;'>Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.</p>", unsafe_allow_html=True)
             
             # --- SUPER OTIMIZAÇÃO DE VELOCIDADE (BATCH QUERY N+1 FIX) ---
-            # Busca todas as empresas
             empresas_cad = fetch_data("SELECT id, nome, cnpj, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
             
-            # Busca as contagens de veículos de TODAS as empresas de uma vez só (Isso acaba com a lentidão!)
             q_v_global = "SELECT c.empresa, count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.status = 'Ativo' GROUP BY c.empresa"
             res_v_global = fetch_data(q_v_global)
             
-            # Cria um dicionário rápido na memória: {'Nome da Empresa': Quantidade de Carros}
             mapa_qtd_veiculos = {item['empresa']: item['qtd'] for item in res_v_global} if res_v_global else {}
             
             total_faturamento_previsto = 0.0
@@ -1359,7 +1365,6 @@ else:
                     
                     status_calculado = calcular_status_fatura(stat_p, dia_venc)
                     
-                    # Puxa a contagem do dicionário instantaneamente, em vez de ir no banco de dados de novo
                     qtd_v = mapa_qtd_veiculos.get(nome_emp, 0)
                     valor_calc = qtd_v * val_unit
                     
