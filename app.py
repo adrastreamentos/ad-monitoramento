@@ -23,14 +23,37 @@ st.markdown("""
     div[data-testid="stSidebar"] { background-color: #4a0e4e; }
     div[data-testid="stSidebar"] * { color: white; }
     
-    /* Estilização do Menu de Navegação Superior (Substituindo as antigas abas lentas) */
+    /* --- NOVO MENU VISUALMENTE SEPARADO (MANTENDO A VELOCIDADE EXTREMA) --- */
     div[role="radiogroup"] { 
         justify-content: center; 
-        gap: 10px; 
-        padding: 10px; 
-        background-color: #f9f9f9; 
+        gap: 15px; 
+        padding: 15px; 
+        background-color: #f7f7f7; 
         border-radius: 8px;
-        border-bottom: 3px solid #4a0e4e;
+        border-bottom: 4px solid #4a0e4e;
+    }
+    
+    /* Caixas individuais para cada item do menu */
+    div[role="radiogroup"] > label {
+        background-color: #ffffff;
+        border: 2px solid #e0e0e0;
+        padding: 8px 18px;
+        border-radius: 8px;
+        cursor: pointer;
+        transition: 0.2s;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    
+    /* Efeito de passar o mouse */
+    div[role="radiogroup"] > label:hover {
+        border-color: #4a0e4e;
+        background-color: #fafafa;
+    }
+    
+    /* Destaque para a aba que está clicada/ativa */
+    div[role="radiogroup"] > label[data-checked="true"] {
+        border-color: #8b0000;
+        background-color: #fff5f5;
     }
     
     /* Ajuste para pastas */
@@ -630,6 +653,7 @@ else:
                                 detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação/Motivo: {acao_mon}"
                                 
                                 tipo_hist = "Transferência" if eh_transferencia else "Monitoramento"
+                                # LÓGICA ATUALIZADA: Transferências caem como PENDENTE aguardando ação do parceiro.
                                 status_hist = "PENDENTE" if eh_transferencia else "FINALIZADO"
                                 
                                 execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
