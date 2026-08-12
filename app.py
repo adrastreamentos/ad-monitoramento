@@ -103,6 +103,7 @@ def init_db():
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_binario BYTEA;")
         c.execute("ALTER TABLE historico_faturas ADD COLUMN IF NOT EXISTS valor_fatura_calculada REAL DEFAULT 0.00;")
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS email TEXT;")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -499,6 +500,7 @@ else:
         st.markdown("### 📞 Suporte Oficial")
         st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Empresa Logada: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
 
+    # Lógica de Notificações Laterais
     if st.session_state.is_admin:
         alertas = fetch_data("SELECT * FROM notificacoes WHERE lida = FALSE ORDER BY id DESC")
         if alertas:
@@ -528,6 +530,7 @@ else:
             "empresas": "🏢 Empresas",
             "financeiro": "💰 Financeiro",
             "faturamento": "💰 Meu Faturamento",
+            "cadastro": "⚙️ Meu Cadastro",
             "auditoria": "🕵️ Auditoria"
         }
         return mapa.get(aba_id, aba_id)
@@ -536,7 +539,7 @@ else:
     if st.session_state.is_admin:
         lista_abas = ["central", "pendencias", "clientes", "relatorios", "empresas", "financeiro", "auditoria"]
     else:
-        lista_abas = ["pendencias", "clientes", "relatorios", "faturamento", "auditoria"]
+        lista_abas = ["pendencias", "clientes", "relatorios", "faturamento", "cadastro", "auditoria"]
         
     aba_ativa = st.radio("Navegação", lista_abas, format_func=formatar_nome_menu, horizontal=True, label_visibility="collapsed")
     st.markdown("---")
@@ -1377,6 +1380,47 @@ else:
             else:
                 st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
+    # --- TELA: MEU CADASTRO (SÓ PARCEIROS) ---
+    elif aba_ativa == "cadastro" and not st.session_state.is_admin:
+        st.header("⚙️ Meu Cadastro Profissional")
+        st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
+        
+        res_emp = fetch_data("SELECT * FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+        if res_emp:
+            dados_emp = res_emp[0]
+            
+            st.markdown("### 🔒 Informações Contratuais (Somente Leitura)")
+            col_ro1, col_ro2, col_ro3 = st.columns(3)
+            col_ro1.info(f"**Empresa/Login:** {dados_emp['nome']}")
+            col_ro2.info(f"**CNPJ:** {dados_emp['cnpj']}")
+            col_ro3.info(f"**Serviços:** {dados_emp['servicos']}")
+            
+            col_ro4, col_ro5 = st.columns(2)
+            val_veic = dados_emp['valor_veiculo'] if dados_emp['valor_veiculo'] is not None else 0.0
+            dia_v = dados_emp['dia_vencimento'] if dados_emp['dia_vencimento'] is not None else 10
+            col_ro4.info(f"**Valor por Veículo:** R$ {val_veic:.2f}")
+            col_ro5.info(f"**Dia de Vencimento:** {dia_v}")
+            
+            st.markdown("---")
+            st.markdown("### 📝 Atualização de Dados")
+            
+            with st.form("form_atualizacao_cadastral"):
+                c_resp = st.text_input("Nome do Responsável", value=dados_emp.get('responsavel', ''))
+                c_tel = st.text_input("Telefone Corporativo / WhatsApp", value=dados_emp.get('telefone', ''))
+                c_email = st.text_input("E-mail Profissional", value=dados_emp.get('email', ''))
+                c_end = st.text_input("Endereço Completo", value=dados_emp.get('endereco', ''))
+                
+                if st.form_submit_button("💾 Salvar Alterações Cadastrais", type="primary"):
+                    execute_query("UPDATE empresas SET responsavel=%s, telefone=%s, email=%s, endereco=%s WHERE nome=%s", 
+                                  (c_resp, c_tel, c_email, c_end, st.session_state.nome_empresa))
+                    
+                    registrar_auditoria("Edição", "Cadastro Parceiro", "Atualizou dados cadastrais profissionais (Endereço/Contato).", st.session_state.nome_empresa)
+                    st.session_state.flash_msg = "Dados atualizados com sucesso!"
+                    limpar_tela()
+                    st.rerun()
+        else:
+            st.error("Erro ao localizar cadastro da empresa.")
+
     # --- TELA: PARCEIROS (SÓ ADMIN) ---
     elif aba_ativa == "empresas" and st.session_state.is_admin:
         st.header("🏢 Gerenciamento de Empresas Parceiras e Precificação")
@@ -1384,7 +1428,7 @@ else:
         acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
         st.markdown("---")
         
-        empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
+        empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, email, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
         df_empresas = pd.DataFrame(empresas_res) if empresas_res else pd.DataFrame()
         
         if acao_parceiros == "Listar":
@@ -1392,7 +1436,8 @@ else:
                 for _, emp in df_empresas.iterrows():
                     with st.expander(f"📁 Empresa: {emp['nome']}"):
                         st.write(f"**Responsável:** {emp['responsavel']}")
-                        st.write(f"**Telefone:** {emp['telefone']} | **Endereço:** {emp['endereco']}")
+                        e_mail_disp = emp['email'] if emp['email'] else "Não informado"
+                        st.write(f"**Telefone:** {emp['telefone']} | **E-mail:** {e_mail_disp} | **Endereço:** {emp['endereco']}")
                         servico_vinculado = emp['servicos'] if 'servicos' in emp and emp['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
                         valor_unit = emp['valor_veiculo'] if ('valor_veiculo' in emp and emp['valor_veiculo'] is not None) else 3.00
                         dia_v = emp['dia_vencimento'] if ('dia_vencimento' in emp and emp['dia_vencimento'] is not None) else 10
@@ -1410,6 +1455,7 @@ else:
                 e_cnpj = st.text_input("CNPJ/Senha Inicial *")
                 e_end = st.text_input("Endereço")
                 e_tel = st.text_input("Telefone")
+                e_email = st.text_input("E-mail")
                 e_resp = st.text_input("Responsável")
                 e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
                 e_valor = st.number_input("Valor por Veículo (R$) *", min_value=0.0, value=3.00, format="%.2f")
@@ -1418,8 +1464,8 @@ else:
                 if st.form_submit_button("Registrar Parceiro"):
                     if e_nome and e_cnpj:
                         senha_hash = hash_senha(e_cnpj)
-                        execute_query("INSERT INTO empresas (nome, cnpj, senha, endereco, telefone, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
-                                      (e_nome, e_cnpj, senha_hash, e_end, e_tel, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
+                        execute_query("INSERT INTO empresas (nome, cnpj, senha, endereco, telefone, email, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
+                                      (e_nome, e_cnpj, senha_hash, e_end, e_tel, e_email, e_resp, e_servicos, e_valor, e_venc, 'Pendente', 0.00))
                         registrar_auditoria("Cadastro", "Parceiros", f"Empresa {e_nome} criada. Pacote: {e_servicos} | R$ {e_valor:.2f} | Venc. Dia {e_venc}.", e_nome)
                         st.session_state.flash_msg = "Empresa cadastrada com sucesso e tela limpa!"
                         limpar_tela()
@@ -1448,6 +1494,7 @@ else:
                             ne_cnpj = st.text_input("CNPJ (Se precisar corrigir)", value=dados_e['cnpj'])
                             ne_resp = st.text_input("Responsável", value=dados_e['responsavel'])
                             ne_tel = st.text_input("Telefone", value=dados_e['telefone'])
+                            ne_email = st.text_input("E-mail", value=dados_e.get('email', ''))
                             ne_end = st.text_input("Endereço", value=dados_e['endereco'])
                             
                             serv_atual = dados_e['servicos'] if 'servicos' in dados_e and dados_e['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
@@ -1462,8 +1509,8 @@ else:
                             ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
 
                             if st.form_submit_button("💾 Salvar Alterações"):
-                                execute_query("UPDATE empresas SET nome=%s, cnpj=%s, responsavel=%s, telefone=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
-                                              (ne_nome, ne_cnpj, ne_resp, ne_tel, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
+                                execute_query("UPDATE empresas SET nome=%s, cnpj=%s, responsavel=%s, telefone=%s, email=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
+                                              (ne_nome, ne_cnpj, ne_resp, ne_tel, ne_email, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
                                 registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}", ne_nome)
                                 st.session_state.flash_msg = "Alterações salvas com sucesso!"
                                 limpar_tela()
@@ -1631,8 +1678,6 @@ else:
                         st.session_state.flash_msg = f"Financeiro e Histórico de {emp_escolhida_pagto} atualizados com sucesso!"
                         limpar_tela()
                         st.rerun()
-        else:
-            st.info("Nenhuma empresa parceira cadastrada para faturamento.")
 
     # --- TELA: AUDITORIA BLINDADA E ACEITES LGPD ---
     elif aba_ativa == "auditoria":
