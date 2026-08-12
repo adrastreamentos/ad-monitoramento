@@ -62,7 +62,7 @@ def get_conn_fast():
         conn = get_db_connection()
     return conn
 
-# OTIMIZAÇÃO: Cache para rodar a criação de tabelas apenas 1 vez (remove a lentidão de cliques)
+# OTIMIZAÇÃO: Cache para rodar a criação de tabelas apenas 1 vez
 @st.cache_resource(show_spinner=False)
 def init_db():
     conn = get_conn_fast()
@@ -174,11 +174,11 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     detalhes_texto = dados_relatorio['detalhes']
     assinatura_bloco = ""
     
-    if "PROTOCOLO" in detalhes_texto:
+    if "PROTOCOLO" in detalhes_texto or "RESOLUÇÃO" in detalhes_texto:
         assinatura_bloco = f"""
         <div style="margin-top: 30px; padding: 15px; background-color: #e8f5e9; border-left: 5px solid #2e7d32; border-radius: 5px;">
-            <h4 style="color: #2e7d32; margin-top: 0;">🔐 Assinatura Digital e SLA</h4>
-            <p style="margin: 0; font-size: 14px;">Este documento foi encerrado e validado pela Central de Operações. Os tempos de resposta e protocolos estão registrados na base de dados oficial protegida contra adulterações.</p>
+            <h4 style="color: #2e7d32; margin-top: 0;">🔐 Assinatura Digital e Validação</h4>
+            <p style="margin: 0; font-size: 14px;">Este documento foi encerrado e validado de forma inalterável. Os registros de resolução e protocolos estão fixados na base de dados oficial (PostgreSQL).</p>
         </div>
         """
 
@@ -486,32 +486,42 @@ else:
                     st.rerun()
             st.markdown("---")
 
+    # --- DEFINIÇÃO BLINDADA DOS ÍNDICES DAS ABAS ---
     if st.session_state.is_admin:
-        abas = ["🚨 Central 24h", "👤 Clientes", "📖 Relatórios", "🏢 Empresas", "💰 Financeiro", "🕵️ Auditoria"]
+        abas = ["🚨 Central 24h", "🛠️ Pendências", "👤 Clientes", "📖 Relatórios", "🏢 Empresas", "💰 Financeiro", "🕵️ Auditoria"]
+        idx_central = 0
+        idx_pend = 1
+        idx_cli = 2
+        idx_rel = 3
+        idx_emp = 4
+        idx_fin = 5
+        idx_aud = 6
     else:
-        abas = ["👤 Clientes", "📖 Relatórios", "💰 Meu Faturamento", "🕵️ Auditoria"]
+        abas = ["🛠️ Pendências", "👤 Clientes", "📖 Relatórios", "💰 Meu Faturamento", "🕵️ Auditoria"]
+        idx_pend = 0
+        idx_cli = 1
+        idx_rel = 2
+        idx_fat = 3
+        idx_aud = 4
         
     tabs = st.tabs(abas)
-    tab_idx = 0
 
     # --- ABA: OPERAÇÃO 24H (SÓ ADMIN) ---
     if st.session_state.is_admin:
-        with tabs[tab_idx]:
+        with tabs[idx_central]:
             st.header("🚨 Central de Operações e Ocorrências 24h")
             
-            # --- LÓGICA DE LIMPEZA APÓS O WHATSAPP ---
+            # --- LÓGICA DE LIMPEZA VISUAL (TELA DO WHATSAPP ISOLADA) ---
             if st.session_state.get('link_transferencia'):
-                st.success("✅ Log de transferência salvo com sucesso na base de dados e pronto para envio!")
+                st.success("✅ Ficha de transferência salva como pendência e pronta para ser enviada!")
                 
                 link_wpp = st.session_state.link_transferencia
                 emp = st.session_state.empresa_transferencia
                 
-                # Exibe apenas o botão do WhatsApp nesta tela para evitar poluição visual
-                st.markdown(f'<a href="{link_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">💬 Clicar Aqui para Enviar Ficha para a {emp}</button></a>', unsafe_allow_html=True)
+                st.markdown(f'<a href="{link_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">💬 Clicar Aqui para Enviar a Solicitação no WhatsApp da {emp}</button></a>', unsafe_allow_html=True)
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # Botão para voltar ao padrão (Substitui a mensagem que ficava sobrando na tela)
-                if st.button("🧹 Limpar Tela e Voltar para a Central", type="primary", use_container_width=True):
+                if st.button("🧹 Limpar Tela e Iniciar Novo Atendimento", type="primary", use_container_width=True):
                     limpar_tela()
                     st.rerun()
             else:
@@ -520,11 +530,11 @@ else:
                 btn_buscar = col_b2.button("Pesquisar Veículo", use_container_width=True)
                 st.markdown("<br>", unsafe_allow_html=True)
                 
-                # --- LÓGICA DE LIMPEZA DINÂMICA DA BUSCA ---
+                # --- LÓGICA RIGOROSA DE LIMPEZA DA BUSCA INTELIGENTE ---
                 if btn_buscar and len(busca_op_input) >= 3:
                     st.session_state.termo_busca_ativo = busca_op_input
-                elif busca_op_input != st.session_state.get("termo_busca_ativo", "") and not btn_buscar:
-                    # Se o texto for modificado ou apagado (ao pressionar Enter ou sair da caixa), os resultados antigos somem.
+                elif busca_op_input != st.session_state.get("termo_busca_ativo", ""):
+                    # Oculta instantaneamente a pesquisa se a pessoa modificar o texto do input
                     st.session_state.termo_busca_ativo = ""
                     
                 if st.session_state.termo_busca_ativo:
@@ -594,18 +604,23 @@ else:
                                 eh_transferencia = "Transferência" in evento_mon
                                 
                                 if eh_transferencia:
-                                    st.info(f"💡 **Roteamento Inteligente Ativado:** O sistema identificou que este veículo pertence à **{info_veic['empresa']}**. O link de WhatsApp será gerado automaticamente para o telefone cadastrado desta base.")
+                                    st.info(f"💡 **Roteamento e Abertura de Ticket:** Essa solicitação irá para a aba **Pendências** e o link do WhatsApp para a **{info_veic['empresa']}** será gerado em seguida.")
                                 
-                                texto_botao = "📲 Salvar e Gerar WhatsApp de Transferência" if eh_transferencia else "💾 Salvar Monitoramento"
+                                texto_botao = "📲 Abrir Pendência e Gerar WhatsApp" if eh_transferencia else "💾 Salvar Monitoramento"
                                 
                                 if st.button(texto_botao, type="primary"):
                                     agora = get_horario_brasil_str()
                                     detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação/Motivo: {acao_mon}"
                                     
                                     tipo_hist = "Transferência" if eh_transferencia else "Monitoramento"
+                                    # LÓGICA ATUALIZADA: Transferências caem como PENDENTE aguardando ação do parceiro.
+                                    status_hist = "PENDENTE" if eh_transferencia else "FINALIZADO"
+                                    
                                     execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                                  (agora, info_veic['nome'], placa_sel, tipo_hist, "FINALIZADO", detalhes_completos, info_veic['empresa']))
-                                    registrar_auditoria("Registro", tipo_hist, f"Evento para {placa_sel}", info_veic['empresa'])
+                                                  (agora, info_veic['nome'], placa_sel, tipo_hist, status_hist, detalhes_completos, info_veic['empresa']))
+                                    
+                                    texto_audit = f"Chamado aberto para {placa_sel}" if eh_transferencia else f"Evento para {placa_sel}"
+                                    registrar_auditoria("Registro", tipo_hist, texto_audit, info_veic['empresa'])
                                     
                                     if eh_transferencia:
                                         res_empresa = fetch_data("SELECT telefone FROM empresas WHERE nome=%s", (info_veic['empresa'],))
@@ -618,17 +633,16 @@ else:
                                                 tel_limpo = f"55{tel_limpo}"
                                                 
                                             setor_nome = "FINANCEIRO (Faturas/Cobranças)" if "Financeiro" in evento_mon else "TÉCNICO (Manutenção/Offline)"
-                                            msg_wpp = f"🚨 *TRANSFERÊNCIA DE ATENDIMENTO - SETOR {setor_nome}* 🚨\n\n"
+                                            msg_wpp = f"🚨 *NOVO CHAMADO PENDENTE - SETOR {setor_nome}* 🚨\n\n"
                                             msg_wpp += f"🏢 *Base Parceira:* {info_veic['empresa']}\n"
                                             msg_wpp += f"👤 *Cliente:* {info_veic['nome']}\n"
                                             msg_wpp += f"🚗 *Veículo:* {placa_sel} ({info_veic['modelo']})\n"
                                             msg_wpp += f"📝 *Solicitação/Motivo:* {acao_mon}\n\n"
-                                            msg_wpp += f"O cliente entrou em contato com a Central 24h. Favor assumir e dar andamento ao atendimento."
+                                            msg_wpp += f"Este chamado já se encontra aberto na aba PENDÊNCIAS do sistema. Favor assumir, aplicar a resolução e finalizar o chamado por lá."
                                             
                                             msg_codificada = urllib.parse.quote(msg_wpp)
                                             link_wpp = f"https://wa.me/{tel_limpo}?text={msg_codificada}"
                                             
-                                            # Salva o link no estado da sessão e recarrega a tela isolando a visualização
                                             st.session_state.link_transferencia = link_wpp
                                             st.session_state.empresa_transferencia = info_veic["empresa"]
                                             st.rerun()
@@ -640,10 +654,46 @@ else:
                                         st.rerun()
                     else:
                         st.warning("Nenhum veículo encontrado com este termo.")
-        tab_idx += 1
+
+    # --- ABA: GESTÃO DE PENDÊNCIAS (CHAMADOS FINANCEIROS E TÉCNICOS) ---
+    with tabs[idx_pend]:
+        st.header("🛠️ Gestão de Chamados e Pendências")
+        st.markdown("<p style='font-size: 13px; color: #666;'>Painel de transferências financeiras e técnicas aguardando resolução pela empresa parceira. Finalizar um chamado encerra o documento e o transfere para os Relatórios.</p>", unsafe_allow_html=True)
+        
+        q_pend = "SELECT * FROM historico WHERE tipo='Transferência' AND status='PENDENTE' ORDER BY id DESC"
+        if not st.session_state.is_admin:
+            q_pend = "SELECT * FROM historico WHERE tipo='Transferência' AND status='PENDENTE' AND empresa=%s ORDER BY id DESC"
+            res_pend = fetch_data(q_pend, (st.session_state.nome_empresa,))
+        else:
+            res_pend = fetch_data(q_pend)
+            
+        if res_pend:
+            for p in res_pend:
+                with st.expander(f"🔴 CHAMADO PENDENTE #{p['id']} - {p['cliente']} (Placa: {p['placa']}) - {p['data_hora']}", expanded=False):
+                    st.write(f"**Empresa Responsável:** {p['empresa']}")
+                    st.write(f"**Detalhes da Solicitação Inicial:**")
+                    st.info(p['detalhes'])
+                    
+                    st.markdown("---")
+                    st.write("🟢 **Finalizar Chamado (Resolver Pendência):**")
+                    desfecho_pend = st.text_area("Descreva o desfecho ou a solução aplicada (Ex: 'Fatura regularizada' ou 'Equipamento resetado e online'):", key=f"desf_pend_{p['id']}")
+                    
+                    if st.button("✅ Marcar como Resolvido / Encerrar Documento", key=f"btn_res_pend_{p['id']}", type="primary"):
+                        if not desfecho_pend.strip():
+                            st.error("Por favor, preencha o desfecho antes de finalizar o chamado.")
+                        else:
+                            agora = get_horario_brasil_str()
+                            novo_detalhe = f"{p['detalhes']} | RESOLUÇÃO ({agora}): {desfecho_pend}"
+                            execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, p['id']))
+                            
+                            registrar_auditoria("Resolução", "Pendências", f"Chamado #{p['id']} ({p['placa']}) finalizado. Desfecho: {desfecho_pend}", p['empresa'])
+                            st.session_state.flash_msg = f"Chamado #{p['id']} resolvido com sucesso! O registro e as assinaturas foram fechados nos Relatórios."
+                            st.rerun()
+        else:
+            st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
 
     # --- ABA: CLIENTES E FROTAS ---
-    with tabs[tab_idx]:
+    with tabs[idx_cli]:
         st.header("👤 Gerenciamento de Clientes e Frotas Multi-Veículos")
         
         opcoes_acao = ["Listar", "Incluir Novo", "Importação em Lote", "Editar"]
@@ -1042,10 +1092,9 @@ else:
         elif acao_clientes == "Solicitar Exclusão":
             st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao suporte oficial informando a placa e o motivo.")
             st.markdown(gerar_link_whatsapp(f"Solicitação de Exclusão de Cadastro - Parceiro: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
-    tab_idx += 1
 
     # --- ABA: RELATÓRIOS ---
-    with tabs[tab_idx]:
+    with tabs[idx_rel]:
         st.header("📖 Relatórios Operacionais")
         
         if st.session_state.is_admin:
@@ -1159,12 +1208,12 @@ else:
 
             if mostrar_mon:
                 with sub_tabs[idx_sub]:
-                    st.subheader("Eventos de Monitoramento Técnico")
+                    st.subheader("Eventos de Monitoramento Técnico e Transferências")
                     col_m1, col_m2 = st.columns(2)
                     b_mon = col_m1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"b_mon_{st.session_state.rk}")
-                    p_mon = col_m2.text_input("📅 Filtrar por Data (Monitoramento)", key=f"p_mon_{st.session_state.rk}")
+                    p_mon = col_m2.text_input("📅 Filtrar por Data", key=f"p_mon_{st.session_state.rk}")
                     
-                    q_mon = "SELECT * FROM historico WHERE tipo='Monitoramento' OR tipo='Transferência'"
+                    q_mon = "SELECT * FROM historico WHERE tipo IN ('Monitoramento', 'Transferência')"
                     p_list_mon = []
                     if not st.session_state.is_admin:
                         q_mon += " AND empresa=%s"
@@ -1209,7 +1258,7 @@ else:
                                 <p><b>Placa:</b> {dados_mon['placa']}</p>
                                 <p><b>Status:</b> {dados_mon['status']}</p>
                                 <hr>
-                                <p><b>Detalhes / Ação da Central:</b></p>
+                                <p><b>Detalhes / Ação da Central / Resolução:</b></p>
                                 <p>{dados_mon['detalhes']}</p>
                             </div>
                             ''', unsafe_allow_html=True)
@@ -1217,14 +1266,12 @@ else:
                             st.markdown("<br>", unsafe_allow_html=True)
                             st.markdown(gerar_relatorio_html(dados_mon, st.session_state.nome_empresa), unsafe_allow_html=True)
                     else:
-                        st.info("Nenhum registro de monitoramento encontrado.")
+                        st.info("Nenhum registro encontrado.")
                 idx_sub += 1
 
-    tab_idx += 1
-
     # --- ABA: MEU FATURAMENTO (EXCLUSIVO PARA EMPRESAS PARCEIRAS) ---
-    if not st.session_state.is_admin and tab_idx < len(tabs):
-        with tabs[tab_idx]:
+    if not st.session_state.is_admin:
+        with tabs[idx_fat]:
             st.header("💰 Meu Faturamento e Frotas Ativas")
             
             res_emp_info = fetch_data("SELECT servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
@@ -1302,11 +1349,9 @@ else:
                 else:
                     st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
-        tab_idx += 1  # FIM DO BLOCO PARCEIRO
-
-    # --- ABA: PARCEIROS (SÓ ADMIN) ---
-    if st.session_state.is_admin and tab_idx < len(tabs):
-        with tabs[tab_idx]:
+    # --- ABA: PARCEIROS E FINANCEIRO (SÓ ADMIN) ---
+    if st.session_state.is_admin:
+        with tabs[idx_emp]:
             st.header("🏢 Gerenciamento de Empresas Parceiras e Precificação")
             
             acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
@@ -1407,15 +1452,11 @@ else:
                                 st.rerun()
                 else:
                     st.warning("Nenhuma empresa encontrada.")
-        tab_idx += 1 
 
-    # --- ABA: FINANCEIRO (SÓ ADMIN) ---
-    if st.session_state.is_admin and tab_idx < len(tabs):
-        with tabs[tab_idx]:
+        with tabs[idx_fin]:
             st.header("💰 Controle Financeiro Global")
             st.markdown("<p style='font-size: 13px; color: #666;'>Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.</p>", unsafe_allow_html=True)
             
-            # --- SUPER OTIMIZAÇÃO DE VELOCIDADE (BATCH QUERY N+1 FIX) ---
             empresas_cad = fetch_data("SELECT id, nome, cnpj, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
             
             q_v_global = "SELECT c.empresa, count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.status = 'Ativo' GROUP BY c.empresa"
@@ -1460,7 +1501,6 @@ else:
                         "Status Atual": status_calculado
                     })
             
-            # --- DASHBOARD KPI CUSTOMIZADO ADMIN ---
             html_kpis_adm = f"""
             <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
                 <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #4a0e4e;">
@@ -1565,81 +1605,79 @@ else:
                             st.rerun()
             else:
                 st.info("Nenhuma empresa parceira cadastrada para faturamento.")
-        tab_idx += 1
 
     # --- AUDITORIA BLINDADA E ACEITES LGPD ---
-    if tab_idx < len(tabs):
-        with tabs[tab_idx]:
-            st.header("🕵️ Auditoria e Registros de Atividades")
-            st.markdown("<p style='font-size: 13px; color: #666; margin-bottom: 15px;'>🔒 <b>Blindagem Jurídica Ativa:</b> Todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações de acordo com a LGPD e Marco Civil da Internet.</p>", unsafe_allow_html=True)
+    with tabs[idx_aud]:
+        st.header("🕵️ Auditoria e Registros de Atividades")
+        st.markdown("<p style='font-size: 13px; color: #666; margin-bottom: 15px;'>🔒 <b>Blindagem Jurídica Ativa:</b> Todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações de acordo com a LGPD e Marco Civil da Internet.</p>", unsafe_allow_html=True)
+        
+        mes_atual_padrao = datetime.now().strftime("%m/%Y")
+        filtro_mes_aud = st.text_input("🔍 Busca (Mês/Ano ou Texto):", value=mes_atual_padrao, key=f"aud_b_{st.session_state.rk}")
+        
+        q_aud = "SELECT * FROM auditoria WHERE 1=1"
+        p_aud = []
+        
+        if not st.session_state.is_admin:
+            q_aud += " AND (usuario = %s OR detalhes ILIKE %s)"
+            p_aud.extend([st.session_state.nome_empresa, f"%Alvo: {st.session_state.nome_empresa}%"])
             
-            mes_atual_padrao = datetime.now().strftime("%m/%Y")
-            filtro_mes_aud = st.text_input("🔍 Busca (Mês/Ano ou Texto):", value=mes_atual_padrao, key=f"aud_b_{st.session_state.rk}")
-            
-            q_aud = "SELECT * FROM auditoria WHERE 1=1"
-            p_aud = []
-            
-            if not st.session_state.is_admin:
-                q_aud += " AND (usuario = %s OR detalhes ILIKE %s)"
-                p_aud.extend([st.session_state.nome_empresa, f"%Alvo: {st.session_state.nome_empresa}%"])
-                
-            if filtro_mes_aud:
-                termo = f"%{filtro_mes_aud}%"
-                q_aud += " AND (data_hora ILIKE %s OR usuario ILIKE %s OR detalhes ILIKE %s)"
-                p_aud.extend([termo, termo, termo])
-            q_aud += " ORDER BY id DESC"
-            
-            res_aud = fetch_data(q_aud, tuple(p_aud))
-            
-            if res_aud:
-                df_auditoria = pd.DataFrame(res_aud)
-                if 'usuario' in df_auditoria.columns and 'detalhes' in df_auditoria.columns:
-                    colunas_ordem = ['id', 'data_hora', 'usuario', 'acao', 'modulo', 'detalhes']
-                    colunas_existentes = [c for c in colunas_ordem if c in df_auditoria.columns]
-                    df_auditoria = df_auditoria[colunas_existentes]
-                    df_auditoria.columns = ['ID', 'Data/Hora', 'Empresa / Usuário', 'Ação', 'Módulo', 'Detalhes']
+        if filtro_mes_aud:
+            termo = f"%{filtro_mes_aud}%"
+            q_aud += " AND (data_hora ILIKE %s OR usuario ILIKE %s OR detalhes ILIKE %s)"
+            p_aud.extend([termo, termo, termo])
+        q_aud += " ORDER BY id DESC"
+        
+        res_aud = fetch_data(q_aud, tuple(p_aud))
+        
+        if res_aud:
+            df_auditoria = pd.DataFrame(res_aud)
+            if 'usuario' in df_auditoria.columns and 'detalhes' in df_auditoria.columns:
+                colunas_ordem = ['id', 'data_hora', 'usuario', 'acao', 'modulo', 'detalhes']
+                colunas_existentes = [c for c in colunas_ordem if c in df_auditoria.columns]
+                df_auditoria = df_auditoria[colunas_existentes]
+                df_auditoria.columns = ['ID', 'Data/Hora', 'Empresa / Usuário', 'Ação', 'Módulo', 'Detalhes']
 
-                st.dataframe(df_auditoria, use_container_width=True)
+            st.dataframe(df_auditoria, use_container_width=True)
+        else:
+            st.info(f"Nenhum registro de auditoria para os termos buscados.")
+            
+        # --- PAINEL EXCLUSIVO DO ADMIN PARA VER ACEITES DA LGPD ---
+        if st.session_state.is_admin:
+            st.markdown("---")
+            st.subheader("📄 Assinaturas Eletrônicas - Aceites LGPD")
+            st.markdown("<p style='font-size: 13px; color: #666;'>Aqui ficam registrados todos os parceiros que assinaram e concordaram com o Termo de Responsabilidade e Confidencialidade.</p>", unsafe_allow_html=True)
+            
+            res_lgpd_adm = fetch_data("SELECT * FROM aceites_lgpd ORDER BY id DESC")
+            
+            if res_lgpd_adm:
+                df_lgpd = pd.DataFrame(res_lgpd_adm)
+                df_lgpd_visual = df_lgpd[['id', 'empresa', 'data_hora', 'ip_aceite', 'hash_assinatura']].copy()
+                df_lgpd_visual.columns = ['ID', 'Empresa', 'Data/Hora do Aceite', 'Meio de Acesso', 'Hash (Assinatura Eletrônica)']
+                st.dataframe(df_lgpd_visual, use_container_width=True)
+                
+                st.markdown("### 🖨️ Gerar Certificado de Aceite / PDF")
+                k_lgpd_cert = st.session_state.reset_keys['lgpd_cert']
+                lista_aceites = [""] + [f"{a['id']} - {a['empresa']} ({a['data_hora']})" for a in res_lgpd_adm]
+                aceite_sel = st.selectbox("Selecione a assinatura do parceiro:", lista_aceites, key=f"sel_aceite_{k_lgpd_cert}")
+                
+                if aceite_sel != "":
+                    id_a = int(aceite_sel.split(" - ")[0])
+                    dados_a = next(item for item in res_lgpd_adm if item["id"] == id_a)
+                    
+                    cnpj_res = fetch_data("SELECT cnpj FROM empresas WHERE nome=%s", (dados_a['empresa'],))
+                    cnpj_parceiro = "Migração / Falta Atualização de Cadastro"
+                    if cnpj_res:
+                        cnpj_tamanho = len(str(cnpj_res[0]['cnpj']))
+                        if cnpj_tamanho == 64:
+                            cnpj_parceiro = "Migração (O CNPJ precisa ser corrigido na aba Empresas)"
+                        else:
+                            cnpj_parceiro = cnpj_res[0]['cnpj']
+                        
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown(gerar_certificado_lgpd_html(dados_a, cnpj_parceiro), unsafe_allow_html=True)
+                    
+                    if st.button("❌ Fechar Gerador", key="btn_close_cert"):
+                        limpar_tela()
+                        st.rerun()
             else:
-                st.info(f"Nenhum registro de auditoria para os termos buscados.")
-                
-            # --- PAINEL EXCLUSIVO DO ADMIN PARA VER ACEITES DA LGPD ---
-            if st.session_state.is_admin:
-                st.markdown("---")
-                st.subheader("📄 Assinaturas Eletrônicas - Aceites LGPD")
-                st.markdown("<p style='font-size: 13px; color: #666;'>Aqui ficam registrados todos os parceiros que assinaram e concordaram com o Termo de Responsabilidade e Confidencialidade.</p>", unsafe_allow_html=True)
-                
-                res_lgpd_adm = fetch_data("SELECT * FROM aceites_lgpd ORDER BY id DESC")
-                
-                if res_lgpd_adm:
-                    df_lgpd = pd.DataFrame(res_lgpd_adm)
-                    df_lgpd_visual = df_lgpd[['id', 'empresa', 'data_hora', 'ip_aceite', 'hash_assinatura']].copy()
-                    df_lgpd_visual.columns = ['ID', 'Empresa', 'Data/Hora do Aceite', 'Meio de Acesso', 'Hash (Assinatura Eletrônica)']
-                    st.dataframe(df_lgpd_visual, use_container_width=True)
-                    
-                    st.markdown("### 🖨️ Gerar Certificado de Aceite / PDF")
-                    k_lgpd_cert = st.session_state.reset_keys['lgpd_cert']
-                    lista_aceites = [""] + [f"{a['id']} - {a['empresa']} ({a['data_hora']})" for a in res_lgpd_adm]
-                    aceite_sel = st.selectbox("Selecione a assinatura do parceiro:", lista_aceites, key=f"sel_aceite_{k_lgpd_cert}")
-                    
-                    if aceite_sel != "":
-                        id_a = int(aceite_sel.split(" - ")[0])
-                        dados_a = next(item for item in res_lgpd_adm if item["id"] == id_a)
-                        
-                        cnpj_res = fetch_data("SELECT cnpj FROM empresas WHERE nome=%s", (dados_a['empresa'],))
-                        cnpj_parceiro = "Migração / Falta Atualização de Cadastro"
-                        if cnpj_res:
-                            cnpj_tamanho = len(str(cnpj_res[0]['cnpj']))
-                            if cnpj_tamanho == 64:
-                                cnpj_parceiro = "Migração (O CNPJ precisa ser corrigido na aba Empresas)"
-                            else:
-                                cnpj_parceiro = cnpj_res[0]['cnpj']
-                            
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        st.markdown(gerar_certificado_lgpd_html(dados_a, cnpj_parceiro), unsafe_allow_html=True)
-                        
-                        if st.button("❌ Fechar Gerador", key="btn_close_cert"):
-                            limpar_tela()
-                            st.rerun()
-                else:
-                    st.info("Nenhuma assinatura registrada ainda.")
+                st.info("Nenhuma assinatura registrada ainda.")
