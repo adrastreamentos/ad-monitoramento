@@ -310,6 +310,8 @@ if 'rk' not in st.session_state: st.session_state.rk = 0
 if 'termo_busca_ativo' not in st.session_state: st.session_state.termo_busca_ativo = ""
 if 'termo_cli_ativo' not in st.session_state: st.session_state.termo_cli_ativo = ""
 if 'last_viewed_cli' not in st.session_state: st.session_state.last_viewed_cli = None
+if 'link_transferencia' not in st.session_state: st.session_state.link_transferencia = None
+if 'empresa_transferencia' not in st.session_state: st.session_state.empresa_transferencia = None
 
 chaves_necessarias = {
     'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0
@@ -327,6 +329,8 @@ def limpar_tela():
     st.session_state.termo_busca_ativo = ""
     st.session_state.termo_cli_ativo = ""
     st.session_state.last_viewed_cli = None
+    st.session_state.link_transferencia = None
+    st.session_state.empresa_transferencia = None
     for k in st.session_state.reset_keys:
         st.session_state.reset_keys[k] += 1
 
@@ -495,127 +499,147 @@ else:
         with tabs[tab_idx]:
             st.header("🚨 Central de Operações e Ocorrências 24h")
             
-            col_b1, col_b2 = st.columns([4, 1])
-            busca_op_input = col_b1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"busca_op_{st.session_state.rk}")
-            btn_buscar = col_b2.button("Pesquisar Veículo", use_container_width=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            if btn_buscar and len(busca_op_input) >= 3:
-                st.session_state.termo_busca_ativo = busca_op_input
+            # --- LÓGICA DE LIMPEZA APÓS O WHATSAPP ---
+            if st.session_state.get('link_transferencia'):
+                st.success("✅ Log de transferência salvo com sucesso na base de dados e pronto para envio!")
                 
-            if st.session_state.termo_busca_ativo:
-                termo = f"%{st.session_state.termo_busca_ativo}%"
-                q_busca = """
-                    SELECT c.nome, c.documento, c.telefone, c.empresa, v.placa, v.modelo, v.cor, v.tipo_veic 
-                    FROM clientes c JOIN veiculos v ON c.id = v.cliente_id 
-                    WHERE c.status='Ativo' AND (c.nome ILIKE %s OR v.placa ILIKE %s OR c.documento ILIKE %s)
-                """
-                resultados = fetch_data(q_busca, (termo, termo, termo))
+                link_wpp = st.session_state.link_transferencia
+                emp = st.session_state.empresa_transferencia
                 
-                if resultados:
-                    st.success("Veículos encontrados! Selecione abaixo para iniciar a ocorrência.")
+                # Exibe apenas o botão do WhatsApp nesta tela para evitar poluição visual
+                st.markdown(f'<a href="{link_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">💬 Clicar Aqui para Enviar Ficha para a {emp}</button></a>', unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # Botão para voltar ao padrão (Substitui a mensagem que ficava sobrando na tela)
+                if st.button("🧹 Limpar Tela e Voltar para a Central", type="primary", use_container_width=True):
+                    limpar_tela()
+                    st.rerun()
+            else:
+                col_b1, col_b2 = st.columns([4, 1])
+                busca_op_input = col_b1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"busca_op_{st.session_state.rk}")
+                btn_buscar = col_b2.button("Pesquisar Veículo", use_container_width=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                # --- LÓGICA DE LIMPEZA DINÂMICA DA BUSCA ---
+                if btn_buscar and len(busca_op_input) >= 3:
+                    st.session_state.termo_busca_ativo = busca_op_input
+                elif busca_op_input != st.session_state.get("termo_busca_ativo", "") and not btn_buscar:
+                    # Se o texto for modificado ou apagado (ao pressionar Enter ou sair da caixa), os resultados antigos somem.
+                    st.session_state.termo_busca_ativo = ""
                     
-                    placas_disponiveis = [f"{r['placa']} - {r['nome']} ({r['modelo']}) - {r['empresa']}" for r in resultados]
-                    placa_sel_texto = st.selectbox("Selecione o Veículo para Atendimento:", placas_disponiveis, key=f"sel_veic_{st.session_state.rk}")
+                if st.session_state.termo_busca_ativo:
+                    termo = f"%{st.session_state.termo_busca_ativo}%"
+                    q_busca = """
+                        SELECT c.nome, c.documento, c.telefone, c.empresa, v.placa, v.modelo, v.cor, v.tipo_veic 
+                        FROM clientes c JOIN veiculos v ON c.id = v.cliente_id 
+                        WHERE c.status='Ativo' AND (c.nome ILIKE %s OR v.placa ILIKE %s OR c.documento ILIKE %s)
+                    """
+                    resultados = fetch_data(q_busca, (termo, termo, termo))
                     
-                    if placa_sel_texto:
-                        placa_sel = placa_sel_texto.split(" - ")[0]
-                        info_veic = next(item for item in resultados if item["placa"] == placa_sel)
+                    if resultados:
+                        st.success("Veículos encontrados! Selecione abaixo para iniciar a ocorrência.")
                         
-                        st.markdown("---")
-                        tipo_servico = st.radio("📋 **Ação na Central:**", ["Abertura de Furto/Roubo", "Monitoramento Técnico"], horizontal=True, key=f"radio_serv_{st.session_state.rk}")
+                        placas_disponiveis = [f"{r['placa']} - {r['nome']} ({r['modelo']}) - {r['empresa']}" for r in resultados]
+                        placa_sel_texto = st.selectbox("Selecione o Veículo para Atendimento:", placas_disponiveis, key=f"sel_veic_{st.session_state.rk}")
                         
-                        if tipo_servico == "Abertura de Furto/Roubo":
-                            st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo (Início Automático)</h3>", unsafe_allow_html=True)
+                        if placa_sel_texto:
+                            placa_sel = placa_sel_texto.split(" - ")[0]
+                            info_veic = next(item for item in resultados if item["placa"] == placa_sel)
                             
-                            col_oc1, col_oc2 = st.columns(2)
-                            tipo_oc = col_oc1.selectbox("Natureza", ["Furto", "Roubo"], key=f"nat_{st.session_state.rk}")
-                            local_oc = col_oc2.text_input("Localização do Fato", key=f"loc_{st.session_state.rk}")
+                            st.markdown("---")
+                            tipo_servico = st.radio("📋 **Ação na Central:**", ["Abertura de Furto/Roubo", "Monitoramento Técnico"], horizontal=True, key=f"radio_serv_{st.session_state.rk}")
                             
-                            col_chip1, col_chip2 = st.columns(2)
-                            status_chip = col_chip1.text_input("📡 Última Posição / Status do Chip", key=f"chip_{st.session_state.rk}")
-                            link_rastreio = col_chip2.text_input("🔗 Link de Rastreio (Para Polícia/Cliente)", key=f"link_{st.session_state.rk}")
-                            
-                            desc_oc = st.text_area("Descrição / Dinâmica", key=f"desc_{st.session_state.rk}")
-                            st.markdown("<p style='font-size: 13px; color: #555;'>ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO. O cronômetro de resposta foi iniciado.</p>", unsafe_allow_html=True)
-                            
-                            if st.button("🚨 Salvar Ocorrência", type="primary"):
-                                agora = get_horario_brasil_str()
-                                detalhes_completos = f"Local: {local_oc} | Desc: {desc_oc} | Chip/Posição: {status_chip} | Link Rastreio: {link_rastreio}"
-                                execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                              (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", detalhes_completos, info_veic['empresa']))
-                                registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}", info_veic['empresa'])
-                                st.session_state.flash_msg = "Salvo e enviado para relatórios como EM ANDAMENTO!"
-                                limpar_tela()
-                                st.rerun()
-                        
-                        elif tipo_servico == "Monitoramento Técnico":
-                            st.markdown("<h3 style='color: #4a0e4e;'>Monitoramento Técnico / Transferência</h3>", unsafe_allow_html=True)
-                            col_m1, col_m2 = st.columns(2)
-                            
-                            lista_eventos = [
-                                "Cerca Virtual", 
-                                "Desconexão de Bateria", 
-                                "Falta de Comunicação", 
-                                "Transferência - Setor Financeiro", 
-                                "Transferência - Setor Técnico", 
-                                "Outros"
-                            ]
-                            
-                            evento_mon = col_m1.selectbox("Evento", lista_eventos, key=f"eve_{st.session_state.rk}")
-                            status_chip = col_m2.text_input("📡 Status do Rastreador / Chip", key=f"chip_m_{st.session_state.rk}")
-                            
-                            acao_mon = st.text_area("Ação da Central / Detalhes da Solicitação", key=f"aca_{st.session_state.rk}")
-                            
-                            eh_transferencia = "Transferência" in evento_mon
-                            
-                            if eh_transferencia:
-                                st.info(f"💡 **Roteamento Inteligente Ativado:** O sistema identificou que este veículo pertence à **{info_veic['empresa']}**. O link de WhatsApp será gerado automaticamente para o telefone cadastrado desta base.")
-                            
-                            texto_botao = "📲 Salvar e Gerar WhatsApp de Transferência" if eh_transferencia else "💾 Salvar Monitoramento"
-                            
-                            if st.button(texto_botao, type="primary"):
-                                agora = get_horario_brasil_str()
-                                detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação/Motivo: {acao_mon}"
+                            if tipo_servico == "Abertura de Furto/Roubo":
+                                st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo (Início Automático)</h3>", unsafe_allow_html=True)
                                 
-                                tipo_hist = "Transferência" if eh_transferencia else "Monitoramento"
-                                execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                              (agora, info_veic['nome'], placa_sel, tipo_hist, "FINALIZADO", detalhes_completos, info_veic['empresa']))
-                                registrar_auditoria("Registro", tipo_hist, f"Evento para {placa_sel}", info_veic['empresa'])
+                                col_oc1, col_oc2 = st.columns(2)
+                                tipo_oc = col_oc1.selectbox("Natureza", ["Furto", "Roubo"], key=f"nat_{st.session_state.rk}")
+                                local_oc = col_oc2.text_input("Localização do Fato", key=f"loc_{st.session_state.rk}")
                                 
-                                if eh_transferencia:
-                                    res_empresa = fetch_data("SELECT telefone FROM empresas WHERE nome=%s", (info_veic['empresa'],))
-                                    tel_bruto = res_empresa[0]['telefone'] if res_empresa and res_empresa[0]['telefone'] else ""
-                                    
-                                    tel_limpo = re.sub(r'\D', '', str(tel_bruto))
-                                    
-                                    if tel_limpo:
-                                        if not tel_limpo.startswith('55'):
-                                            tel_limpo = f"55{tel_limpo}"
-                                            
-                                        setor_nome = "FINANCEIRO (Faturas/Cobranças)" if "Financeiro" in evento_mon else "TÉCNICO (Manutenção/Offline)"
-                                        msg_wpp = f"🚨 *TRANSFERÊNCIA DE ATENDIMENTO - SETOR {setor_nome}* 🚨\n\n"
-                                        msg_wpp += f"🏢 *Base Parceira:* {info_veic['empresa']}\n"
-                                        msg_wpp += f"👤 *Cliente:* {info_veic['nome']}\n"
-                                        msg_wpp += f"🚗 *Veículo:* {placa_sel} ({info_veic['modelo']})\n"
-                                        msg_wpp += f"📝 *Solicitação/Motivo:* {acao_mon}\n\n"
-                                        msg_wpp += f"O cliente entrou em contato com a Central 24h. Favor assumir e dar andamento ao atendimento."
-                                        
-                                        msg_codificada = urllib.parse.quote(msg_wpp)
-                                        link_wpp = f"https://wa.me/{tel_limpo}?text={msg_codificada}"
-                                        
-                                        st.success("✅ Log de transferência salvo com sucesso na base de dados!")
-                                        
-                                        st.markdown(f'<a href="{link_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">💬 Enviar Ficha para o WhatsApp da {info_veic["empresa"]}</button></a>', unsafe_allow_html=True)
-                                        st.markdown("<p style='font-size: 13px; color: #666; text-align:center; margin-top:10px;'>Após enviar a mensagem, basta buscar um novo veículo para iniciar outro atendimento.</p>", unsafe_allow_html=True)
-                                    else:
-                                        st.error(f"❌ Falha no roteamento: A empresa **{info_veic['empresa']}** não possui um telefone válido cadastrado. Vá na aba Empresas e atualize o cadastro.")
-                                else:
-                                    st.session_state.flash_msg = "Salvo com sucesso!"
+                                col_chip1, col_chip2 = st.columns(2)
+                                status_chip = col_chip1.text_input("📡 Última Posição / Status do Chip", key=f"chip_{st.session_state.rk}")
+                                link_rastreio = col_chip2.text_input("🔗 Link de Rastreio (Para Polícia/Cliente)", key=f"link_{st.session_state.rk}")
+                                
+                                desc_oc = st.text_area("Descrição / Dinâmica", key=f"desc_{st.session_state.rk}")
+                                st.markdown("<p style='font-size: 13px; color: #555;'>ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO. O cronômetro de resposta foi iniciado.</p>", unsafe_allow_html=True)
+                                
+                                if st.button("🚨 Salvar Ocorrência", type="primary"):
+                                    agora = get_horario_brasil_str()
+                                    detalhes_completos = f"Local: {local_oc} | Desc: {desc_oc} | Chip/Posição: {status_chip} | Link Rastreio: {link_rastreio}"
+                                    execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
+                                                  (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", detalhes_completos, info_veic['empresa']))
+                                    registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}", info_veic['empresa'])
+                                    st.session_state.flash_msg = "Salvo e enviado para relatórios como EM ANDAMENTO!"
                                     limpar_tela()
                                     st.rerun()
-                else:
-                    st.warning("Nenhum veículo encontrado com este termo.")
+                            
+                            elif tipo_servico == "Monitoramento Técnico":
+                                st.markdown("<h3 style='color: #4a0e4e;'>Monitoramento Técnico / Transferência</h3>", unsafe_allow_html=True)
+                                col_m1, col_m2 = st.columns(2)
+                                
+                                lista_eventos = [
+                                    "Cerca Virtual", 
+                                    "Desconexão de Bateria", 
+                                    "Falta de Comunicação", 
+                                    "Transferência - Setor Financeiro", 
+                                    "Transferência - Setor Técnico", 
+                                    "Outros"
+                                ]
+                                
+                                evento_mon = col_m1.selectbox("Evento", lista_eventos, key=f"eve_{st.session_state.rk}")
+                                status_chip = col_m2.text_input("📡 Status do Rastreador / Chip", key=f"chip_m_{st.session_state.rk}")
+                                
+                                acao_mon = st.text_area("Ação da Central / Detalhes da Solicitação", key=f"aca_{st.session_state.rk}")
+                                
+                                eh_transferencia = "Transferência" in evento_mon
+                                
+                                if eh_transferencia:
+                                    st.info(f"💡 **Roteamento Inteligente Ativado:** O sistema identificou que este veículo pertence à **{info_veic['empresa']}**. O link de WhatsApp será gerado automaticamente para o telefone cadastrado desta base.")
+                                
+                                texto_botao = "📲 Salvar e Gerar WhatsApp de Transferência" if eh_transferencia else "💾 Salvar Monitoramento"
+                                
+                                if st.button(texto_botao, type="primary"):
+                                    agora = get_horario_brasil_str()
+                                    detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação/Motivo: {acao_mon}"
+                                    
+                                    tipo_hist = "Transferência" if eh_transferencia else "Monitoramento"
+                                    execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
+                                                  (agora, info_veic['nome'], placa_sel, tipo_hist, "FINALIZADO", detalhes_completos, info_veic['empresa']))
+                                    registrar_auditoria("Registro", tipo_hist, f"Evento para {placa_sel}", info_veic['empresa'])
+                                    
+                                    if eh_transferencia:
+                                        res_empresa = fetch_data("SELECT telefone FROM empresas WHERE nome=%s", (info_veic['empresa'],))
+                                        tel_bruto = res_empresa[0]['telefone'] if res_empresa and res_empresa[0]['telefone'] else ""
+                                        
+                                        tel_limpo = re.sub(r'\D', '', str(tel_bruto))
+                                        
+                                        if tel_limpo:
+                                            if not tel_limpo.startswith('55'):
+                                                tel_limpo = f"55{tel_limpo}"
+                                                
+                                            setor_nome = "FINANCEIRO (Faturas/Cobranças)" if "Financeiro" in evento_mon else "TÉCNICO (Manutenção/Offline)"
+                                            msg_wpp = f"🚨 *TRANSFERÊNCIA DE ATENDIMENTO - SETOR {setor_nome}* 🚨\n\n"
+                                            msg_wpp += f"🏢 *Base Parceira:* {info_veic['empresa']}\n"
+                                            msg_wpp += f"👤 *Cliente:* {info_veic['nome']}\n"
+                                            msg_wpp += f"🚗 *Veículo:* {placa_sel} ({info_veic['modelo']})\n"
+                                            msg_wpp += f"📝 *Solicitação/Motivo:* {acao_mon}\n\n"
+                                            msg_wpp += f"O cliente entrou em contato com a Central 24h. Favor assumir e dar andamento ao atendimento."
+                                            
+                                            msg_codificada = urllib.parse.quote(msg_wpp)
+                                            link_wpp = f"https://wa.me/{tel_limpo}?text={msg_codificada}"
+                                            
+                                            # Salva o link no estado da sessão e recarrega a tela isolando a visualização
+                                            st.session_state.link_transferencia = link_wpp
+                                            st.session_state.empresa_transferencia = info_veic["empresa"]
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ Falha no roteamento: A empresa **{info_veic['empresa']}** não possui um telefone válido cadastrado. Vá na aba Empresas e atualize o cadastro.")
+                                    else:
+                                        st.session_state.flash_msg = "Salvo com sucesso!"
+                                        limpar_tela()
+                                        st.rerun()
+                    else:
+                        st.warning("Nenhum veículo encontrado com este termo.")
         tab_idx += 1
 
     # --- ABA: CLIENTES E FROTAS ---
