@@ -9,6 +9,7 @@ import io
 import os
 import hashlib
 import uuid
+import re
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -549,22 +550,70 @@ else:
                                 st.rerun()
                         
                         elif tipo_servico == "Monitoramento Técnico":
-                            st.markdown("<h3 style='color: #4a0e4e;'>Monitoramento Técnico</h3>", unsafe_allow_html=True)
+                            st.markdown("<h3 style='color: #4a0e4e;'>Monitoramento Técnico / Transferência</h3>", unsafe_allow_html=True)
                             col_m1, col_m2 = st.columns(2)
-                            evento_mon = col_m1.selectbox("Evento", ["Cerca Virtual", "Desconexão de Bateria", "Falta de Comunicação", "Outros"], key=f"eve_{st.session_state.rk}")
+                            
+                            lista_eventos = [
+                                "Cerca Virtual", 
+                                "Desconexão de Bateria", 
+                                "Falta de Comunicação", 
+                                "Transferência - Setor Financeiro", 
+                                "Transferência - Setor Técnico", 
+                                "Outros"
+                            ]
+                            
+                            evento_mon = col_m1.selectbox("Evento", lista_eventos, key=f"eve_{st.session_state.rk}")
                             status_chip = col_m2.text_input("📡 Status do Rastreador / Chip", key=f"chip_m_{st.session_state.rk}")
                             
-                            acao_mon = st.text_area("Ação da Central", key=f"aca_{st.session_state.rk}")
+                            acao_mon = st.text_area("Ação da Central / Detalhes da Solicitação", key=f"aca_{st.session_state.rk}")
                             
-                            if st.button("Salvar Monitoramento", type="primary"):
+                            eh_transferencia = "Transferência" in evento_mon
+                            
+                            if eh_transferencia:
+                                st.info(f"💡 **Roteamento Inteligente Ativado:** O sistema identificou que este veículo pertence à **{info_veic['empresa']}**. O link de WhatsApp será gerado automaticamente para o telefone cadastrado desta base.")
+                            
+                            texto_botao = "📲 Salvar e Gerar WhatsApp de Transferência" if eh_transferencia else "💾 Salvar Monitoramento"
+                            
+                            if st.button(texto_botao, type="primary"):
                                 agora = get_horario_brasil_str()
-                                detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação: {acao_mon}"
+                                detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação/Motivo: {acao_mon}"
+                                
+                                tipo_hist = "Transferência" if eh_transferencia else "Monitoramento"
                                 execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                              (agora, info_veic['nome'], placa_sel, "Monitoramento", "FINALIZADO", detalhes_completos, info_veic['empresa']))
-                                registrar_auditoria("Registro", "Monitoramento", f"Evento para {placa_sel}", info_veic['empresa'])
-                                st.session_state.flash_msg = "Salvo com sucesso!"
-                                limpar_tela()
-                                st.rerun()
+                                              (agora, info_veic['nome'], placa_sel, tipo_hist, "FINALIZADO", detalhes_completos, info_veic['empresa']))
+                                registrar_auditoria("Registro", tipo_hist, f"Evento para {placa_sel}", info_veic['empresa'])
+                                
+                                if eh_transferencia:
+                                    res_empresa = fetch_data("SELECT telefone FROM empresas WHERE nome=%s", (info_veic['empresa'],))
+                                    tel_bruto = res_empresa[0]['telefone'] if res_empresa and res_empresa[0]['telefone'] else ""
+                                    
+                                    tel_limpo = re.sub(r'\D', '', str(tel_bruto))
+                                    
+                                    if tel_limpo:
+                                        if not tel_limpo.startswith('55'):
+                                            tel_limpo = f"55{tel_limpo}"
+                                            
+                                        setor_nome = "FINANCEIRO (Faturas/Cobranças)" if "Financeiro" in evento_mon else "TÉCNICO (Manutenção/Offline)"
+                                        msg_wpp = f"🚨 *TRANSFERÊNCIA DE ATENDIMENTO - SETOR {setor_nome}* 🚨\n\n"
+                                        msg_wpp += f"🏢 *Base Parceira:* {info_veic['empresa']}\n"
+                                        msg_wpp += f"👤 *Cliente:* {info_veic['nome']}\n"
+                                        msg_wpp += f"🚗 *Veículo:* {placa_sel} ({info_veic['modelo']})\n"
+                                        msg_wpp += f"📝 *Solicitação/Motivo:* {acao_mon}\n\n"
+                                        msg_wpp += f"O cliente entrou em contato com a Central 24h. Favor assumir e dar andamento ao atendimento."
+                                        
+                                        msg_codificada = urllib.parse.quote(msg_wpp)
+                                        link_wpp = f"https://wa.me/{tel_limpo}?text={msg_codificada}"
+                                        
+                                        st.success("✅ Log de transferência salvo com sucesso na base de dados!")
+                                        
+                                        st.markdown(f'<a href="{link_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">💬 Enviar Ficha para o WhatsApp da {info_veic["empresa"]}</button></a>', unsafe_allow_html=True)
+                                        st.markdown("<p style='font-size: 13px; color: #666; text-align:center; margin-top:10px;'>Após enviar a mensagem, basta buscar um novo veículo para iniciar outro atendimento.</p>", unsafe_allow_html=True)
+                                    else:
+                                        st.error(f"❌ Falha no roteamento: A empresa **{info_veic['empresa']}** não possui um telefone válido cadastrado. Vá na aba Empresas e atualize o cadastro.")
+                                else:
+                                    st.session_state.flash_msg = "Salvo com sucesso!"
+                                    limpar_tela()
+                                    st.rerun()
                 else:
                     st.warning("Nenhum veículo encontrado com este termo.")
         tab_idx += 1
@@ -1091,7 +1140,7 @@ else:
                     b_mon = col_m1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"b_mon_{st.session_state.rk}")
                     p_mon = col_m2.text_input("📅 Filtrar por Data (Monitoramento)", key=f"p_mon_{st.session_state.rk}")
                     
-                    q_mon = "SELECT * FROM historico WHERE tipo='Monitoramento'"
+                    q_mon = "SELECT * FROM historico WHERE tipo='Monitoramento' OR tipo='Transferência'"
                     p_list_mon = []
                     if not st.session_state.is_admin:
                         q_mon += " AND empresa=%s"
@@ -1129,7 +1178,7 @@ else:
 
                             st.markdown(f'''
                             <div class="ficha-box">
-                                <h4 style="color:#4a0e4e; text-align:center;">Ficha de Monitoramento nº {dados_mon['id']}</h4>
+                                <h4 style="color:#4a0e4e; text-align:center;">Ficha de Monitoramento / Transferência nº {dados_mon['id']}</h4>
                                 <hr>
                                 <p><b>Data/Hora:</b> {dados_mon['data_hora']}</p>
                                 <p><b>Cliente:</b> {dados_mon['cliente']}</p>
