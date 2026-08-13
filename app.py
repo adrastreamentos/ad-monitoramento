@@ -535,13 +535,14 @@ else:
 
     def formatar_nome_menu(aba_id):
         mapa = {
+            "dashboards": "📊 Resumo",
             "central": "🚨 Central 24h",
             "pendencias": f"🛠️ Pendências ({qtd_pend})",
             "clientes": "👤 Clientes",
             "relatorios": "📖 Relatórios",
             "empresas": "🏢 Empresas",
             "financeiro": "💰 Financeiro",
-            "faturamento": "💰 Meu Faturamento",
+            "faturamento": "💰 Faturamento",
             "cadastro": "⚙️ Meu Cadastro",
             "auditoria": "🕵️ Auditoria"
         }
@@ -549,9 +550,9 @@ else:
 
     # --- MENU DE NAVEGAÇÃO DINÂMICO E SEPARADO ---
     if st.session_state.is_admin:
-        lista_abas = ["central", "pendencias", "clientes", "relatorios", "empresas", "financeiro", "auditoria"]
+        lista_abas = ["dashboards", "central", "pendencias", "clientes", "relatorios", "empresas", "financeiro", "auditoria"]
     else:
-        lista_abas = ["pendencias", "clientes", "relatorios", "faturamento", "cadastro", "auditoria"]
+        lista_abas = ["dashboards", "pendencias", "clientes", "relatorios", "faturamento", "cadastro", "auditoria"]
         
     aba_ativa = st.radio("Navegação", lista_abas, format_func=formatar_nome_menu, horizontal=True, label_visibility="collapsed")
     st.markdown("---")
@@ -560,7 +561,57 @@ else:
     # RENDERIZAÇÃO CONDICIONAL (SÓ RODA O CÓDIGO DA TELA QUE VOCÊ CLICOU)
     # =======================================================================
 
-    if aba_ativa == "central" and st.session_state.is_admin:
+    # --- TELA 1: DASHBOARDS (NOVO) ---
+    if aba_ativa == "dashboards":
+        st.header("📊 Painel Executivo (Dashboards)")
+        st.markdown("<p style='font-size: 13px; color: #666;'>Visão geral consolidada da sua operação em tempo real.</p>", unsafe_allow_html=True)
+        
+        if st.session_state.is_admin:
+            col_d1, col_d2 = st.columns(2)
+            
+            # Gráfico 1: Veículos por Empresa
+            with col_d1:
+                st.subheader("🚗 Distribuição de Veículos por Base")
+                res_v = fetch_data("SELECT c.empresa, count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id=c.id WHERE c.status='Ativo' GROUP BY c.empresa")
+                if res_v:
+                    df_v = pd.DataFrame(res_v).set_index("empresa")
+                    st.bar_chart(df_v, color="#4a0e4e")
+                else:
+                    st.info("Nenhum veículo cadastrado.")
+
+            # Gráfico 2: Status dos Chamados Gerais
+            with col_d2:
+                st.subheader("🛠️ Status Global de Atendimentos")
+                res_cham = fetch_data("SELECT status, count(id) as qtd FROM historico GROUP BY status")
+                if res_cham:
+                    df_cham = pd.DataFrame(res_cham).set_index("status")
+                    st.bar_chart(df_cham, color="#8b0000")
+                else:
+                    st.info("Nenhum atendimento registrado.")
+                    
+        else:
+            col_dp1, col_dp2 = st.columns(2)
+            
+            with col_dp1:
+                st.subheader("🚗 Sua Frota por Tipo de Veículo")
+                res_t = fetch_data("SELECT v.tipo_veic, count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id=c.id WHERE c.empresa=%s GROUP BY v.tipo_veic", (st.session_state.nome_empresa,))
+                if res_t:
+                    df_t = pd.DataFrame(res_t).set_index("tipo_veic")
+                    st.bar_chart(df_t, color="#4a0e4e")
+                else:
+                    st.info("Nenhum veículo na sua base.")
+                    
+            with col_dp2:
+                st.subheader("🛠️ Status dos seus Atendimentos")
+                res_c = fetch_data("SELECT status, count(id) as qtd FROM historico WHERE empresa=%s GROUP BY status", (st.session_state.nome_empresa,))
+                if res_c:
+                    df_c = pd.DataFrame(res_c).set_index("status")
+                    st.bar_chart(df_c, color="#8b0000")
+                else:
+                    st.info("Nenhum atendimento registrado para você.")
+
+    # --- TELA 2: OPERAÇÃO 24H ---
+    elif aba_ativa == "central" and st.session_state.is_admin:
         st.header("🚨 Central de Operações e Ocorrências 24h")
         
         if st.session_state.get('link_transferencia'):
@@ -703,6 +754,7 @@ else:
                 else:
                     st.warning("Nenhum veículo encontrado com este termo.")
 
+    # --- TELA 3: PENDÊNCIAS COM ALERTA SLA ---
     elif aba_ativa == "pendencias":
         st.header("🛠️ Gestão de Chamados e Pendências")
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel de transferências financeiras e técnicas aguardando resolução pela empresa parceira. Finalizar um chamado encerra o documento e o transfere para os Relatórios.</p>", unsafe_allow_html=True)
@@ -716,16 +768,33 @@ else:
             
         if res_pend:
             for p in res_pend:
-                with st.expander(f"🔴 CHAMADO PENDENTE #{p['id']} - {p['cliente']} (Placa: {p['placa']}) - {p['data_hora']}", expanded=False):
-                    st.write(f"**Empresa Responsável:** {p['empresa']}")
+                # CÁLCULO DO SLA EM TEMPO REAL
+                try:
+                    dt_abertura = datetime.strptime(p['data_hora'], "%d/%m/%Y %H:%M:%S")
+                    dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
+                    tempo_decorrido = get_horario_brasil() - dt_abertura
+                    minutos = tempo_decorrido.total_seconds() / 60
+                    
+                    if minutos <= 30:
+                        cor_sla, icon_sla, texto_sla = "#2e7d32", "🟢", "No Prazo (Até 30m)"
+                    elif minutos <= 60:
+                        cor_sla, icon_sla, texto_sla = "#f57f17", "🟡", "Atenção (30m - 1h)"
+                    else:
+                        cor_sla, icon_sla, texto_sla = "#c62828", "🔴", "Atrasado (+1h)"
+                except:
+                    minutos, cor_sla, icon_sla, texto_sla = 0, "#555", "⚪", "SLA Indisponível"
+
+                with st.expander(f"{icon_sla} CHAMADO PENDENTE #{p['id']} - {p['cliente']} (Placa: {p['placa']})", expanded=False):
+                    st.markdown(f"**Tempo de Resposta (SLA):** <span style='color:{cor_sla}; font-weight:bold;'>{texto_sla}</span> ({int(minutos)} min decorridos desde a abertura)", unsafe_allow_html=True)
+                    st.write(f"**Data de Abertura:** {p['data_hora']} | **Empresa:** {p['empresa']}")
                     st.write(f"**Detalhes da Solicitação Inicial:**")
                     st.info(p['detalhes'])
                     
                     st.markdown("---")
-                    st.write("🟢 **Finalizar Chamado (Resolver Pendência):**")
+                    st.write("✅ **Finalizar Chamado (Resolver Pendência):**")
                     desfecho_pend = st.text_area("Descreva o desfecho ou a solução aplicada (Ex: 'Fatura regularizada' ou 'Equipamento resetado e online'):", key=f"desf_pend_{p['id']}")
                     
-                    if st.button("✅ Marcar como Resolvido / Encerrar Documento", key=f"btn_res_pend_{p['id']}", type="primary"):
+                    if st.button("Gravar Resolução e Encerrar Documento", key=f"btn_res_pend_{p['id']}", type="primary"):
                         if not desfecho_pend.strip():
                             st.error("Por favor, preencha o desfecho antes de finalizar o chamado.")
                         else:
@@ -739,6 +808,7 @@ else:
         else:
             st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
 
+    # --- TELA 4: CLIENTES E FROTAS ---
     elif aba_ativa == "clientes":
         st.header("👤 Gerenciamento de Clientes e Frotas Multi-Veículos")
         
@@ -780,6 +850,10 @@ else:
             if res_tela:
                 df_tela = pd.DataFrame(res_tela)
                 empresas_ativas = df_tela['empresa'].unique()
+                
+                # --- EXPORTAÇÃO EXCEL/CSV DA ABA CLIENTES ---
+                st.download_button(label="📥 Exportar Lista de Clientes para Excel (CSV)", data=df_tela.to_csv(index=False).encode('utf-8'), file_name="relatorio_clientes_frotas.csv", mime="text/csv")
+                st.markdown("<br>", unsafe_allow_html=True)
                 
                 for emp_ativa in empresas_ativas:
                     with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
@@ -1137,6 +1211,7 @@ else:
             st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao suporte oficial informando a placa e o motivo.")
             st.markdown(gerar_link_whatsapp(f"Solicitação de Exclusão de Cadastro - Parceiro: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
 
+    # --- TELA 5: RELATÓRIOS ---
     elif aba_ativa == "relatorios":
         st.header("📖 Relatórios Operacionais")
         
@@ -1312,6 +1387,7 @@ else:
                         st.info("Nenhum registro encontrado.")
                 idx_sub += 1
 
+    # --- TELA 6: MEU FATURAMENTO (SÓ PARCEIROS) ---
     elif aba_ativa == "faturamento" and not st.session_state.is_admin:
         st.header("💰 Meu Faturamento e Frotas Ativas")
         
@@ -1392,9 +1468,14 @@ else:
                 df_hp = pd.DataFrame(res_hist_p)[['mes_ref', 'total_veiculos', 'valor_unitario', 'valor_fatura_calculada', 'valor_pago', 'status', 'data_pagamento']]
                 df_hp.columns = ['Mês Ref.', 'Veículos', 'Valor Unit.', 'Fatura Calc.', 'Valor Pago', 'Status', 'Data Pgto']
                 st.dataframe(df_hp, use_container_width=True)
+                
+                # --- EXPORTAÇÃO EXCEL/CSV (PARCEIRO) ---
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.download_button(label="📥 Exportar Faturas para Excel (CSV)", data=df_hp.to_csv(index=False).encode('utf-8'), file_name=f"historico_faturas_{st.session_state.nome_empresa}.csv", mime="text/csv")
             else:
                 st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
+    # --- TELA 7: MEU CADASTRO (SÓ PARCEIROS) ---
     elif aba_ativa == "cadastro" and not st.session_state.is_admin:
         st.header("⚙️ Meu Cadastro Profissional")
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
@@ -1456,6 +1537,7 @@ else:
         else:
             st.error("Erro ao localizar cadastro da empresa.")
 
+    # --- TELA 8: EMPRESAS (SÓ ADMIN) ---
     elif aba_ativa == "empresas" and st.session_state.is_admin:
         st.header("🏢 Gerenciamento de Empresas Parceiras e Precificação")
         
@@ -1561,6 +1643,7 @@ else:
             else:
                 st.warning("Nenhuma empresa encontrada.")
 
+    # --- TELA 9: FINANCEIRO GLOBAL (SÓ ADMIN) ---
     elif aba_ativa == "financeiro" and st.session_state.is_admin:
         st.header("💰 Controle Financeiro Global")
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.</p>", unsafe_allow_html=True)
@@ -1630,6 +1713,10 @@ else:
         if empresas_cad:
             df_fin_global = pd.DataFrame(dados_financeiro_global)
             st.dataframe(df_fin_global, use_container_width=True)
+            
+            # --- EXPORTAÇÃO EXCEL/CSV (ADMIN FINANCEIRO) ---
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.download_button(label="📥 Exportar Faturamento Global para Excel (CSV)", data=df_fin_global.to_csv(index=False).encode('utf-8'), file_name="faturamento_global.csv", mime="text/csv")
             
             st.markdown("---")
             st.subheader("🔍 Consulta Histórica de Faturas")
@@ -1712,6 +1799,7 @@ else:
                         limpar_tela()
                         st.rerun()
 
+    # --- TELA 10: AUDITORIA ---
     elif aba_ativa == "auditoria":
         st.header("🕵️ Auditoria e Registros de Atividades")
         st.markdown("<p style='font-size: 13px; color: #666; margin-bottom: 15px;'>🔒 <b>Blindagem Jurídica Ativa:</b> Todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações de acordo com a LGPD e Marco Civil da Internet.</p>", unsafe_allow_html=True)
@@ -1743,6 +1831,11 @@ else:
                 df_auditoria.columns = ['ID', 'Data/Hora', 'Empresa / Usuário', 'Ação', 'Módulo', 'Detalhes']
 
             st.dataframe(df_auditoria, use_container_width=True)
+            
+            # --- EXPORTAÇÃO EXCEL/CSV DA AUDITORIA ---
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.download_button(label="📥 Exportar Relatório de Auditoria (Excel/CSV)", data=df_auditoria.to_csv(index=False).encode('utf-8'), file_name="relatorio_auditoria.csv", mime="text/csv")
+            
         else:
             st.info(f"Nenhum registro de auditoria para os termos buscados.")
             
