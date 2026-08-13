@@ -247,6 +247,73 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
+def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
+    hash_exibicao = dados_aceite.get('hash_assinatura')
+    if not hash_exibicao:
+        hash_exibicao = "Autenticação Legada (Pré-Criptografia)."
+
+    html_content = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Certificado de Aceite LGPD</title>
+        <style>
+            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; line-height: 1.6; }}
+            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 20px; margin-bottom: 30px; }}
+            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
+            .header h3 {{ color: #555; margin: 10px 0 0 0; font-weight: normal; }}
+            .content {{ padding: 20px 40px; text-align: justify; }}
+            .clausula {{ margin-bottom: 15px; }}
+            .assinatura-box {{ margin-top: 50px; background-color: #f9f9f9; border: 1px solid #ddd; padding: 20px; border-radius: 8px; }}
+            .assinatura-title {{ font-size: 16px; font-weight: bold; color: #4a0e4e; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }}
+            .ass-row {{ margin-bottom: 8px; font-size: 14px; }}
+            .ass-label {{ font-weight: bold; color: #555; }}
+            .hash-box {{ margin-top: 15px; padding: 10px; background-color: #e8eaf6; border-left: 4px solid #3f51b5; font-family: monospace; font-size: 13px; word-break: break-all; }}
+            .footer {{ margin-top: 50px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 15px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>AD RASTREAMENTO VEICULAR</h1>
+            <h3>Certificado Oficial de Aceite Eletrônico - LGPD</h3>
+        </div>
+        
+        <div class="content">
+            <p><strong>TERMO DE RESPONSABILIDADE, CONFIDENCIALIDADE E ADEQUAÇÃO À LGPD</strong></p>
+            
+            <p>A <strong>AD Rastreamento Veicular</strong>, sediada em São Gonçalo do Amarante, na qualidade de provedora do software de gestão e telemetria, estabelece as seguintes diretrizes obrigatórias aceitas pela CONTRATANTE/PARCEIRA para o uso da plataforma:</p>
+            
+            <div class="clausula"><strong>1. Sigilo e Confidencialidade:</strong> O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.</div>
+            
+            <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
+            
+            <div class="clausula"><strong>3. Penalidades Legais:</strong> O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).</div>
+        </div>
+        
+        <div class="assinatura-box">
+            <div class="assinatura-title">📜 DADOS DA ASSINATURA ELETRÔNICA</div>
+            <div class="ass-row"><span class="ass-label">Empresa Signatária (Parceiro):</span> {dados_aceite['empresa']}</div>
+            <div class="ass-row"><span class="ass-label">CNPJ Registrado:</span> {cnpj_parceiro}</div>
+            <div class="ass-row"><span class="ass-label">Data e Hora do Aceite:</span> {dados_aceite['data_hora']}</div>
+            <div class="ass-row"><span class="ass-label">Método de Autenticação / Dispositivo:</span> {dados_aceite['ip_aceite']}</div>
+            
+            <div class="hash-box">
+                <strong>Chave de Autenticação Digital (Hash SHA-256):</strong><br>
+                {hash_exibicao}
+            </div>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Este código garante a integridade e a validade jurídica deste aceite no banco de dados da Central de Operações.</p>
+        </div>
+        
+        <div class="footer">
+            Documento gerado automaticamente pelo Sistema de Auditoria Interna da AD Rastreamento Veicular.<br>
+            A autenticidade deste documento pode ser verificada mediante cruzamento com o banco de dados oficial (PostgreSQL).
+        </div>
+    </body>
+    </html>
+    """
+    b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
+    return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
+
 # --- BASE DE CONHECIMENTO (DIAGNÓSTICO TÉCNICO INTELIGENTE) ---
 DIAGNOSTICOS_TECNICOS = {
     "Falta de Comunicação": {
@@ -283,6 +350,11 @@ DIAGNOSTICOS_TECNICOS = {
         "diagnostico": "Elevação severa das ocorrências de roubo em trânsito (abordagem com veículo em movimento).",
         "causa": "Circulação em zonas de alta mancha criminal ou rotas de escoamento visadas por quadrilhas especializadas.",
         "acao": "Afinar a inteligência de bloqueio remoto (corte progressivo). Estudar o mapeamento da mancha criminal e redesenhar o trajeto dos motoristas nas zonas de risco."
+    },
+    "Registro de Atendimento": {
+        "diagnostico": "Alto volume de inserções manuais de registros de atendimento genéricos.",
+        "causa": "Necessidade constante da equipe de documentar contatos proativos, anotações de clientes ou situações não enquadradas nos outros eventos automáticos.",
+        "acao": "Analisar as descrições individuais. Caso algum assunto se repita muito (ex: pedidos de bloqueio manual), sugere-se criar um botão/evento específico para ele futuramente."
     }
 }
 
@@ -517,7 +589,7 @@ else:
     # RENDERIZAÇÃO CONDICIONAL 
     # =======================================================================
 
-    # --- TELA: DASHBOARD EXECUTIVO (INTELIGENTE E PROPORCIONAL) ---
+    # --- TELA: DASHBOARD EXECUTIVO ---
     if aba_ativa == "dashboard":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 24px; text-align: center;'>📊 Painel Executivo (Dashboard)</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 14px; color: #666; text-align: center; margin-bottom: 30px;'>Visão executiva e laudos técnicos da operação de telemetria.</p>", unsafe_allow_html=True)
@@ -618,7 +690,7 @@ else:
             else:
                 st.info("Nenhum evento operacional registrado para este período.")
 
-        # --- A CEREJA DO BOLO: LAUDO DIAGNÓSTICO INTELIGENTE (COM BOTÃO ABRIR/FECHAR) ---
+        # --- A CEREJA DO BOLO: LAUDO DIAGNÓSTICO COM INTELIGÊNCIA EM TEXTOS ---
         st.markdown("<br><hr>", unsafe_allow_html=True)
         st.markdown("<h3 style='color: #4a0e4e; font-size: 20px; text-align: center;'>📄 Sistema de Inteligência Operacional</h3>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666; text-align: center;'>Gere um laudo automático baseado no maior gargalo técnico que a frota enfrentou neste mês.</p>", unsafe_allow_html=True)
@@ -634,7 +706,6 @@ else:
                         st.rerun()
                         
             if st.session_state.mostrar_laudo:
-                # Recalcula caso a tela tenha sido apenas recarregada
                 contagem_eventos = df_eventos['Evento'].value_counts().reset_index()
                 contagem_eventos.columns = ['Ocorrência', 'Total']
                 
@@ -650,11 +721,43 @@ else:
                     pct = (qtd / total_geral_chamados) * 100
                     detalhamento_operacional += f"   • {evt}: {qtd} chamado(s) ({pct:.1f}%)\n"
                 
-                dict_diag = DIAGNOSTICOS_TECNICOS.get(evento_campeao, {
-                    "diagnostico": f"Identificamos um número atípico do evento '{evento_campeao}'.",
-                    "causa": "Pode ter sido ocasionado por instabilidades pontuais no sistema, variações elétricas no veículo ou uso inadequado.",
-                    "acao": "Manter os veículos em observação e orientar a base de motoristas sobre as regras de uso padrão."
-                })
+                # INTELIGÊNCIA DE MINERAÇÃO PARA "REGISTRO DE ATENDIMENTO"
+                if evento_campeao == "Registro de Atendimento":
+                    textos = []
+                    for row in dados_h:
+                        det = str(row.get('detalhes', ''))
+                        if "Registro de Atendimento" in det:
+                            textos.append(det.lower())
+                    
+                    texto_unido = " ".join(textos)
+                    
+                    if any(p in texto_unido for p in ["descarregada", "arriada", "chupeta"]):
+                        c_din = "Os registros manuais indicam uma alta frequência de veículos parados com a bateria descarregada."
+                        a_din = "Realizar uma campanha de conscientização com os clientes sobre os riscos de manter o veículo parado por longos períodos."
+                    elif any(p in texto_unido for p in ["oficina", "manutenção", "mecanico", "mecânico"]):
+                        c_din = "A análise dos textos aponta que a maioria dos registros foi para documentar veículos em oficina ou passando por manutenção mecânica."
+                        a_din = "Sugerir aos clientes a criação de um fluxo de aviso prévio sempre que o veículo for para manutenção, evitando alarmes falsos de violação na Central."
+                    elif any(p in texto_unido for p in ["teste", "validado", "validação"]):
+                        c_din = "Os registros destacam muitos procedimentos de testes operacionais de equipamento, atualização de posição e verificação de bloqueio."
+                        a_din = "Monitorar os testes em andamento para garantir que não representem retrabalho da equipe técnica ou indício de falha crônica em lotes de rastreadores."
+                    elif any(p in texto_unido for p in ["bloqueio", "bloqueado", "desbloqueio"]):
+                        c_din = "Foram encontrados vários registros manuais envolvendo solicitações de bloqueio ou desbloqueio de veículos."
+                        a_din = "Verificar se as solicitações são de caráter preventivo/segurança ou se estão atreladas a faturas inadimplentes, para melhor alinhamento com os setores responsáveis."
+                    else:
+                        c_din = "Os detalhes inseridos variam entre contatos proativos da equipe, atualizações de status rotineiras e anotações atípicas reportadas pelo cliente."
+                        a_din = "Manter o rigor e o padrão atual de registrar todas as interações. Caso algum assunto passe a se repetir muito, sugere-se a criação de um botão/evento específico para ele futuramente no sistema."
+                        
+                    dict_diag = {
+                        "diagnostico": "Nossa equipe utilizou amplamente a opção 'Registro de Atendimento' neste mês para documentar interações diretas, suporte preventivo e anotações operacionais.",
+                        "causa": c_din,
+                        "acao": a_din
+                    }
+                else:
+                    dict_diag = DIAGNOSTICOS_TECNICOS.get(evento_campeao, {
+                        "diagnostico": f"Identificamos um número atípico do evento '{evento_campeao}'.",
+                        "causa": "Pode ter sido ocasionado por instabilidades pontuais no sistema, variações elétricas no veículo ou uso inadequado.",
+                        "acao": "Manter os veículos em observação e orientar a base de motoristas sobre as regras de uso padrão."
+                    })
                 
                 texto_laudo_markdown = f"""
 ======================================================
@@ -667,22 +770,22 @@ TOTAL DE CHAMADOS NO MÊS: {total_geral_chamados}
 -- DETALHAMENTO OPERACIONAL (DISTRIBUIÇÃO DE EVENTOS) --
 {detalhamento_operacional}
 
-O sistema de inteligência técnica analisou a telemetria do período e identificou que o gargalo operacional principal da sua frota foi focado em:
+O sistema de inteligência técnica analisou a telemetria do período e identificou que o foco operacional principal da sua frota esteve em:
 
 >> ALERTA PRINCIPAL: {evento_campeao}
-Este evento representou {porcentagem_campeao:.1f}% de todo o fluxo operacional da central ({total_campeao} chamados de um total de {total_geral_chamados}).
+Este evento representou {porcentagem_campeao:.1f}% de todo o fluxo da central ({total_campeao} registros de um total de {total_geral_chamados}).
 
 -- DIAGNÓSTICO TÉCNICO ({evento_campeao}) --
 {dict_diag['diagnostico']}
 
--- CAUSA RAIZ PROVÁVEL --
+-- CAUSA RAIZ IDENTIFICADA --
 {dict_diag['causa']}
 
 -- PLANO DE AÇÃO E SUGESTÃO DA CENTRAL --
 {dict_diag['acao']}
 
 ======================================================
-Gerado pelo Sistema Oficial AD Rastreamento Veicular
+Gerado pelo Sistema de Inteligência AD Rastreamento
                 """
                 
                 st.success("Laudo analisado e gerado com sucesso!")
@@ -787,7 +890,7 @@ Gerado pelo Sistema Oficial AD Rastreamento Veicular
                                 "Falta de Comunicação", 
                                 "Transferência - Setor Financeiro", 
                                 "Transferência - Setor Técnico", 
-                                "Outros"
+                                "Registro de Atendimento"
                             ]
                             
                             evento_mon = col_m1.selectbox("Evento", lista_eventos, key=f"eve_{st.session_state.rk}")
@@ -800,7 +903,7 @@ Gerado pelo Sistema Oficial AD Rastreamento Veicular
                             if eh_transferencia:
                                 st.info(f"💡 **Roteamento e Abertura de Ticket:** Essa solicitação irá para a aba **Pendências** e o link do WhatsApp para a **{info_veic['empresa']}** será gerado em seguida.")
                             
-                            texto_botao = "📲 Abrir Pendência e Gerar WhatsApp" if eh_transferencia else "💾 Salvar Monitoramento"
+                            texto_botao = "📲 Abrir Pendência e Gerar WhatsApp" if eh_transferencia else "💾 Salvar Registro/Monitoramento"
                             
                             if st.button(texto_botao, type="primary"):
                                 agora = get_horario_brasil_str()
