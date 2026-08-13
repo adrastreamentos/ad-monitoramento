@@ -126,25 +126,13 @@ def init_db():
     
     conn.commit()
 
-# --- CORREÇÃO DO ERRO DE MEMÓRIA (UNSERIALIZABLE RETURN VALUE ERROR) ---
 @st.cache_data(ttl=2, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_conn_fast()
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
     data = c.fetchall()
-    
-    resultado_limpo = []
-    for row in data:
-        row_dict = dict(row)
-        for key, val in row_dict.items():
-            # Converte objetos de memória binária (como logos/BYTEA) para bytes normais
-            # Isso impede que o cache do Streamlit "engasgue" ao tentar salvar a informação
-            if isinstance(val, memoryview):
-                row_dict[key] = bytes(val)
-        resultado_limpo.append(row_dict)
-        
-    return resultado_limpo
+    return data
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
@@ -259,73 +247,6 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
-def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
-    hash_exibicao = dados_aceite.get('hash_assinatura')
-    if not hash_exibicao:
-        hash_exibicao = "Autenticação Legada (Pré-Criptografia)."
-
-    html_content = f"""
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>Certificado de Aceite LGPD</title>
-        <style>
-            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; line-height: 1.6; }}
-            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 20px; margin-bottom: 30px; }}
-            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
-            .header h3 {{ color: #555; margin: 10px 0 0 0; font-weight: normal; }}
-            .content {{ padding: 20px 40px; text-align: justify; }}
-            .clausula {{ margin-bottom: 15px; }}
-            .assinatura-box {{ margin-top: 50px; background-color: #f9f9f9; border: 1px solid #ddd; padding: 20px; border-radius: 8px; }}
-            .assinatura-title {{ font-size: 16px; font-weight: bold; color: #4a0e4e; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }}
-            .ass-row {{ margin-bottom: 8px; font-size: 14px; }}
-            .ass-label {{ font-weight: bold; color: #555; }}
-            .hash-box {{ margin-top: 15px; padding: 10px; background-color: #e8eaf6; border-left: 4px solid #3f51b5; font-family: monospace; font-size: 13px; word-break: break-all; }}
-            .footer {{ margin-top: 50px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 15px; }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>AD RASTREAMENTO VEICULAR</h1>
-            <h3>Certificado Oficial de Aceite Eletrônico - LGPD</h3>
-        </div>
-        
-        <div class="content">
-            <p><strong>TERMO DE RESPONSABILIDADE, CONFIDENCIALIDADE E ADEQUAÇÃO À LGPD</strong></p>
-            
-            <p>A <strong>AD Rastreamento Veicular</strong>, sediada em São Gonçalo do Amarante, na qualidade de provedora do software de gestão e telemetria, estabelece as seguintes diretrizes obrigatórias aceitas pela CONTRATANTE/PARCEIRA para o uso da plataforma:</p>
-            
-            <div class="clausula"><strong>1. Sigilo e Confidencialidade:</strong> O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.</div>
-            
-            <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
-            
-            <div class="clausula"><strong>3. Penalidades Legais:</strong> O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).</div>
-        </div>
-        
-        <div class="assinatura-box">
-            <div class="assinatura-title">📜 DADOS DA ASSINATURA ELETRÔNICA</div>
-            <div class="ass-row"><span class="ass-label">Empresa Signatária (Parceiro):</span> {dados_aceite['empresa']}</div>
-            <div class="ass-row"><span class="ass-label">CNPJ Registrado:</span> {cnpj_parceiro}</div>
-            <div class="ass-row"><span class="ass-label">Data e Hora do Aceite:</span> {dados_aceite['data_hora']}</div>
-            <div class="ass-row"><span class="ass-label">Método de Autenticação / Dispositivo:</span> {dados_aceite['ip_aceite']}</div>
-            
-            <div class="hash-box">
-                <strong>Chave de Autenticação Digital (Hash SHA-256):</strong><br>
-                {hash_exibicao}
-            </div>
-            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Este código garante a integridade e a validade jurídica deste aceite no banco de dados da Central de Operações.</p>
-        </div>
-        
-        <div class="footer">
-            Documento gerado automaticamente pelo Sistema de Auditoria Interna da AD Rastreamento Veicular.<br>
-            A autenticidade deste documento pode ser verificada mediante cruzamento com o banco de dados oficial (PostgreSQL).
-        </div>
-    </body>
-    </html>
-    """
-    b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
-    return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
-
 # --- BASE DE CONHECIMENTO (DIAGNÓSTICO TÉCNICO INTELIGENTE) ---
 DIAGNOSTICOS_TECNICOS = {
     "Falta de Comunicação": {
@@ -425,7 +346,7 @@ if 'flash_msg' in st.session_state:
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<h1 style='text-align: center; color: #4a0e4e;'>🛡️ Central de Operações de Segurança</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color: #4a0e4e; font-size: 28px;'>🛡️ Central de Operações de Segurança</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #8b0000; font-weight: bold;'>Administrador: AD Rastreamento Veicular</p>", unsafe_allow_html=True)
         
         with st.form("login_form"):
@@ -603,8 +524,8 @@ else:
 
     # --- TELA: DASHBOARD EXECUTIVO ---
     if aba_ativa == "dashboard":
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 24px; text-align: center;'>📊 Painel Executivo (Dashboard)</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 14px; color: #666; text-align: center; margin-bottom: 30px;'>Visão executiva e laudos técnicos da operação de telemetria.</p>", unsafe_allow_html=True)
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📊 Painel Executivo (Dashboard)</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 14px; color: #666; margin-bottom: 30px;'>Visão executiva e laudos técnicos da operação de telemetria.</p>", unsafe_allow_html=True)
         
         if st.session_state.is_admin:
             empresas_disp_dash = fetch_data("SELECT nome FROM empresas ORDER BY nome")
@@ -702,7 +623,6 @@ else:
             else:
                 st.info("Nenhum evento operacional registrado para este período.")
 
-        # --- A CEREJA DO BOLO: LAUDO DIAGNÓSTICO COM INTELIGÊNCIA EM TEXTOS ---
         st.markdown("<br><hr>", unsafe_allow_html=True)
         st.markdown("<h3 style='color: #4a0e4e; font-size: 20px; text-align: center;'>📄 Sistema de Inteligência Operacional</h3>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666; text-align: center;'>Gere um laudo automático baseado no maior gargalo técnico que a frota enfrentou neste mês.</p>", unsafe_allow_html=True)
@@ -733,7 +653,6 @@ else:
                     pct = (qtd / total_geral_chamados) * 100
                     detalhamento_operacional += f"   • {evt}: {qtd} chamado(s) ({pct:.1f}%)\n"
                 
-                # INTELIGÊNCIA DE MINERAÇÃO PARA "REGISTRO DE ATENDIMENTO"
                 if evento_campeao == "Registro de Atendimento":
                     textos = []
                     for row in dados_h:
@@ -821,7 +740,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) ---
     elif aba_ativa == "central" and st.session_state.is_admin:
-        st.header("🚨 Central de Operações e Ocorrências 24h")
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🚨 Central de Operações e Ocorrências 24h</h2>", unsafe_allow_html=True)
         
         if st.session_state.get('link_transferencia'):
             st.success("✅ Ficha de transferência salva como pendência e pronta para ser enviada!")
@@ -869,7 +788,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         tipo_servico = st.radio("📋 **Ação na Central:**", ["Abertura de Furto/Roubo", "Monitoramento Técnico"], horizontal=True, key=f"radio_serv_{st.session_state.rk}")
                         
                         if tipo_servico == "Abertura de Furto/Roubo":
-                            st.markdown("<h3 style='color: #8b0000;'>Abertura de Furto/Roubo (Início Automático)</h3>", unsafe_allow_html=True)
+                            st.markdown("<h3 style='color: #8b0000; font-size: 18px;'>Abertura de Furto/Roubo (Início Automático)</h3>", unsafe_allow_html=True)
                             
                             col_oc1, col_oc2 = st.columns(2)
                             tipo_oc = col_oc1.selectbox("Natureza", ["Furto", "Roubo"], key=f"nat_{st.session_state.rk}")
@@ -893,7 +812,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 st.rerun()
                         
                         elif tipo_servico == "Monitoramento Técnico":
-                            st.markdown("<h3 style='color: #4a0e4e;'>Monitoramento Técnico / Transferência</h3>", unsafe_allow_html=True)
+                            st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>Monitoramento Técnico / Transferência</h3>", unsafe_allow_html=True)
                             col_m1, col_m2 = st.columns(2)
                             
                             lista_eventos = [
@@ -965,7 +884,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: GESTÃO DE PENDÊNCIAS ---
     elif aba_ativa == "pendencias":
-        st.header("🛠️ Gestão de Chamados e Pendências")
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🛠️ Gestão de Chamados e Pendências</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel de transferências financeiras e técnicas aguardando resolução pela empresa parceira. Finalizar um chamado encerra o documento e o transfere para os Relatórios.</p>", unsafe_allow_html=True)
         
         q_pend = "SELECT * FROM historico WHERE tipo='Transferência' AND status='PENDENTE' ORDER BY id DESC"
@@ -1002,7 +921,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: CLIENTES E FROTAS ---
     elif aba_ativa == "clientes":
-        st.header("👤 Gerenciamento de Clientes e Frotas Multi-Veículos")
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</h2>", unsafe_allow_html=True)
         
         opcoes_acao = ["Listar", "Incluir Novo", "Importação em Lote", "Editar"]
         if st.session_state.is_admin:
@@ -1401,7 +1320,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: RELATÓRIOS ---
     elif aba_ativa == "relatorios":
-        st.header("📖 Relatórios Operacionais")
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📖 Relatórios Operacionais</h2>", unsafe_allow_html=True)
         
         if st.session_state.is_admin:
             servico_atual = "Ambos (Furto/Roubo + Monitoramento)"
@@ -1577,7 +1496,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: MEU FATURAMENTO (SÓ PARCEIROS) ---
     elif aba_ativa == "faturamento" and not st.session_state.is_admin:
-        st.header("💰 Meu Faturamento e Frotas Ativas")
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>💰 Meu Faturamento e Frotas Ativas</h2>", unsafe_allow_html=True)
         
         res_emp_info = fetch_data("SELECT servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
         
@@ -1660,7 +1579,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
     elif aba_ativa == "cadastro" and not st.session_state.is_admin:
-        st.header("⚙️ Meu Cadastro Profissional")
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>⚙️ Meu Cadastro Profissional</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
         
         res_emp = fetch_data("SELECT * FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
@@ -1721,7 +1640,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             st.error("Erro ao localizar cadastro da empresa.")
 
     elif aba_ativa == "empresas" and st.session_state.is_admin:
-        st.header("🏢 Gerenciamento de Empresas Parceiras e Precificação")
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🏢 Gerenciamento de Empresas Parceiras e Precificação</h2>", unsafe_allow_html=True)
         
         acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
         st.markdown("---")
@@ -1826,7 +1745,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 st.warning("Nenhuma empresa encontrada.")
 
     elif aba_ativa == "financeiro" and st.session_state.is_admin:
-        st.header("💰 Controle Financeiro Global")
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>💰 Controle Financeiro Global</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.</p>", unsafe_allow_html=True)
         
         empresas_cad = fetch_data("SELECT id, nome, cnpj, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
@@ -1977,7 +1896,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.rerun()
 
     elif aba_ativa == "auditoria":
-        st.header("🕵️ Auditoria e Registros de Atividades")
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🕵️ Auditoria e Registros de Atividades</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666; margin-bottom: 15px;'>🔒 <b>Blindagem Jurídica Ativa:</b> Todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações de acordo com a LGPD e Marco Civil da Internet.</p>", unsafe_allow_html=True)
         
         mes_atual_padrao = datetime.now().strftime("%m/%Y")
