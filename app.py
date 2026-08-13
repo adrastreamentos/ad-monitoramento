@@ -126,13 +126,25 @@ def init_db():
     
     conn.commit()
 
+# CORREÇÃO DEFINITIVA DO CACHE (Serialização Segura para Streamlit)
 @st.cache_data(ttl=2, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_conn_fast()
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
     data = c.fetchall()
-    return data
+    
+    resultado_limpo = []
+    for row in data:
+        linha_limpa = {}
+        for key, value in dict(row).items():
+            if isinstance(value, memoryview):
+                linha_limpa[key] = bytes(value)
+            else:
+                linha_limpa[key] = value
+        resultado_limpo.append(linha_limpa)
+        
+    return resultado_limpo
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
@@ -522,10 +534,9 @@ else:
     # RENDERIZAÇÃO CONDICIONAL 
     # =======================================================================
 
-    # --- TELA: DASHBOARD EXECUTIVO ---
     if aba_ativa == "dashboard":
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📊 Painel Executivo (Dashboard)</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 14px; color: #666; margin-bottom: 30px;'>Visão executiva e laudos técnicos da operação de telemetria.</p>", unsafe_allow_html=True)
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px; text-align: center;'>📊 Painel Executivo (Dashboard)</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 14px; color: #666; text-align: center; margin-bottom: 30px;'>Visão executiva e laudos técnicos da operação de telemetria.</p>", unsafe_allow_html=True)
         
         if st.session_state.is_admin:
             empresas_disp_dash = fetch_data("SELECT nome FROM empresas ORDER BY nome")
@@ -738,7 +749,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.session_state.mostrar_laudo = False
                         st.rerun()
 
-    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) ---
     elif aba_ativa == "central" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🚨 Central de Operações e Ocorrências 24h</h2>", unsafe_allow_html=True)
         
@@ -882,7 +892,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     else:
                         st.warning("Nenhum veículo encontrado com este termo.")
 
-    # --- TELA: GESTÃO DE PENDÊNCIAS ---
     elif aba_ativa == "pendencias":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🛠️ Gestão de Chamados e Pendências</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel de transferências financeiras e técnicas aguardando resolução pela empresa parceira. Finalizar um chamado encerra o documento e o transfere para os Relatórios.</p>", unsafe_allow_html=True)
@@ -919,7 +928,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         else:
             st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
 
-    # --- TELA: CLIENTES E FROTAS ---
     elif aba_ativa == "clientes":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</h2>", unsafe_allow_html=True)
         
@@ -990,7 +998,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
                             st.markdown(f"""
                             <div class="ficha-box">
-                                <h3 style="color:#4a0e4e; margin-top:0;">📋 Ficha Cadastral Completa</h3>
+                                <h3 style="color:#4a0e4e; margin-top:0; font-size: 18px;">📋 Ficha Cadastral Completa</h3>
                                 <p><b>Nome do Cliente:</b> {dados_cli_ficha['nome']}</p>
                                 <p><b>CPF / CNPJ:</b> {dados_cli_ficha['documento']}</p>
                                 <p><b>Endereço:</b> {dados_cli_ficha['endereco']}</p>
@@ -998,7 +1006,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 <p><b>Empresa Responsável:</b> {dados_cli_ficha['empresa']}</p>
                                 <p><b>Status:</b> {dados_cli_ficha['status']}</p>
                                 <hr style="border: 0; border-top: 2px solid #4a0e4e; margin: 15px 0;">
-                                <h4 style="color:#8b0000;">🚗 Veículos / Frotas Vinculadas ({len(veiculos_cli_ficha)})</h4>
+                                <h4 style="color:#8b0000; font-size: 16px;">🚗 Veículos / Frotas Vinculadas ({len(veiculos_cli_ficha)})</h4>
                             """, unsafe_allow_html=True)
                             
                             if veiculos_cli_ficha:
@@ -1016,7 +1024,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             if not opcoes_emp:
                 st.error("Nenhuma empresa parceira cadastrada! Cadastre a empresa primeiro.")
             else:
-                st.subheader("📝 Cadastro de Novo Cliente e Seus Veículos")
+                st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>📝 Cadastro de Novo Cliente e Seus Veículos</h3>", unsafe_allow_html=True)
                 
                 rk = st.session_state.rk
                 
@@ -1088,7 +1096,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 st.markdown("</div>", unsafe_allow_html=True)
                             
         elif acao_clientes == "Importação em Lote":
-            st.subheader("📥 Importação Inteligente via CSV")
+            st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>📥 Importação Inteligente via CSV</h3>", unsafe_allow_html=True)
             st.markdown("<p style='font-size: 13px; color: #666;'>O sistema agrupará todos os veículos vinculados ao mesmo documento automaticamente.</p>", unsafe_allow_html=True)
             
             emp_lote = st.selectbox("Selecione a Empresa de destino para a importação:", opcoes_emp, key=f"emp_lote_sel_{st.session_state.rk}")
@@ -1318,7 +1326,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao suporte oficial informando a placa e o motivo.")
             st.markdown(gerar_link_whatsapp(f"Solicitação de Exclusão de Cadastro - Parceiro: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
 
-    # --- TELA: RELATÓRIOS ---
     elif aba_ativa == "relatorios":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📖 Relatórios Operacionais</h2>", unsafe_allow_html=True)
         
@@ -1346,7 +1353,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             
             if mostrar_fr:
                 with sub_tabs[idx_sub]:
-                    st.subheader("Controle de Ocorrências de Furto e Roubo")
+                    st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>Controle de Ocorrências de Furto e Roubo</h3>", unsafe_allow_html=True)
                     col_f1, col_f2 = st.columns(2)
                     b_fr = col_f1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"b_fr_{st.session_state.rk}")
                     p_fr = col_f2.text_input("📅 Filtrar por Data (Furto/Roubo)", key=f"p_fr_{st.session_state.rk}")
@@ -1370,7 +1377,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         df_fr = pd.DataFrame(res_fr)
                         st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
-                        st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
+                        st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>🔎 Ficha e Finalização de Ocorrência</h3>", unsafe_allow_html=True)
                         lista_sel_fr = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_fr]
                         
                         k_rel_fr = st.session_state.reset_keys['rel_fr']
@@ -1433,7 +1440,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
             if mostrar_mon:
                 with sub_tabs[idx_sub]:
-                    st.subheader("Eventos de Monitoramento Técnico e Transferências")
+                    st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>Eventos de Monitoramento Técnico e Transferências</h3>", unsafe_allow_html=True)
                     col_m1, col_m2 = st.columns(2)
                     b_mon = col_m1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"b_mon_{st.session_state.rk}")
                     p_mon = col_m2.text_input("📅 Filtrar por Data", key=f"p_mon_{st.session_state.rk}")
@@ -1457,7 +1464,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         df_mon = pd.DataFrame(res_mon)
                         st.dataframe(df_mon[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
-                        st.markdown("### 🔎 Ficha de Relatório")
+                        st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>🔎 Ficha de Relatório</h3>", unsafe_allow_html=True)
                         
                         lista_sel_mon = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_mon]
                         
@@ -1494,7 +1501,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.info("Nenhum registro encontrado.")
                 idx_sub += 1
 
-    # --- TELA: MEU FATURAMENTO (SÓ PARCEIROS) ---
     elif aba_ativa == "faturamento" and not st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>💰 Meu Faturamento e Frotas Ativas</h2>", unsafe_allow_html=True)
         
@@ -1559,7 +1565,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             st.markdown(f"<p style='font-size: 13px; color: #555;'>💡 <b>Valor Quitado Registrado no Mês:</b> R$ {valor_pago_efetivo:.2f}</p>", unsafe_allow_html=True)
         
         st.markdown("---")
-        st.subheader("🔍 Consulta Histórica de Faturas")
+        st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>🔍 Consulta Histórica de Faturas</h3>", unsafe_allow_html=True)
         
         res_meses_p = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas WHERE empresa=%s ORDER BY mes_ref DESC", (st.session_state.nome_empresa,))
         lista_meses_p = ["Selecione..."] + [m['mes_ref'] for m in res_meses_p] if res_meses_p else ["Selecione..."]
@@ -1588,7 +1594,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             val_veic = dados_emp['valor_veiculo'] if dados_emp['valor_veiculo'] is not None else 0.0
             dia_v = dados_emp['dia_vencimento'] if dados_emp['dia_vencimento'] is not None else 10
             
-            st.markdown("### 🔒 Informações Contratuais")
+            st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>🔒 Informações Contratuais</h3>", unsafe_allow_html=True)
             
             html_readonly = f"""
             <div style="background-color: #fafafa; border-left: 4px solid #4a0e4e; border-radius: 4px; padding: 15px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
@@ -1618,7 +1624,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             """
             st.markdown(html_readonly, unsafe_allow_html=True)
             
-            st.markdown("### 📝 Atualização de Dados de Contato")
+            st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>📝 Atualização de Dados de Contato</h3>", unsafe_allow_html=True)
             
             with st.form("form_atualizacao_cadastral"):
                 c1, c2 = st.columns(2)
@@ -1815,7 +1821,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             st.dataframe(df_fin_global, use_container_width=True)
             
             st.markdown("---")
-            st.subheader("🔍 Consulta Histórica de Faturas")
+            st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>🔍 Consulta Histórica de Faturas</h3>", unsafe_allow_html=True)
             
             res_meses_db = fetch_data("SELECT DISTINCT mes_ref FROM historico_faturas ORDER BY mes_ref DESC")
             lista_meses_adm = ["Todos"] + [m['mes_ref'] for m in res_meses_db] if res_meses_db else ["Todos"]
@@ -1846,7 +1852,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 st.info("Nenhum histórico de fatura encontrado para os filtros selecionados.")
 
             st.markdown("---")
-            st.subheader("⚡ Atualizar Pagamento e Valor da Fatura")
+            st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>⚡ Atualizar Pagamento e Valor da Fatura</h3>", unsafe_allow_html=True)
             
             k_fin = st.session_state.reset_keys['fin_pgto']
             lista_p_nomes = [e['nome'] for e in empresas_cad]
@@ -1932,7 +1938,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         # --- PAINEL EXCLUSIVO DO ADMIN PARA VER ACEITES DA LGPD ---
         if st.session_state.is_admin:
             st.markdown("---")
-            st.subheader("📄 Assinaturas Eletrônicas - Aceites LGPD")
+            st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>📄 Assinaturas Eletrônicas - Aceites LGPD</h3>", unsafe_allow_html=True)
             st.markdown("<p style='font-size: 13px; color: #666;'>Aqui ficam registrados todos os parceiros que assinaram e concordaram com o Termo de Responsabilidade e Confidencialidade.</p>", unsafe_allow_html=True)
             
             res_lgpd_adm = fetch_data("SELECT * FROM aceites_lgpd ORDER BY id DESC")
@@ -1943,7 +1949,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 df_lgpd_visual.columns = ['ID', 'Empresa', 'Data/Hora do Aceite', 'Meio de Acesso', 'Hash (Assinatura Eletrônica)']
                 st.dataframe(df_lgpd_visual, use_container_width=True)
                 
-                st.markdown("### 🖨️ Gerar Certificado de Aceite / PDF")
+                st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>🖨️ Gerar Certificado de Aceite / PDF</h3>", unsafe_allow_html=True)
                 k_lgpd_cert = st.session_state.reset_keys['lgpd_cert']
                 lista_aceites = [""] + [f"{a['id']} - {a['empresa']} ({a['data_hora']})" for a in res_lgpd_adm]
                 aceite_sel = st.selectbox("Selecione a assinatura do parceiro:", lista_aceites, key=f"sel_aceite_{k_lgpd_cert}")
