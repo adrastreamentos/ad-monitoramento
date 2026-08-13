@@ -135,7 +135,19 @@ def fetch_data(query, params=()):
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
     data = c.fetchall()
-    return data
+    
+    # BLINDAGEM DO CACHE: Converte dados brutos do PostgreSQL para dicionários nativos do Python
+    resultado_limpo = []
+    for row in data:
+        linha_limpa = {}
+        for chave, valor in row.items():
+            if isinstance(valor, memoryview):
+                linha_limpa[chave] = bytes(valor) # Resolve o erro do memoryview/logo_binario
+            else:
+                linha_limpa[chave] = valor
+        resultado_limpo.append(linha_limpa)
+        
+    return resultado_limpo
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
@@ -688,8 +700,8 @@ else:
                                     st.session_state.flash_msg = "Salvo com sucesso!"
                                     limpar_tela()
                                     st.rerun()
-                    else:
-                        st.warning("Nenhum veículo encontrado com este termo.")
+                else:
+                    st.warning("Nenhum veículo encontrado com este termo.")
 
     elif aba_ativa == "pendencias":
         st.header("🛠️ Gestão de Chamados e Pendências")
