@@ -446,9 +446,13 @@ else:
 
     with st.sidebar:
         if not st.session_state.is_admin:
+            # CORREÇÃO CRUCIAL DA IMAGEM DA LOGO: O Streamlit não quebra mais se a logo estiver nula/vazia
             logo_bytes = fetch_logo_cached(st.session_state.nome_empresa)
-            if logo_bytes and len(logo_bytes) > 10:
-                st.image(io.BytesIO(logo_bytes), width=140)
+            if logo_bytes is not None:
+                try:
+                    st.image(io.BytesIO(logo_bytes), width=140)
+                except Exception:
+                    pass
 
         st.write(f"👤 **Conectado como:** {st.session_state.nome_empresa}")
         
