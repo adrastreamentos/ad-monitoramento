@@ -558,7 +558,6 @@ else:
         
         col_graf1, col_graf2 = st.columns(2)
         
-        # Gráfico 1: Frota
         with col_graf1:
             st.markdown("<div class='dash-title'>🚗 Composição da Frota</div>", unsafe_allow_html=True)
             if not df_frota.empty:
@@ -580,7 +579,6 @@ else:
             else:
                 st.info("Nenhum veículo cadastrado na frota ativa.")
 
-        # Gráfico 2: Atendimentos/Eventos
         with col_graf2:
             st.markdown("<div class='dash-title'>🛠️ Incidência de Atendimentos</div>", unsafe_allow_html=True)
             if not df_eventos.empty:
@@ -602,7 +600,7 @@ else:
             else:
                 st.info("Nenhum evento operacional registrado para este período.")
 
-        # --- A CEREJA DO BOLO: LAUDO DIAGNÓSTICO INTELIGENTE ---
+        # --- A CEREJA DO BOLO: LAUDO DIAGNÓSTICO INTELIGENTE (AGORA COM % POR EVENTO) ---
         st.markdown("<br><hr>", unsafe_allow_html=True)
         st.markdown("<h3 style='color: #4a0e4e; font-size: 20px; text-align: center;'>📄 Sistema de Inteligência Operacional</h3>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666; text-align: center;'>Gere um laudo automático baseado no maior gargalo técnico que a frota enfrentou neste mês.</p>", unsafe_allow_html=True)
@@ -616,7 +614,15 @@ else:
                     evento_campeao = contagem_eventos.iloc[0]['Ocorrência']
                     total_campeao = contagem_eventos.iloc[0]['Total']
                     total_geral_chamados = df_eventos.shape[0]
-                    porcentagem = (total_campeao / total_geral_chamados) * 100
+                    porcentagem_campeao = (total_campeao / total_geral_chamados) * 100
+                    
+                    # --- LÓGICA NOVA: MONTA A LISTA COM % DE TODOS OS EVENTOS ---
+                    detalhamento_operacional = ""
+                    for _, row in contagem_eventos.iterrows():
+                        evt = row['Ocorrência']
+                        qtd = row['Total']
+                        pct = (qtd / total_geral_chamados) * 100
+                        detalhamento_operacional += f"   • {evt}: {qtd} chamado(s) ({pct:.1f}%)\n"
                     
                     dict_diag = DIAGNOSTICOS_TECNICOS.get(evento_campeao, {
                         "diagnostico": f"Identificamos um número atípico do evento '{evento_campeao}'.",
@@ -625,29 +631,32 @@ else:
                     })
                     
                     texto_laudo_markdown = f"""
-                    ======================================================
-                    LAUDO DE DESEMPENHO OPERACIONAL - {mes_filtro_dash}
-                    ======================================================
-                    
-                    EMPRESA / FROTA: {emp_alvo_rel}
-                    TOTAL DE CHAMADOS NO MÊS: {total_geral_chamados}
-                    
-                    O sistema de inteligência técnica analisou a telemetria do período e identificou que o gargalo operacional principal da sua frota foi focado em:
-                    
-                    >> ALERTA PRINCIPAL: {evento_campeao}
-                    Este evento representou {porcentagem:.1f}% de todo o fluxo operacional da central ({total_campeao} chamados de um total de {total_geral_chamados}).
-                    
-                    -- DIAGNÓSTICO TÉCNICO --
-                    {dict_diag['diagnostico']}
-                    
-                    -- CAUSA RAIZ PROVÁVEL --
-                    {dict_diag['causa']}
-                    
-                    -- PLANO DE AÇÃO E SUGESTÃO DA CENTRAL --
-                    {dict_diag['acao']}
-                    
-                    ======================================================
-                    Gerado pelo Sistema Oficial AD Rastreamento Veicular
+======================================================
+LAUDO DE DESEMPENHO OPERACIONAL - {mes_filtro_dash}
+======================================================
+
+EMPRESA / FROTA: {emp_alvo_rel}
+TOTAL DE CHAMADOS NO MÊS: {total_geral_chamados}
+
+-- DETALHAMENTO OPERACIONAL (DISTRIBUIÇÃO DE EVENTOS) --
+{detalhamento_operacional}
+
+O sistema de inteligência técnica analisou a telemetria do período e identificou que o gargalo operacional principal da sua frota foi focado em:
+
+>> ALERTA PRINCIPAL: {evento_campeao}
+Este evento representou {porcentagem_campeao:.1f}% de todo o fluxo operacional da central ({total_campeao} chamados de um total de {total_geral_chamados}).
+
+-- DIAGNÓSTICO TÉCNICO ({evento_campeao}) --
+{dict_diag['diagnostico']}
+
+-- CAUSA RAIZ PROVÁVEL --
+{dict_diag['causa']}
+
+-- PLANO DE AÇÃO E SUGESTÃO DA CENTRAL --
+{dict_diag['acao']}
+
+======================================================
+Gerado pelo Sistema Oficial AD Rastreamento Veicular
                     """
                     
                     st.success("Laudo analisado e gerado com sucesso!")
