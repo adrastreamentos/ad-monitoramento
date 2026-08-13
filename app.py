@@ -446,7 +446,6 @@ else:
 
     with st.sidebar:
         if not st.session_state.is_admin:
-            # CORREÇÃO CRUCIAL DA IMAGEM DA LOGO: O Streamlit não quebra mais se a logo estiver nula/vazia
             logo_bytes = fetch_logo_cached(st.session_state.nome_empresa)
             if logo_bytes is not None:
                 try:
@@ -635,7 +634,7 @@ else:
         
         col_laudo1, col_laudo2, col_laudo3 = st.columns([1, 2, 1])
         with col_laudo2:
-            if not st.session_state.mostrar_laudo:
+            if not st.session_state.get('mostrar_laudo', False):
                 if st.button("🚀 Processar Laudo Executivo do Mês", type="primary", use_container_width=True):
                     if df_eventos.empty:
                         st.warning("Não há chamados suficientes para gerar um laudo analítico neste mês.")
@@ -643,7 +642,7 @@ else:
                         st.session_state.mostrar_laudo = True
                         st.rerun()
                         
-            if st.session_state.mostrar_laudo:
+            if st.session_state.get('mostrar_laudo', False):
                 contagem_eventos = df_eventos['Evento'].value_counts().reset_index()
                 contagem_eventos.columns = ['Ocorrência', 'Total']
                 
@@ -1597,7 +1596,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>⚙️ Meu Cadastro Profissional</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
         
-        res_emp = fetch_data("SELECT * FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+        res_emp = fetch_data("SELECT nome, cnpj, servicos, valor_veiculo, dia_vencimento, responsavel, telefone, email, endereco FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
         if res_emp:
             dados_emp = res_emp[0]
             val_veic = dados_emp['valor_veiculo'] if dados_emp['valor_veiculo'] is not None else 0.0
