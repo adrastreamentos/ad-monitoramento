@@ -307,6 +307,7 @@ if 'termo_cli_ativo' not in st.session_state: st.session_state.termo_cli_ativo =
 if 'last_viewed_cli' not in st.session_state: st.session_state.last_viewed_cli = None
 if 'link_transferencia' not in st.session_state: st.session_state.link_transferencia = None
 if 'empresa_transferencia' not in st.session_state: st.session_state.empresa_transferencia = None
+if 'mostrar_laudo' not in st.session_state: st.session_state.mostrar_laudo = False
 
 chaves_necessarias = {
     'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0, 'dash_mes': 0
@@ -326,6 +327,7 @@ def limpar_tela():
     st.session_state.last_viewed_cli = None
     st.session_state.link_transferencia = None
     st.session_state.empresa_transferencia = None
+    st.session_state.mostrar_laudo = False
     for k in st.session_state.reset_keys:
         st.session_state.reset_keys[k] += 1
 
@@ -520,19 +522,35 @@ else:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 24px; text-align: center;'>📊 Painel Executivo (Dashboard)</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 14px; color: #666; text-align: center; margin-bottom: 30px;'>Visão executiva e laudos técnicos da operação de telemetria.</p>", unsafe_allow_html=True)
         
-        col_filtro1, col_filtro2, col_filtro3 = st.columns([1, 2, 1])
-        with col_filtro2:
-            mes_atual = get_horario_brasil().strftime("%m/%Y")
-            mes_filtro_dash = st.text_input("Filtrar Período de Análise (Mês/Ano):", value=mes_atual, key=f"dash_m_{st.session_state.reset_keys['dash_mes']}")
-            st.markdown("<br>", unsafe_allow_html=True)
-
         if st.session_state.is_admin:
-            q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.status = 'Ativo'"
-            q_h = "SELECT tipo, detalhes FROM historico WHERE data_hora ILIKE %s"
-            dados_v = fetch_data(q_v)
-            dados_h = fetch_data(q_h, (f"%{mes_filtro_dash}%",))
-            emp_alvo_rel = "Todas as Frotas (Visão Global)"
+            empresas_disp_dash = fetch_data("SELECT nome FROM empresas ORDER BY nome")
+            opcoes_emp_dash = ["Todas as Frotas (Visão Global)"] + [e['nome'] for e in empresas_disp_dash] if empresas_disp_dash else ["Todas as Frotas (Visão Global)"]
+            
+            col_filtro1, col_filtro2, col_filtro3 = st.columns([1, 2, 1])
+            with col_filtro1:
+                empresa_filtro_dash = st.selectbox("Filtrar por Empresa:", opcoes_emp_dash, key=f"dash_emp_{st.session_state.reset_keys['dash_mes']}")
+            with col_filtro2:
+                mes_atual = get_horario_brasil().strftime("%m/%Y")
+                mes_filtro_dash = st.text_input("Filtrar Período de Análise (Mês/Ano):", value=mes_atual, key=f"dash_m_{st.session_state.reset_keys['dash_mes']}")
+            
+            if empresa_filtro_dash == "Todas as Frotas (Visão Global)":
+                q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.status = 'Ativo'"
+                q_h = "SELECT tipo, detalhes FROM historico WHERE data_hora ILIKE %s"
+                dados_v = fetch_data(q_v)
+                dados_h = fetch_data(q_h, (f"%{mes_filtro_dash}%",))
+                emp_alvo_rel = "Todas as Frotas (Visão Global)"
+            else:
+                q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
+                q_h = "SELECT tipo, detalhes FROM historico WHERE empresa=%s AND data_hora ILIKE %s"
+                dados_v = fetch_data(q_v, (empresa_filtro_dash,))
+                dados_h = fetch_data(q_h, (empresa_filtro_dash, f"%{mes_filtro_dash}%"))
+                emp_alvo_rel = empresa_filtro_dash
         else:
+            col_filtro1, col_filtro2, col_filtro3 = st.columns([1, 2, 1])
+            with col_filtro2:
+                mes_atual = get_horario_brasil().strftime("%m/%Y")
+                mes_filtro_dash = st.text_input("Filtrar Período de Análise (Mês/Ano):", value=mes_atual, key=f"dash_m_{st.session_state.reset_keys['dash_mes']}")
+            
             q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
             q_h = "SELECT tipo, detalhes FROM historico WHERE empresa=%s AND data_hora ILIKE %s"
             dados_v = fetch_data(q_v, (st.session_state.nome_empresa,))
@@ -600,37 +618,45 @@ else:
             else:
                 st.info("Nenhum evento operacional registrado para este período.")
 
-        # --- A CEREJA DO BOLO: LAUDO DIAGNÓSTICO INTELIGENTE (AGORA COM % POR EVENTO) ---
+        # --- A CEREJA DO BOLO: LAUDO DIAGNÓSTICO INTELIGENTE (COM BOTÃO ABRIR/FECHAR) ---
         st.markdown("<br><hr>", unsafe_allow_html=True)
         st.markdown("<h3 style='color: #4a0e4e; font-size: 20px; text-align: center;'>📄 Sistema de Inteligência Operacional</h3>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666; text-align: center;'>Gere um laudo automático baseado no maior gargalo técnico que a frota enfrentou neste mês.</p>", unsafe_allow_html=True)
         
         col_laudo1, col_laudo2, col_laudo3 = st.columns([1, 2, 1])
         with col_laudo2:
-            if st.button("🚀 Processar Laudo Executivo do Mês", type="primary", use_container_width=True):
-                if df_eventos.empty:
-                    st.warning("Não há chamados suficientes para gerar um laudo analítico neste mês.")
-                else:
-                    evento_campeao = contagem_eventos.iloc[0]['Ocorrência']
-                    total_campeao = contagem_eventos.iloc[0]['Total']
-                    total_geral_chamados = df_eventos.shape[0]
-                    porcentagem_campeao = (total_campeao / total_geral_chamados) * 100
-                    
-                    # --- LÓGICA NOVA: MONTA A LISTA COM % DE TODOS OS EVENTOS ---
-                    detalhamento_operacional = ""
-                    for _, row in contagem_eventos.iterrows():
-                        evt = row['Ocorrência']
-                        qtd = row['Total']
-                        pct = (qtd / total_geral_chamados) * 100
-                        detalhamento_operacional += f"   • {evt}: {qtd} chamado(s) ({pct:.1f}%)\n"
-                    
-                    dict_diag = DIAGNOSTICOS_TECNICOS.get(evento_campeao, {
-                        "diagnostico": f"Identificamos um número atípico do evento '{evento_campeao}'.",
-                        "causa": "Pode ter sido ocasionado por instabilidades pontuais no sistema, variações elétricas no veículo ou uso inadequado.",
-                        "acao": "Manter os veículos em observação e orientar a base de motoristas sobre as regras de uso padrão."
-                    })
-                    
-                    texto_laudo_markdown = f"""
+            if not st.session_state.mostrar_laudo:
+                if st.button("🚀 Processar Laudo Executivo do Mês", type="primary", use_container_width=True):
+                    if df_eventos.empty:
+                        st.warning("Não há chamados suficientes para gerar um laudo analítico neste mês.")
+                    else:
+                        st.session_state.mostrar_laudo = True
+                        st.rerun()
+                        
+            if st.session_state.mostrar_laudo:
+                # Recalcula caso a tela tenha sido apenas recarregada
+                contagem_eventos = df_eventos['Evento'].value_counts().reset_index()
+                contagem_eventos.columns = ['Ocorrência', 'Total']
+                
+                evento_campeao = contagem_eventos.iloc[0]['Ocorrência']
+                total_campeao = contagem_eventos.iloc[0]['Total']
+                total_geral_chamados = df_eventos.shape[0]
+                porcentagem_campeao = (total_campeao / total_geral_chamados) * 100
+                
+                detalhamento_operacional = ""
+                for _, row in contagem_eventos.iterrows():
+                    evt = row['Ocorrência']
+                    qtd = row['Total']
+                    pct = (qtd / total_geral_chamados) * 100
+                    detalhamento_operacional += f"   • {evt}: {qtd} chamado(s) ({pct:.1f}%)\n"
+                
+                dict_diag = DIAGNOSTICOS_TECNICOS.get(evento_campeao, {
+                    "diagnostico": f"Identificamos um número atípico do evento '{evento_campeao}'.",
+                    "causa": "Pode ter sido ocasionado por instabilidades pontuais no sistema, variações elétricas no veículo ou uso inadequado.",
+                    "acao": "Manter os veículos em observação e orientar a base de motoristas sobre as regras de uso padrão."
+                })
+                
+                texto_laudo_markdown = f"""
 ======================================================
 LAUDO DE DESEMPENHO OPERACIONAL - {mes_filtro_dash}
 ======================================================
@@ -657,20 +683,26 @@ Este evento representou {porcentagem_campeao:.1f}% de todo o fluxo operacional d
 
 ======================================================
 Gerado pelo Sistema Oficial AD Rastreamento Veicular
-                    """
-                    
-                    st.success("Laudo analisado e gerado com sucesso!")
-                    st.markdown(f"""
-                    <div style="background-color: #f0f4f8; padding: 20px; border-left: 5px solid #8b0000; border-radius: 5px; font-family: monospace; white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: #333;">{texto_laudo_markdown}</div>
-                    """, unsafe_allow_html=True)
-                    
+                """
+                
+                st.success("Laudo analisado e gerado com sucesso!")
+                st.markdown(f"""
+                <div style="background-color: #f0f4f8; padding: 20px; border-left: 5px solid #8b0000; border-radius: 5px; font-family: monospace; white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: #333; margin-bottom: 15px;">{texto_laudo_markdown}</div>
+                """, unsafe_allow_html=True)
+                
+                col_btn_laudo1, col_btn_laudo2 = st.columns(2)
+                with col_btn_laudo1:
                     st.download_button(
-                        label="📥 Baixar Laudo Completo em Arquivo de Texto",
+                        label="📥 Baixar Laudo de Texto",
                         data=texto_laudo_markdown,
                         file_name=f"Laudo_Tecnico_{emp_alvo_rel.replace(' ', '_')}_{mes_filtro_dash.replace('/', '_')}.txt",
                         mime="text/plain",
                         use_container_width=True
                     )
+                with col_btn_laudo2:
+                    if st.button("❌ Fechar Laudo", use_container_width=True):
+                        st.session_state.mostrar_laudo = False
+                        st.rerun()
 
     # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) ---
     elif aba_ativa == "central" and st.session_state.is_admin:
