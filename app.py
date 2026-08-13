@@ -126,13 +126,25 @@ def init_db():
     
     conn.commit()
 
+# --- CORREÇÃO DO ERRO DE MEMÓRIA (UNSERIALIZABLE RETURN VALUE ERROR) ---
 @st.cache_data(ttl=2, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_conn_fast()
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
     data = c.fetchall()
-    return data
+    
+    resultado_limpo = []
+    for row in data:
+        row_dict = dict(row)
+        for key, val in row_dict.items():
+            # Converte objetos de memória binária (como logos/BYTEA) para bytes normais
+            # Isso impede que o cache do Streamlit "engasgue" ao tentar salvar a informação
+            if isinstance(val, memoryview):
+                row_dict[key] = bytes(val)
+        resultado_limpo.append(row_dict)
+        
+    return resultado_limpo
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
