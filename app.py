@@ -10,6 +10,7 @@ import os
 import hashlib
 import uuid
 import re
+import altair as alt
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
 st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
@@ -17,7 +18,7 @@ st.set_page_config(page_title="Central de Operações", page_icon="🛡️", lay
 st.markdown("""
 <style>
     .stApp { background-color: #fdfdfd; }
-    h1, h2, h3 { color: #4a0e4e; }
+    h1, h2, h3 { color: #4a0e4e; margin-top: 0px; margin-bottom: 10px; }
     .stButton>button { background-color: #8b0000; color: white; font-weight: bold; border-radius: 6px; border: none; transition: 0.3s; }
     .stButton>button:hover { background-color: #4a0e4e; color: white; border: 1px solid #8b0000; }
     div[data-testid="stSidebar"] { background-color: #4a0e4e; }
@@ -33,7 +34,6 @@ st.markdown("""
         border-bottom: 4px solid #4a0e4e;
     }
     
-    /* Caixas individuais para cada item do menu */
     div[role="radiogroup"] > label {
         background-color: #ffffff;
         border: 2px solid #e0e0e0;
@@ -44,22 +44,23 @@ st.markdown("""
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
     
-    /* Efeito de passar o mouse */
     div[role="radiogroup"] > label:hover {
         border-color: #4a0e4e;
         background-color: #fafafa;
     }
     
-    /* Destaque para a aba que está clicada/ativa */
     div[role="radiogroup"] > label[data-checked="true"] {
         border-color: #8b0000;
         background-color: #fff5f5;
     }
     
-    /* Ajuste para pastas */
     div[data-testid="stExpander"] { border-left: 4px solid #4a0e4e; }
     
     .ficha-box { border: 2px solid #4a0e4e; padding: 20px; border-radius: 10px; background-color: #fafafa; margin-top: 15px;}
+    
+    /* Títulos refinados para o Dashboard */
+    .dash-title { color: #4a0e4e; font-size: 20px; font-weight: 600; text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
+    .dash-legend { font-size: 14px; color: #555; display: flex; justify-content: space-between; padding: 5px 10px; border-bottom: 1px solid #f0f0f0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -86,7 +87,6 @@ def get_conn_fast():
         conn = get_db_connection()
     return conn
 
-# OTIMIZAÇÃO: Cache para rodar a criação de tabelas apenas 1 vez
 @st.cache_resource(show_spinner=False)
 def init_db():
     conn = get_conn_fast()
@@ -94,7 +94,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS empresas (id SERIAL PRIMARY KEY, nome TEXT, cnpj TEXT, endereco TEXT, telefone TEXT, responsavel TEXT, servicos TEXT DEFAULT 'Ambos (Furto/Roubo + Monitoramento)', valor_veiculo REAL DEFAULT 3.00, dia_vencimento INTEGER DEFAULT 10, status_pagamento TEXT DEFAULT 'Pendente', valor_pago REAL DEFAULT 0.00, logo_binario BYTEA)''')
     c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_fatura_calculada REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS notificacoes (id SERIAL PRIMARY KEY, data_hora TEXT, empresa TEXT, mensagem TEXT, lida BOOLEAN DEFAULT FALSE)''')
-    
     c.execute('''CREATE TABLE IF NOT EXISTS aceites_lgpd (id SERIAL PRIMARY KEY, empresa TEXT, data_hora TEXT, ip_aceite TEXT DEFAULT 'Sistema Web', hash_assinatura TEXT)''')
 
     try:
@@ -120,7 +119,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id SERIAL PRIMARY KEY, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
     
-    # OTIMIZAÇÃO: Índices no Banco de Dados
     c.execute('''CREATE INDEX IF NOT EXISTS idx_veiculos_placa ON veiculos(placa)''')
     c.execute('''CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes(documento)''')
     c.execute('''CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes(nome)''')
@@ -128,26 +126,13 @@ def init_db():
     
     conn.commit()
 
-# CACHE REDUZIDO PARA 2 SEGUNDOS
 @st.cache_data(ttl=2, show_spinner=False)
 def fetch_data(query, params=()):
     conn = get_conn_fast()
     c = conn.cursor(cursor_factory=RealDictCursor)
     c.execute(query, params)
     data = c.fetchall()
-    
-    # BLINDAGEM DO CACHE: Converte dados brutos do PostgreSQL para dicionários nativos do Python
-    resultado_limpo = []
-    for row in data:
-        linha_limpa = {}
-        for chave, valor in row.items():
-            if isinstance(valor, memoryview):
-                linha_limpa[chave] = bytes(valor) # Resolve o erro do memoryview/logo_binario
-            else:
-                linha_limpa[chave] = valor
-        resultado_limpo.append(linha_limpa)
-        
-    return resultado_limpo
+    return data
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_logo_cached(empresa_nome):
@@ -262,72 +247,44 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
-def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
-    hash_exibicao = dados_aceite.get('hash_assinatura')
-    if not hash_exibicao:
-        hash_exibicao = "Autenticação Legada (Pré-Criptografia)."
-
-    html_content = f"""
-    <html>
-    <head>
-        <meta charset="utf-8">
-        <title>Certificado de Aceite LGPD</title>
-        <style>
-            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; line-height: 1.6; }}
-            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 20px; margin-bottom: 30px; }}
-            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
-            .header h3 {{ color: #555; margin: 10px 0 0 0; font-weight: normal; }}
-            .content {{ padding: 20px 40px; text-align: justify; }}
-            .clausula {{ margin-bottom: 15px; }}
-            .assinatura-box {{ margin-top: 50px; background-color: #f9f9f9; border: 1px solid #ddd; padding: 20px; border-radius: 8px; }}
-            .assinatura-title {{ font-size: 16px; font-weight: bold; color: #4a0e4e; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }}
-            .ass-row {{ margin-bottom: 8px; font-size: 14px; }}
-            .ass-label {{ font-weight: bold; color: #555; }}
-            .hash-box {{ margin-top: 15px; padding: 10px; background-color: #e8eaf6; border-left: 4px solid #3f51b5; font-family: monospace; font-size: 13px; word-break: break-all; }}
-            .footer {{ margin-top: 50px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 15px; }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>AD RASTREAMENTO VEICULAR</h1>
-            <h3>Certificado Oficial de Aceite Eletrônico - LGPD</h3>
-        </div>
-        
-        <div class="content">
-            <p><strong>TERMO DE RESPONSABILIDADE, CONFIDENCIALIDADE E ADEQUAÇÃO À LGPD</strong></p>
-            
-            <p>A <strong>AD Rastreamento Veicular</strong>, sediada em São Gonçalo do Amarante, na qualidade de provedora do software de gestão e telemetria, estabelece as seguintes diretrizes obrigatórias aceitas pela CONTRATANTE/PARCEIRA para o uso da plataforma:</p>
-            
-            <div class="clausula"><strong>1. Sigilo e Confidencialidade:</strong> O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.</div>
-            
-            <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
-            
-            <div class="clausula"><strong>3. Penalidades Legais:</strong> O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).</div>
-        </div>
-        
-        <div class="assinatura-box">
-            <div class="assinatura-title">📜 DADOS DA ASSINATURA ELETRÔNICA</div>
-            <div class="ass-row"><span class="ass-label">Empresa Signatária (Parceiro):</span> {dados_aceite['empresa']}</div>
-            <div class="ass-row"><span class="ass-label">CNPJ Registrado:</span> {cnpj_parceiro}</div>
-            <div class="ass-row"><span class="ass-label">Data e Hora do Aceite:</span> {dados_aceite['data_hora']}</div>
-            <div class="ass-row"><span class="ass-label">Método de Autenticação / Dispositivo:</span> {dados_aceite['ip_aceite']}</div>
-            
-            <div class="hash-box">
-                <strong>Chave de Autenticação Digital (Hash SHA-256):</strong><br>
-                {hash_exibicao}
-            </div>
-            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Este código garante a integridade e a validade jurídica deste aceite no banco de dados da Central de Operações.</p>
-        </div>
-        
-        <div class="footer">
-            Documento gerado automaticamente pelo Sistema de Auditoria Interna da AD Rastreamento Veicular.<br>
-            A autenticidade deste documento pode ser verificada mediante cruzamento com o banco de dados oficial (PostgreSQL).
-        </div>
-    </body>
-    </html>
-    """
-    b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
-    return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
+# --- BASE DE CONHECIMENTO (DIAGNÓSTICO TÉCNICO INTELIGENTE) ---
+DIAGNOSTICOS_TECNICOS = {
+    "Falta de Comunicação": {
+        "diagnostico": "Identificamos uma alta incidência de perda de pacote de dados e falha de GPRS nos equipamentos.",
+        "causa": "Problemas de cobertura local (zona de sombra), falha na antena interna do módulo, ou bloqueio temporário na linha do chip M2M pela operadora de telefonia.",
+        "acao": "Realizar um teste de ping remoto (varredura de sinal) nos chips afetados. Caso os veículos operem sempre em regiões remotas, recomenda-se a substituição por chips Multi-Operadora (Roaming) para estabilizar a telemetria."
+    },
+    "Desconexão de Bateria": {
+        "diagnostico": "Houve um pico de alertas de violação de alimentação principal ou queda crítica de tensão.",
+        "causa": "O veículo pode ter sido levado a uma oficina sem aviso à central, a bateria do veículo apresenta desgaste acentuado (arriada), ou há uma tentativa suspeita de sabotagem do chicote do rastreador.",
+        "acao": "Estabelecer uma rotina de contato imediato com o condutor/gestor da frota assim que o evento for disparado. Se não houver manutenção autorizada em curso, abrir protocolo de segurança urgente e agendar revisão de instalação."
+    },
+    "Cerca Virtual": {
+        "diagnostico": "Alto volume de notificações por evasão de perímetro geográfico ou quebra de rota.",
+        "causa": "Uso indevido do veículo fora do horário comercial, desvio de rota por parte do condutor, ou raio da cerca configurado na plataforma em tamanho muito restrito/pequeno.",
+        "acao": "Revisar as regras de roteirização diretamente com o dono da frota. Se o perímetro for oficial, recomenda-se uma advertência ou reorientação das políticas de frota junto aos motoristas."
+    },
+    "Transferência - Setor Financeiro": {
+        "diagnostico": "Elevado número de chamados transferidos para tratativas de faturas, cobranças e bloqueios.",
+        "causa": "Dificuldades dos clientes finais em localizar os boletos, dúvidas sobre mensalidades atrasadas ou pedidos de reativação de sinal após bloqueio por inadimplência.",
+        "acao": "Recomendamos implementar réguas de cobrança automatizadas via WhatsApp/E-mail (ex: envios 5 e 2 dias antes do vencimento) para reduzir consideravelmente a sobrecarga humana no setor de suporte."
+    },
+    "Transferência - Setor Técnico": {
+        "diagnostico": "Sobrecarga de chamados repassados para a equipe de suporte avançado e manutenção física.",
+        "causa": "Clientes com dificuldades em manusear o aplicativo mobile, dúvidas de acesso, ou falhas intermitentes em equipamentos legados (rastreadores muito antigos precisando de recall).",
+        "acao": "Criar pequenos vídeos tutoriais fáceis sobre o uso do App e disparar para a base. Para veículos reincidentes, agendar recall para troca preventiva de hardware."
+    },
+    "Furto": {
+        "diagnostico": "Aumento direto nos índices de sinistro da frota monitorada.",
+        "causa": "Exposição excessiva dos veículos em vias públicas sem vigilância durante horários e madrugadas de alta vulnerabilidade.",
+        "acao": "Orientar o cliente a utilizar cercas virtuais noturnas rígidas e avaliar urgentemente a instalação de iscas de rádio-frequência (RF) ou rastreadores secundários autônomos."
+    },
+    "Roubo": {
+        "diagnostico": "Elevação severa das ocorrências de roubo em trânsito (abordagem com veículo em movimento).",
+        "causa": "Circulação em zonas de alta mancha criminal ou rotas de escoamento visadas por quadrilhas especializadas.",
+        "acao": "Afinar a inteligência de bloqueio remoto (corte progressivo). Estudar o mapeamento da mancha criminal e redesenhar o trajeto dos motoristas nas zonas de risco."
+    }
+}
 
 # --- CONTROLE DE SESSÃO SEGURO E LIMPEZA DE TELA ---
 if 'logged_in' not in st.session_state:
@@ -352,7 +309,7 @@ if 'link_transferencia' not in st.session_state: st.session_state.link_transfere
 if 'empresa_transferencia' not in st.session_state: st.session_state.empresa_transferencia = None
 
 chaves_necessarias = {
-    'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0
+    'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0, 'dash_mes': 0
 }
 
 if 'reset_keys' not in st.session_state:
@@ -382,7 +339,7 @@ if 'flash_msg' in st.session_state:
 if not st.session_state.logged_in:
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("<h1 style='text-align: center;'>🛡️ Central de Operações de Segurança</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align: center; color: #4a0e4e;'>🛡️ Central de Operações de Segurança</h1>", unsafe_allow_html=True)
         st.markdown("<p style='text-align: center; color: #8b0000; font-weight: bold;'>Administrador: AD Rastreamento Veicular</p>", unsafe_allow_html=True)
         
         with st.form("login_form"):
@@ -512,7 +469,6 @@ else:
         st.markdown("### 📞 Suporte Oficial")
         st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Empresa Logada: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
 
-    # Lógica de Notificações Laterais
     if st.session_state.is_admin:
         alertas = fetch_data("SELECT * FROM notificacoes WHERE lida = FALSE ORDER BY id DESC")
         if alertas:
@@ -525,7 +481,6 @@ else:
                     st.rerun()
             st.markdown("---")
 
-    # --- OTIMIZAÇÃO: CÁLCULO DE PENDÊNCIAS RÁPIDO PARA O BADGE NO MENU ---
     if st.session_state.is_admin:
         res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE tipo='Transferência' AND status='PENDENTE'")
     else:
@@ -535,82 +490,180 @@ else:
 
     def formatar_nome_menu(aba_id):
         mapa = {
-            "dashboards": "📊 Resumo",
+            "dashboard": "📊 Dashboard",
             "central": "🚨 Central 24h",
             "pendencias": f"🛠️ Pendências ({qtd_pend})",
             "clientes": "👤 Clientes",
             "relatorios": "📖 Relatórios",
             "empresas": "🏢 Empresas",
             "financeiro": "💰 Financeiro",
-            "faturamento": "💰 Faturamento",
+            "faturamento": "💰 Meu Faturamento",
             "cadastro": "⚙️ Meu Cadastro",
             "auditoria": "🕵️ Auditoria"
         }
         return mapa.get(aba_id, aba_id)
 
-    # --- MENU DE NAVEGAÇÃO DINÂMICO E SEPARADO ---
     if st.session_state.is_admin:
-        lista_abas = ["dashboards", "central", "pendencias", "clientes", "relatorios", "empresas", "financeiro", "auditoria"]
+        lista_abas = ["dashboard", "central", "pendencias", "clientes", "relatorios", "empresas", "financeiro", "auditoria"]
     else:
-        lista_abas = ["dashboards", "pendencias", "clientes", "relatorios", "faturamento", "cadastro", "auditoria"]
+        lista_abas = ["dashboard", "pendencias", "clientes", "relatorios", "faturamento", "cadastro", "auditoria"]
         
     aba_ativa = st.radio("Navegação", lista_abas, format_func=formatar_nome_menu, horizontal=True, label_visibility="collapsed")
     st.markdown("---")
 
     # =======================================================================
-    # RENDERIZAÇÃO CONDICIONAL (SÓ RODA O CÓDIGO DA TELA QUE VOCÊ CLICOU)
+    # RENDERIZAÇÃO CONDICIONAL 
     # =======================================================================
 
-    # --- TELA 1: DASHBOARDS (NOVO) ---
-    if aba_ativa == "dashboards":
-        st.header("📊 Painel Executivo (Dashboards)")
-        st.markdown("<p style='font-size: 13px; color: #666;'>Visão geral consolidada da sua operação em tempo real.</p>", unsafe_allow_html=True)
+    # --- TELA: DASHBOARD EXECUTIVO (INTELIGENTE E PROPORCIONAL) ---
+    if aba_ativa == "dashboard":
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 24px; text-align: center;'>📊 Painel Executivo (Dashboard)</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 14px; color: #666; text-align: center; margin-bottom: 30px;'>Visão executiva e laudos técnicos da operação de telemetria.</p>", unsafe_allow_html=True)
         
+        col_filtro1, col_filtro2, col_filtro3 = st.columns([1, 2, 1])
+        with col_filtro2:
+            mes_atual = get_horario_brasil().strftime("%m/%Y")
+            mes_filtro_dash = st.text_input("Filtrar Período de Análise (Mês/Ano):", value=mes_atual, key=f"dash_m_{st.session_state.reset_keys['dash_mes']}")
+            st.markdown("<br>", unsafe_allow_html=True)
+
         if st.session_state.is_admin:
-            col_d1, col_d2 = st.columns(2)
-            
-            # Gráfico 1: Veículos por Empresa
-            with col_d1:
-                st.subheader("🚗 Distribuição de Veículos por Base")
-                res_v = fetch_data("SELECT c.empresa, count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id=c.id WHERE c.status='Ativo' GROUP BY c.empresa")
-                if res_v:
-                    df_v = pd.DataFrame(res_v).set_index("empresa")
-                    st.bar_chart(df_v, color="#4a0e4e")
-                else:
-                    st.info("Nenhum veículo cadastrado.")
-
-            # Gráfico 2: Status dos Chamados Gerais
-            with col_d2:
-                st.subheader("🛠️ Status Global de Atendimentos")
-                res_cham = fetch_data("SELECT status, count(id) as qtd FROM historico GROUP BY status")
-                if res_cham:
-                    df_cham = pd.DataFrame(res_cham).set_index("status")
-                    st.bar_chart(df_cham, color="#8b0000")
-                else:
-                    st.info("Nenhum atendimento registrado.")
-                    
+            q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.status = 'Ativo'"
+            q_h = "SELECT tipo, detalhes FROM historico WHERE data_hora ILIKE %s"
+            dados_v = fetch_data(q_v)
+            dados_h = fetch_data(q_h, (f"%{mes_filtro_dash}%",))
+            emp_alvo_rel = "Todas as Frotas (Visão Global)"
         else:
-            col_dp1, col_dp2 = st.columns(2)
-            
-            with col_dp1:
-                st.subheader("🚗 Sua Frota por Tipo de Veículo")
-                res_t = fetch_data("SELECT v.tipo_veic, count(v.id) as qtd FROM veiculos v JOIN clientes c ON v.cliente_id=c.id WHERE c.empresa=%s GROUP BY v.tipo_veic", (st.session_state.nome_empresa,))
-                if res_t:
-                    df_t = pd.DataFrame(res_t).set_index("tipo_veic")
-                    st.bar_chart(df_t, color="#4a0e4e")
-                else:
-                    st.info("Nenhum veículo na sua base.")
-                    
-            with col_dp2:
-                st.subheader("🛠️ Status dos seus Atendimentos")
-                res_c = fetch_data("SELECT status, count(id) as qtd FROM historico WHERE empresa=%s GROUP BY status", (st.session_state.nome_empresa,))
-                if res_c:
-                    df_c = pd.DataFrame(res_c).set_index("status")
-                    st.bar_chart(df_c, color="#8b0000")
-                else:
-                    st.info("Nenhum atendimento registrado para você.")
+            q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
+            q_h = "SELECT tipo, detalhes FROM historico WHERE empresa=%s AND data_hora ILIKE %s"
+            dados_v = fetch_data(q_v, (st.session_state.nome_empresa,))
+            dados_h = fetch_data(q_h, (st.session_state.nome_empresa, f"%{mes_filtro_dash}%"))
+            emp_alvo_rel = st.session_state.nome_empresa
 
-    # --- TELA 2: OPERAÇÃO 24H ---
+        df_frota = pd.DataFrame(dados_v) if dados_v else pd.DataFrame(columns=['tipo_veic'])
+        
+        eventos_parse = []
+        if dados_h:
+            for row in dados_h:
+                if row['tipo'] in ['Furto', 'Roubo']:
+                    eventos_parse.append(row['tipo'])
+                else:
+                    detalhe = str(row.get('detalhes', ''))
+                    if "Evento: " in detalhe:
+                        evt_extraido = detalhe.split("Evento: ")[1].split(" |")[0]
+                        eventos_parse.append(evt_extraido)
+                    else:
+                        eventos_parse.append(row['tipo'])
+        
+        df_eventos = pd.DataFrame(eventos_parse, columns=['Evento'])
+        
+        col_graf1, col_graf2 = st.columns(2)
+        
+        # Gráfico 1: Frota
+        with col_graf1:
+            st.markdown("<div class='dash-title'>🚗 Composição da Frota</div>", unsafe_allow_html=True)
+            if not df_frota.empty:
+                contagem_frota = df_frota['tipo_veic'].value_counts().reset_index()
+                contagem_frota.columns = ['Categoria', 'Quantidade']
+                
+                grafico_frota = alt.Chart(contagem_frota).mark_arc(innerRadius=60).encode(
+                    theta=alt.Theta(field="Quantidade", type="quantitative"),
+                    color=alt.Color(field="Categoria", type="nominal", scale=alt.Scale(range=['#4a0e4e', '#8b0000', '#6a1b9a', '#b71c1c'])),
+                    tooltip=["Categoria", "Quantidade"]
+                ).properties(height=280)
+                
+                st.altair_chart(grafico_frota, use_container_width=True)
+                
+                st.markdown("<div style='margin-top: 10px;'>", unsafe_allow_html=True)
+                for _, row in contagem_frota.iterrows():
+                    st.markdown(f"<div class='dash-legend'><span><b>{row['Categoria']}</b></span> <span>{row['Quantidade']} unidade(s)</span></div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                st.info("Nenhum veículo cadastrado na frota ativa.")
+
+        # Gráfico 2: Atendimentos/Eventos
+        with col_graf2:
+            st.markdown("<div class='dash-title'>🛠️ Incidência de Atendimentos</div>", unsafe_allow_html=True)
+            if not df_eventos.empty:
+                contagem_eventos = df_eventos['Evento'].value_counts().reset_index()
+                contagem_eventos.columns = ['Ocorrência', 'Total']
+                
+                grafico_eventos = alt.Chart(contagem_eventos).mark_arc(innerRadius=60).encode(
+                    theta=alt.Theta(field="Total", type="quantitative"),
+                    color=alt.Color(field="Ocorrência", type="nominal", scale=alt.Scale(scheme="purples")),
+                    tooltip=["Ocorrência", "Total"]
+                ).properties(height=280)
+                
+                st.altair_chart(grafico_eventos, use_container_width=True)
+                
+                st.markdown("<div style='margin-top: 10px;'>", unsafe_allow_html=True)
+                for _, row in contagem_eventos.iterrows():
+                    st.markdown(f"<div class='dash-legend'><span><b>{row['Ocorrência']}</b></span> <span>{row['Total']} chamado(s)</span></div>", unsafe_allow_html=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                st.info("Nenhum evento operacional registrado para este período.")
+
+        # --- A CEREJA DO BOLO: LAUDO DIAGNÓSTICO INTELIGENTE ---
+        st.markdown("<br><hr>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #4a0e4e; font-size: 20px; text-align: center;'>📄 Sistema de Inteligência Operacional</h3>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 13px; color: #666; text-align: center;'>Gere um laudo automático baseado no maior gargalo técnico que a frota enfrentou neste mês.</p>", unsafe_allow_html=True)
+        
+        col_laudo1, col_laudo2, col_laudo3 = st.columns([1, 2, 1])
+        with col_laudo2:
+            if st.button("🚀 Processar Laudo Executivo do Mês", type="primary", use_container_width=True):
+                if df_eventos.empty:
+                    st.warning("Não há chamados suficientes para gerar um laudo analítico neste mês.")
+                else:
+                    evento_campeao = contagem_eventos.iloc[0]['Ocorrência']
+                    total_campeao = contagem_eventos.iloc[0]['Total']
+                    total_geral_chamados = df_eventos.shape[0]
+                    porcentagem = (total_campeao / total_geral_chamados) * 100
+                    
+                    dict_diag = DIAGNOSTICOS_TECNICOS.get(evento_campeao, {
+                        "diagnostico": f"Identificamos um número atípico do evento '{evento_campeao}'.",
+                        "causa": "Pode ter sido ocasionado por instabilidades pontuais no sistema, variações elétricas no veículo ou uso inadequado.",
+                        "acao": "Manter os veículos em observação e orientar a base de motoristas sobre as regras de uso padrão."
+                    })
+                    
+                    texto_laudo_markdown = f"""
+                    ======================================================
+                    LAUDO DE DESEMPENHO OPERACIONAL - {mes_filtro_dash}
+                    ======================================================
+                    
+                    EMPRESA / FROTA: {emp_alvo_rel}
+                    TOTAL DE CHAMADOS NO MÊS: {total_geral_chamados}
+                    
+                    O sistema de inteligência técnica analisou a telemetria do período e identificou que o gargalo operacional principal da sua frota foi focado em:
+                    
+                    >> ALERTA PRINCIPAL: {evento_campeao}
+                    Este evento representou {porcentagem:.1f}% de todo o fluxo operacional da central ({total_campeao} chamados de um total de {total_geral_chamados}).
+                    
+                    -- DIAGNÓSTICO TÉCNICO --
+                    {dict_diag['diagnostico']}
+                    
+                    -- CAUSA RAIZ PROVÁVEL --
+                    {dict_diag['causa']}
+                    
+                    -- PLANO DE AÇÃO E SUGESTÃO DA CENTRAL --
+                    {dict_diag['acao']}
+                    
+                    ======================================================
+                    Gerado pelo Sistema Oficial AD Rastreamento Veicular
+                    """
+                    
+                    st.success("Laudo analisado e gerado com sucesso!")
+                    st.markdown(f"""
+                    <div style="background-color: #f0f4f8; padding: 20px; border-left: 5px solid #8b0000; border-radius: 5px; font-family: monospace; white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: #333;">{texto_laudo_markdown}</div>
+                    """, unsafe_allow_html=True)
+                    
+                    st.download_button(
+                        label="📥 Baixar Laudo Completo em Arquivo de Texto",
+                        data=texto_laudo_markdown,
+                        file_name=f"Laudo_Tecnico_{emp_alvo_rel.replace(' ', '_')}_{mes_filtro_dash.replace('/', '_')}.txt",
+                        mime="text/plain",
+                        use_container_width=True
+                    )
+
+    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) ---
     elif aba_ativa == "central" and st.session_state.is_admin:
         st.header("🚨 Central de Operações e Ocorrências 24h")
         
@@ -751,10 +804,10 @@ else:
                                     st.session_state.flash_msg = "Salvo com sucesso!"
                                     limpar_tela()
                                     st.rerun()
-                else:
-                    st.warning("Nenhum veículo encontrado com este termo.")
+                    else:
+                        st.warning("Nenhum veículo encontrado com este termo.")
 
-    # --- TELA 3: PENDÊNCIAS COM ALERTA SLA ---
+    # --- TELA: GESTÃO DE PENDÊNCIAS ---
     elif aba_ativa == "pendencias":
         st.header("🛠️ Gestão de Chamados e Pendências")
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel de transferências financeiras e técnicas aguardando resolução pela empresa parceira. Finalizar um chamado encerra o documento e o transfere para os Relatórios.</p>", unsafe_allow_html=True)
@@ -768,33 +821,16 @@ else:
             
         if res_pend:
             for p in res_pend:
-                # CÁLCULO DO SLA EM TEMPO REAL
-                try:
-                    dt_abertura = datetime.strptime(p['data_hora'], "%d/%m/%Y %H:%M:%S")
-                    dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
-                    tempo_decorrido = get_horario_brasil() - dt_abertura
-                    minutos = tempo_decorrido.total_seconds() / 60
-                    
-                    if minutos <= 30:
-                        cor_sla, icon_sla, texto_sla = "#2e7d32", "🟢", "No Prazo (Até 30m)"
-                    elif minutos <= 60:
-                        cor_sla, icon_sla, texto_sla = "#f57f17", "🟡", "Atenção (30m - 1h)"
-                    else:
-                        cor_sla, icon_sla, texto_sla = "#c62828", "🔴", "Atrasado (+1h)"
-                except:
-                    minutos, cor_sla, icon_sla, texto_sla = 0, "#555", "⚪", "SLA Indisponível"
-
-                with st.expander(f"{icon_sla} CHAMADO PENDENTE #{p['id']} - {p['cliente']} (Placa: {p['placa']})", expanded=False):
-                    st.markdown(f"**Tempo de Resposta (SLA):** <span style='color:{cor_sla}; font-weight:bold;'>{texto_sla}</span> ({int(minutos)} min decorridos desde a abertura)", unsafe_allow_html=True)
-                    st.write(f"**Data de Abertura:** {p['data_hora']} | **Empresa:** {p['empresa']}")
+                with st.expander(f"🔴 CHAMADO PENDENTE #{p['id']} - {p['cliente']} (Placa: {p['placa']}) - {p['data_hora']}", expanded=False):
+                    st.write(f"**Empresa Responsável:** {p['empresa']}")
                     st.write(f"**Detalhes da Solicitação Inicial:**")
                     st.info(p['detalhes'])
                     
                     st.markdown("---")
-                    st.write("✅ **Finalizar Chamado (Resolver Pendência):**")
+                    st.write("🟢 **Finalizar Chamado (Resolver Pendência):**")
                     desfecho_pend = st.text_area("Descreva o desfecho ou a solução aplicada (Ex: 'Fatura regularizada' ou 'Equipamento resetado e online'):", key=f"desf_pend_{p['id']}")
                     
-                    if st.button("Gravar Resolução e Encerrar Documento", key=f"btn_res_pend_{p['id']}", type="primary"):
+                    if st.button("✅ Marcar como Resolvido / Encerrar Documento", key=f"btn_res_pend_{p['id']}", type="primary"):
                         if not desfecho_pend.strip():
                             st.error("Por favor, preencha o desfecho antes de finalizar o chamado.")
                         else:
@@ -808,7 +844,7 @@ else:
         else:
             st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
 
-    # --- TELA 4: CLIENTES E FROTAS ---
+    # --- TELA: CLIENTES E FROTAS ---
     elif aba_ativa == "clientes":
         st.header("👤 Gerenciamento de Clientes e Frotas Multi-Veículos")
         
@@ -850,10 +886,6 @@ else:
             if res_tela:
                 df_tela = pd.DataFrame(res_tela)
                 empresas_ativas = df_tela['empresa'].unique()
-                
-                # --- EXPORTAÇÃO EXCEL/CSV DA ABA CLIENTES ---
-                st.download_button(label="📥 Exportar Lista de Clientes para Excel (CSV)", data=df_tela.to_csv(index=False).encode('utf-8'), file_name="relatorio_clientes_frotas.csv", mime="text/csv")
-                st.markdown("<br>", unsafe_allow_html=True)
                 
                 for emp_ativa in empresas_ativas:
                     with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
@@ -1211,7 +1243,7 @@ else:
             st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao suporte oficial informando a placa e o motivo.")
             st.markdown(gerar_link_whatsapp(f"Solicitação de Exclusão de Cadastro - Parceiro: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
 
-    # --- TELA 5: RELATÓRIOS ---
+    # --- TELA: RELATÓRIOS ---
     elif aba_ativa == "relatorios":
         st.header("📖 Relatórios Operacionais")
         
@@ -1387,7 +1419,7 @@ else:
                         st.info("Nenhum registro encontrado.")
                 idx_sub += 1
 
-    # --- TELA 6: MEU FATURAMENTO (SÓ PARCEIROS) ---
+    # --- TELA: MEU FATURAMENTO (SÓ PARCEIROS) ---
     elif aba_ativa == "faturamento" and not st.session_state.is_admin:
         st.header("💰 Meu Faturamento e Frotas Ativas")
         
@@ -1468,14 +1500,9 @@ else:
                 df_hp = pd.DataFrame(res_hist_p)[['mes_ref', 'total_veiculos', 'valor_unitario', 'valor_fatura_calculada', 'valor_pago', 'status', 'data_pagamento']]
                 df_hp.columns = ['Mês Ref.', 'Veículos', 'Valor Unit.', 'Fatura Calc.', 'Valor Pago', 'Status', 'Data Pgto']
                 st.dataframe(df_hp, use_container_width=True)
-                
-                # --- EXPORTAÇÃO EXCEL/CSV (PARCEIRO) ---
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.download_button(label="📥 Exportar Faturas para Excel (CSV)", data=df_hp.to_csv(index=False).encode('utf-8'), file_name=f"historico_faturas_{st.session_state.nome_empresa}.csv", mime="text/csv")
             else:
                 st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
-    # --- TELA 7: MEU CADASTRO (SÓ PARCEIROS) ---
     elif aba_ativa == "cadastro" and not st.session_state.is_admin:
         st.header("⚙️ Meu Cadastro Profissional")
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
@@ -1537,7 +1564,6 @@ else:
         else:
             st.error("Erro ao localizar cadastro da empresa.")
 
-    # --- TELA 8: EMPRESAS (SÓ ADMIN) ---
     elif aba_ativa == "empresas" and st.session_state.is_admin:
         st.header("🏢 Gerenciamento de Empresas Parceiras e Precificação")
         
@@ -1643,7 +1669,6 @@ else:
             else:
                 st.warning("Nenhuma empresa encontrada.")
 
-    # --- TELA 9: FINANCEIRO GLOBAL (SÓ ADMIN) ---
     elif aba_ativa == "financeiro" and st.session_state.is_admin:
         st.header("💰 Controle Financeiro Global")
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.</p>", unsafe_allow_html=True)
@@ -1713,10 +1738,6 @@ else:
         if empresas_cad:
             df_fin_global = pd.DataFrame(dados_financeiro_global)
             st.dataframe(df_fin_global, use_container_width=True)
-            
-            # --- EXPORTAÇÃO EXCEL/CSV (ADMIN FINANCEIRO) ---
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button(label="📥 Exportar Faturamento Global para Excel (CSV)", data=df_fin_global.to_csv(index=False).encode('utf-8'), file_name="faturamento_global.csv", mime="text/csv")
             
             st.markdown("---")
             st.subheader("🔍 Consulta Histórica de Faturas")
@@ -1799,7 +1820,6 @@ else:
                         limpar_tela()
                         st.rerun()
 
-    # --- TELA 10: AUDITORIA ---
     elif aba_ativa == "auditoria":
         st.header("🕵️ Auditoria e Registros de Atividades")
         st.markdown("<p style='font-size: 13px; color: #666; margin-bottom: 15px;'>🔒 <b>Blindagem Jurídica Ativa:</b> Todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações de acordo com a LGPD e Marco Civil da Internet.</p>", unsafe_allow_html=True)
@@ -1831,11 +1851,6 @@ else:
                 df_auditoria.columns = ['ID', 'Data/Hora', 'Empresa / Usuário', 'Ação', 'Módulo', 'Detalhes']
 
             st.dataframe(df_auditoria, use_container_width=True)
-            
-            # --- EXPORTAÇÃO EXCEL/CSV DA AUDITORIA ---
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button(label="📥 Exportar Relatório de Auditoria (Excel/CSV)", data=df_auditoria.to_csv(index=False).encode('utf-8'), file_name="relatorio_auditoria.csv", mime="text/csv")
-            
         else:
             st.info(f"Nenhum registro de auditoria para os termos buscados.")
             
