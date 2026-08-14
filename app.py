@@ -103,6 +103,10 @@ def init_db():
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_binario BYTEA;")
         c.execute("ALTER TABLE historico_faturas ADD COLUMN IF NOT EXISTS valor_fatura_calculada REAL DEFAULT 0.00;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS email TEXT;")
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_gestor TEXT DEFAULT '';")
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_pronta_resposta TEXT DEFAULT '';")
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_diretriz_bloqueio TEXT DEFAULT '';")
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_monitoramento TEXT DEFAULT '';")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -249,47 +253,114 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
+def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
+    hash_exibicao = dados_aceite.get('hash_assinatura')
+    if not hash_exibicao:
+        hash_exibicao = "Autenticação Legada (Pré-Criptografia)."
+
+    html_content = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Certificado de Aceite LGPD</title>
+        <style>
+            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; line-height: 1.6; }}
+            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 20px; margin-bottom: 30px; }}
+            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
+            .header h3 {{ color: #555; margin: 10px 0 0 0; font-weight: normal; }}
+            .content {{ padding: 20px 40px; text-align: justify; }}
+            .clausula {{ margin-bottom: 15px; }}
+            .assinatura-box {{ margin-top: 50px; background-color: #f9f9f9; border: 1px solid #ddd; padding: 20px; border-radius: 8px; }}
+            .assinatura-title {{ font-size: 16px; font-weight: bold; color: #4a0e4e; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }}
+            .ass-row {{ margin-bottom: 8px; font-size: 14px; }}
+            .ass-label {{ font-weight: bold; color: #555; }}
+            .hash-box {{ margin-top: 15px; padding: 10px; background-color: #e8eaf6; border-left: 4px solid #3f51b5; font-family: monospace; font-size: 13px; word-break: break-all; }}
+            .footer {{ margin-top: 50px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 15px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>AD RASTREAMENTO VEICULAR</h1>
+            <h3>Certificado Oficial de Aceite Eletrônico - LGPD</h3>
+        </div>
+        
+        <div class="content">
+            <p><strong>TERMO DE RESPONSABILIDADE, CONFIDENCIALIDADE E ADEQUAÇÃO À LGPD</strong></p>
+            
+            <p>A <strong>AD Rastreamento Veicular</strong>, sediada em São Gonçalo do Amarante, na qualidade de provedora do software de gestão e telemetria, estabelece as seguintes diretrizes obrigatórias aceitas pela CONTRATANTE/PARCEIRA para o uso da plataforma:</p>
+            
+            <div class="clausula"><strong>1. Sigilo e Confidencialidade:</strong> O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.</div>
+            
+            <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
+            
+            <div class="clausula"><strong>3. Penalidades Legais:</strong> O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).</div>
+        </div>
+        
+        <div class="assinatura-box">
+            <div class="assinatura-title">📜 DADOS DA ASSINATURA ELETRÔNICA</div>
+            <div class="ass-row"><span class="ass-label">Empresa Signatária (Parceiro):</span> {dados_aceite['empresa']}</div>
+            <div class="ass-row"><span class="ass-label">CNPJ Registrado:</span> {cnpj_parceiro}</div>
+            <div class="ass-row"><span class="ass-label">Data e Hora do Aceite:</span> {dados_aceite['data_hora']}</div>
+            <div class="ass-row"><span class="ass-label">Método de Autenticação / Dispositivo:</span> {dados_aceite['ip_aceite']}</div>
+            
+            <div class="hash-box">
+                <strong>Chave de Autenticação Digital (Hash SHA-256):</strong><br>
+                {hash_exibicao}
+            </div>
+            <p style="font-size: 12px; color: #666; margin-top: 10px;">* Este código garante a integridade e a validade jurídica deste aceite no banco de dados da Central de Operações.</p>
+        </div>
+        
+        <div class="footer">
+            Documento gerado automaticamente pelo Sistema de Auditoria Interna da AD Rastreamento Veicular.<br>
+            A autenticidade deste documento pode ser verificada mediante cruzamento com o banco de dados oficial (PostgreSQL).
+        </div>
+    </body>
+    </html>
+    """
+    b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
+    return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
+
 # --- BASE DE CONHECIMENTO (DIAGNÓSTICO TÉCNICO INTELIGENTE) ---
 DIAGNOSTICOS_TECNICOS = {
-    "Falta de Comunicação": {
-        "diagnostico": "Identificamos uma alta incidência de perda de pacote de dados e falha de GPRS nos equipamentos.",
-        "causa": "Problemas de cobertura local (zona de sombra), falha na antena interna do módulo, ou bloqueio temporário na linha do chip M2M pela operadora de telefonia.",
-        "acao": "Realizar um teste de ping remoto (varredura de sinal) nos chips afetados. Caso os veículos operem sempre em regiões remotas, recomenda-se a substituição por chips Multi-Operadora (Roaming) para estabilizar a telemetria."
+    "Registro - Falta de Comunicação": {
+        "diagnostico": "Identificamos uma alta incidência de registros rotineiros de perda de pacote de dados e falha de GPRS nos equipamentos.",
+        "causa": "Pode ocorrer devido a problemas de cobertura local (zona de sombra), falha na antena interna do módulo, ou bloqueios temporários pelas operadoras.",
+        "acao": "Manter monitoramento de praxe e conscientizar motoristas sobre as áreas de sombra nas rotas comuns."
     },
-    "Desconexão de Bateria": {
-        "diagnostico": "Houve um pico de alertas de violação de alimentação principal ou queda crítica de tensão.",
-        "causa": "O veículo pode ter sido levado a uma oficina sem aviso à central, a bateria do veículo apresenta desgaste acentuado (arriada), ou há uma tentativa suspeita de sabotagem do chicote do rastreador.",
-        "acao": "Estabelecer uma rotina de contato imediato com o condutor/gestor da frota assim que o evento for disparado. Se não houver manutenção autorizada em curso, abrir protocolo de segurança urgente e agendar revisão de instalação."
+    "Registro - Desconexão de Bateria": {
+        "diagnostico": "Houve um pico de registros informativos sobre violação de alimentação principal.",
+        "causa": "Veículos em manutenção programada, oficinas, ou com bateria arriada devido ao tempo ocioso.",
+        "acao": "Estreitar contato com os gestores das frotas para antecipar manutenções, evitando sobrecarga de alertas falsos na central."
     },
-    "Cerca Virtual": {
+    "Registro - Cerca Virtual": {
         "diagnostico": "Alto volume de notificações por evasão de perímetro geográfico ou quebra de rota.",
-        "causa": "Uso indevido do veículo fora do horário comercial, desvio de rota por parte do condutor, ou raio da cerca configurado na plataforma em tamanho muito restrito/pequeno.",
-        "acao": "Revisar as regras de roteirização diretamente com o dono da frota. Se o perímetro for oficial, recomenda-se uma advertência ou reorientação das políticas de frota junto aos motoristas."
+        "causa": "Uso indevido do veículo fora do horário comercial ou desvio de rota aprovado não comunicado previamente.",
+        "acao": "Revisar as regras de roteirização diretamente com o dono da frota para melhor calibração de cercas."
     },
     "Transferência - Setor Financeiro": {
         "diagnostico": "Elevado número de chamados transferidos para tratativas de faturas, cobranças e bloqueios.",
-        "causa": "Dificuldades dos clientes finais em localizar os boletos, dúvidas sobre mensalidades atrasadas ou pedidos de reativação de sinal após bloqueio por inadimplência.",
-        "acao": "Recomendamos implementar réguas de cobrança automatizadas via WhatsApp/E-mail (ex: envios 5 e 2 dias antes do vencimento) para reduzir consideravelmente a sobrecarga humana no setor de suporte."
+        "causa": "Dificuldades dos clientes finais em localizar os boletos, dúvidas sobre mensalidades atrasadas ou pedidos de reativação.",
+        "acao": "Implementar réguas de cobrança automatizadas via WhatsApp/E-mail para reduzir a sobrecarga no suporte financeiro."
     },
     "Transferência - Setor Técnico": {
         "diagnostico": "Sobrecarga de chamados repassados para a equipe de suporte avançado e manutenção física.",
-        "causa": "Clientes com dificuldades em manusear o aplicativo mobile, dúvidas de acesso, ou falhas intermitentes em equipamentos legados (rastreadores muito antigos precisando de recall).",
-        "acao": "Criar pequenos vídeos tutoriais fáceis sobre o uso do App e disparar para a base. Para veículos reincidentes, agendar recall para troca preventiva de hardware."
+        "causa": "Equipamentos necessitando de recall, falhas de sinal crítico ou dificuldades no uso do App.",
+        "acao": "Criar pequenos vídeos tutoriais fáceis sobre o uso do App e disparar para a base. Para veículos reincidentes, agendar recall para troca preventiva."
     },
     "Furto": {
         "diagnostico": "Aumento direto nos índices de sinistro da frota monitorada.",
         "causa": "Exposição excessiva dos veículos em vias públicas sem vigilância durante horários e madrugadas de alta vulnerabilidade.",
-        "acao": "Orientar o cliente a utilizar cercas virtuais noturnas rígidas e avaliar urgentemente a instalação de iscas de rádio-frequência (RF) ou rastreadores secundários autônomos."
+        "acao": "Orientar o cliente a utilizar cercas virtuais noturnas rígidas e avaliar urgentemente a instalação de iscas de rádio-frequência (RF)."
     },
     "Roubo": {
         "diagnostico": "Elevação severa das ocorrências de roubo em trânsito (abordagem com veículo em movimento).",
         "causa": "Circulação em zonas de alta mancha criminal ou rotas de escoamento visadas por quadrilhas especializadas.",
-        "acao": "Afinar a inteligência de bloqueio remoto (corte progressivo). Estudar o mapeamento da mancha criminal e redesenhar o trajeto dos motoristas nas zonas de risco."
+        "acao": "Afinar a inteligência de bloqueio remoto (corte progressivo). Estudar o mapeamento da mancha criminal."
     },
-    "Registro de Atendimento": {
+    "Registro de Atendimento Geral": {
         "diagnostico": "Alto volume de inserções manuais de registros de atendimento genéricos.",
-        "causa": "Necessidade constante da equipe de documentar contatos proativos, anotações de clientes ou situações não enquadradas nos outros eventos automáticos.",
-        "acao": "Analisar as descrições individuais. Caso algum assunto se repita muito (ex: pedidos de bloqueio manual), sugere-se criar um botão/evento específico para ele futuramente."
+        "causa": "Necessidade constante da equipe de documentar contatos proativos, anotações de clientes ou situações não enquadradas nos eventos automáticos.",
+        "acao": "Analisar as descrições individuais. Caso algum assunto se repita muito, sugere-se criar um botão/evento específico para ele futuramente."
     }
 }
 
@@ -658,11 +729,11 @@ else:
                     pct = (qtd / total_geral_chamados) * 100
                     detalhamento_operacional += f"   • {evt}: {qtd} chamado(s) ({pct:.1f}%)\n"
                 
-                if evento_campeao == "Registro de Atendimento":
+                if evento_campeao == "Registro de Atendimento Geral":
                     textos = []
                     for row in dados_h:
                         det = str(row.get('detalhes', ''))
-                        if "Registro de Atendimento" in det:
+                        if "Registro de Atendimento Geral" in det:
                             textos.append(det.lower())
                     
                     texto_unido = " ".join(textos)
@@ -684,7 +755,7 @@ else:
                         a_din = "Manter o rigor e o padrão atual de registrar todas as interações. Caso algum assunto passe a se repetir muito, sugere-se a criação de um botão/evento específico para ele futuramente no sistema."
                         
                     dict_diag = {
-                        "diagnostico": "Nossa equipe utilizou amplamente a opção 'Registro de Atendimento' neste mês para documentar interações diretas, suporte preventivo e anotações operacionais.",
+                        "diagnostico": "Nossa equipe utilizou amplamente a opção de Registros de Atendimento Genéricos neste mês para documentar interações diretas, suporte preventivo e anotações operacionais.",
                         "causa": c_din,
                         "acao": a_din
                     }
@@ -743,7 +814,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.session_state.mostrar_laudo = False
                         st.rerun()
 
-    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - AGORA COM O HISTÓRICO/DOSSIÊ POR PLACA ---
+    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - DOSSIÊ POR PLACA E POP ---
     elif aba_ativa == "central" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🚨 Central de Operações e Ocorrências 24h</h2>", unsafe_allow_html=True)
         
@@ -789,10 +860,17 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         placa_sel = placa_sel_texto.split(" - ")[0]
                         info_veic = next(item for item in resultados if item["placa"] == placa_sel)
                         
+                        # --- BUSCA O POP DO PARCEIRO ---
+                        pop_dados = fetch_data("SELECT pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento FROM empresas WHERE nome=%s", (info_veic['empresa'],))
+                        pop_g = pop_dados[0].get('pop_gestor', '') if pop_dados else ''
+                        pop_pr = pop_dados[0].get('pop_pronta_resposta', '') if pop_dados else ''
+                        pop_db = pop_dados[0].get('pop_diretriz_bloqueio', '') if pop_dados else ''
+                        pop_mon = pop_dados[0].get('pop_monitoramento', '') if pop_dados else ''
+
                         # --- IMPLEMENTAÇÃO DO DOSSIÊ / HISTÓRICO RECENTE DA PLACA ---
                         historico_placa = fetch_data("SELECT data_hora, tipo, status, detalhes FROM historico WHERE placa=%s ORDER BY id DESC LIMIT 5", (placa_sel,))
                         if historico_placa:
-                            with st.expander(f"📜 Histórico Recente de Atendimentos desta Placa ({len(historico_placa)} registros anteriores encontrados)", expanded=False):
+                            with st.expander(f"📜 Histórico Recente de Atendimentos desta Placa ({len(historico_placa)} registros encontrados)", expanded=False):
                                 for hp in historico_placa:
                                     st.markdown(f"**Data:** {hp['data_hora']} | **Tipo/Ação:** {hp['tipo']} | **Status:** {hp['status']}")
                                     st.text(f"Detalhes: {hp['detalhes']}")
@@ -802,6 +880,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         tipo_servico = st.radio("📋 **Ação na Central:**", ["Abertura de Furto/Roubo", "Monitoramento Técnico"], horizontal=True, key=f"radio_serv_{st.session_state.rk}")
                         
                         if tipo_servico == "Abertura de Furto/Roubo":
+                            st.markdown(f"""
+                            <div style='background-color: #fff5f5; border: 2px solid #8b0000; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
+                                <h4 style='color: #8b0000; margin-top: 0; font-size: 16px;'>🔴 POP DE EMERGÊNCIA — BASE: {info_veic['empresa']}</h4>
+                                <p style='margin: 5px 0; font-size: 14px;'>📞 <b>Gestor 24h:</b> {pop_g if pop_g else 'Não informado'} | 🛡️ <b>Pronta Resposta:</b> {pop_pr if pop_pr else 'Não informado'}</p>
+                                <p style='margin: 5px 0; font-size: 14px;'>🛑 <b>Diretriz Tática:</b> {pop_db if pop_db else 'Nenhuma diretriz de bloqueio cadastrada.'}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
                             st.markdown("<h3 style='color: #8b0000; font-size: 18px;'>Abertura de Furto/Roubo (Início Automático)</h3>", unsafe_allow_html=True)
                             
                             col_oc1, col_oc2 = st.columns(2)
@@ -826,19 +912,37 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 st.rerun()
                         
                         elif tipo_servico == "Monitoramento Técnico":
+                            st.markdown(f"""
+                            <div style='background-color: #f3e5f5; border: 2px solid #4a0e4e; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
+                                <h4 style='color: #4a0e4e; margin-top: 0; font-size: 16px;'>🔵 DIRETRIZ DE MONITORAMENTO — BASE: {info_veic['empresa']}</h4>
+                                <p style='margin: 5px 0; font-size: 14px;'>📋 <b>Regra de Contato/Triagem:</b> {pop_mon if pop_mon else 'Nenhuma regra de rotina cadastrada pelo parceiro.'}</p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
                             st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>Monitoramento Técnico / Transferência</h3>", unsafe_allow_html=True)
                             col_m1, col_m2 = st.columns(2)
                             
                             lista_eventos = [
-                                "Cerca Virtual", 
-                                "Desconexão de Bateria", 
-                                "Falta de Comunicação", 
+                                "Registro - Desconexão de Bateria", 
+                                "Registro - Falta de Comunicação", 
+                                "Registro - Cerca Virtual", 
+                                "Registro de Atendimento Geral",
                                 "Transferência - Setor Financeiro", 
-                                "Transferência - Setor Técnico", 
-                                "Registro de Atendimento"
+                                "Transferência - Setor Técnico"
                             ]
                             
                             evento_mon = col_m1.selectbox("Evento", lista_eventos, key=f"eve_{st.session_state.rk}")
+                            
+                            motivo_tec = ""
+                            if evento_mon == "Transferência - Setor Técnico":
+                                motivo_tec = st.selectbox("Motivo / Diagnóstico Técnico", [
+                                    "Falta de Comunicação Persistente (> 24h)", 
+                                    "Violação / Desconexão Crítica de Bateria", 
+                                    "Recall / Troca Preventiva de Equipamento", 
+                                    "Suporte ao Aplicativo Mobile do Cliente", 
+                                    "Outro Defeito Físico"
+                                ], key=f"mot_{st.session_state.rk}")
+                            
                             status_chip = col_m2.text_input("📡 Status do Rastreador / Chip", key=f"chip_m_{st.session_state.rk}")
                             
                             acao_mon = st.text_area("Ação da Central / Detalhes da Solicitação", key=f"aca_{st.session_state.rk}")
@@ -852,7 +956,11 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
                             if st.button(texto_botao, type="primary"):
                                 agora = get_horario_brasil_str()
-                                detalhes_completos = f"Evento: {evento_mon} | Status Equipamento: {status_chip} | Ação/Motivo: {acao_mon}"
+                                
+                                detalhes_completos = f"Evento: {evento_mon} "
+                                if motivo_tec:
+                                    detalhes_completos += f"| Diagnóstico: {motivo_tec} "
+                                detalhes_completos += f"| Status Equipamento: {status_chip} | Ação/Motivo: {acao_mon}"
                                 
                                 tipo_hist = "Transferência" if eh_transferencia else "Monitoramento"
                                 status_hist = "PENDENTE" if eh_transferencia else "FINALIZADO"
@@ -878,7 +986,9 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                         msg_wpp += f"🏢 *Base Parceira:* {info_veic['empresa']}\n"
                                         msg_wpp += f"👤 *Cliente:* {info_veic['nome']}\n"
                                         msg_wpp += f"🚗 *Veículo:* {placa_sel} ({info_veic['modelo']})\n"
-                                        msg_wpp += f"📝 *Solicitação/Motivo:* {acao_mon}\n\n"
+                                        if motivo_tec:
+                                            msg_wpp += f"🔧 *Defeito/Motivo:* {motivo_tec}\n"
+                                        msg_wpp += f"📝 *Solicitação/Detalhes:* {acao_mon}\n\n"
                                         msg_wpp += f"Este chamado já se encontra aberto na aba PENDÊNCIAS do sistema. Favor assumir, aplicar a resolução e finalizar o chamado por lá."
                                         
                                         msg_codificada = urllib.parse.quote(msg_wpp)
@@ -1596,7 +1706,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>⚙️ Meu Cadastro Profissional</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
         
-        res_emp = fetch_data("SELECT nome, cnpj, servicos, valor_veiculo, dia_vencimento, responsavel, telefone, email, endereco FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+        res_emp = fetch_data("SELECT nome, cnpj, servicos, valor_veiculo, dia_vencimento, responsavel, telefone, email, endereco, pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
         if res_emp:
             dados_emp = res_emp[0]
             val_veic = dados_emp['valor_veiculo'] if dados_emp['valor_veiculo'] is not None else 0.0
@@ -1632,21 +1742,37 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             """
             st.markdown(html_readonly, unsafe_allow_html=True)
             
-            st.markdown("### 📝 Atualização de Dados de Contato")
+            st.markdown("### 📝 Atualização de Dados e POP (Procedimentos)")
             
             with st.form("form_atualizacao_cadastral"):
+                st.markdown("<h4 style='color: #4a0e4e;'>Contatos Administrativos</h4>", unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 c_resp = c1.text_input("Nome do Responsável", value=dados_emp.get('responsavel', ''))
                 c_tel = c2.text_input("Telefone Corporativo / WhatsApp", value=dados_emp.get('telefone', ''))
                 c_email = c1.text_input("E-mail Profissional", value=dados_emp.get('email', ''))
                 c_end = c2.text_input("Endereço Completo", value=dados_emp.get('endereco', ''))
                 
+                st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+                
+                st.markdown("<h4 style='color: #8b0000;'>🚨 POP - Procedimento Operacional Padrão (Emergência)</h4>", unsafe_allow_html=True)
+                st.markdown("<p style='font-size: 12px; color: #555;'>Preencha a regra tática que a Central 24h deve seguir em caso de <b>Furto ou Roubo</b> na sua frota.</p>", unsafe_allow_html=True)
+                c_pop1, c_pop2 = st.columns(2)
+                c_pop_g = c_pop1.text_input("Contato do Gestor 24h / Plantão", value=dados_emp.get('pop_gestor', ''))
+                c_pop_pr = c_pop2.text_input("Contato da Equipe de Pronta Resposta", value=dados_emp.get('pop_pronta_resposta', ''))
+                c_pop_db = st.text_area("Diretriz Tática de Bloqueio e Ação Exata", value=dados_emp.get('pop_diretriz_bloqueio', ''))
+                
+                st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+                
+                st.markdown("<h4 style='color: #4a0e4e;'>📡 POP - Diretrizes de Monitoramento & Rotina</h4>", unsafe_allow_html=True)
+                st.markdown("<p style='font-size: 12px; color: #555;'>Defina as exceções e orientações de triagem da sua frota no dia a dia.</p>", unsafe_allow_html=True)
+                c_pop_mon = st.text_area("Instruções de Contato / Triagem (Rotina)", value=dados_emp.get('pop_monitoramento', ''))
+                
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.form_submit_button("💾 Salvar Alterações Cadastrais", type="primary"):
-                    execute_query("UPDATE empresas SET responsavel=%s, telefone=%s, email=%s, endereco=%s WHERE nome=%s", 
-                                  (c_resp, c_tel, c_email, c_end, st.session_state.nome_empresa))
+                if st.form_submit_button("💾 Salvar Alterações e POP", type="primary"):
+                    execute_query("UPDATE empresas SET responsavel=%s, telefone=%s, email=%s, endereco=%s, pop_gestor=%s, pop_pronta_resposta=%s, pop_diretriz_bloqueio=%s, pop_monitoramento=%s WHERE nome=%s", 
+                                  (c_resp, c_tel, c_email, c_end, c_pop_g, c_pop_pr, c_pop_db, c_pop_mon, st.session_state.nome_empresa))
                     
-                    registrar_auditoria("Edição", "Cadastro Parceiro", "Atualizou dados cadastrais profissionais (Endereço/Contato).", st.session_state.nome_empresa)
+                    registrar_auditoria("Edição", "Cadastro Parceiro", "Atualizou dados cadastrais e POP Dinâmico.", st.session_state.nome_empresa)
                     st.session_state.flash_msg = "Dados atualizados com sucesso!"
                     limpar_tela()
                     st.rerun()
@@ -1659,7 +1785,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
         st.markdown("---")
         
-        empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, email, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
+        empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, email, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago, pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento FROM empresas ORDER BY nome")
         df_empresas = pd.DataFrame(empresas_res) if empresas_res else pd.DataFrame()
         
         if acao_parceiros == "Listar":
@@ -1728,6 +1854,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             ne_email = st.text_input("E-mail", value=dados_e.get('email', ''))
                             ne_end = st.text_input("Endereço", value=dados_e['endereco'])
                             
+                            st.markdown("---")
+                            st.write("🚨 **Configuração do POP (Procedimento Padrão do Parceiro)**")
+                            ne_pop_g = st.text_input("Contato do Gestor 24h / Plantão", value=dados_e.get('pop_gestor', ''))
+                            ne_pop_pr = st.text_input("Contato da Pronta Resposta", value=dados_e.get('pop_pronta_resposta', ''))
+                            ne_pop_db = st.text_area("Diretriz Tática de Bloqueio e Ação Exata", value=dados_e.get('pop_diretriz_bloqueio', ''))
+                            ne_pop_mon = st.text_area("Instruções de Contato / Triagem (Rotina de Monitoramento)", value=dados_e.get('pop_monitoramento', ''))
+                            st.markdown("---")
+                            
                             serv_atual = dados_e['servicos'] if 'servicos' in dados_e and dados_e['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
                             opcoes_s = ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"]
                             idx_serv = opcoes_s.index(serv_atual) if serv_atual in opcoes_s else 0
@@ -1740,8 +1874,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
 
                             if st.form_submit_button("💾 Salvar Alterações"):
-                                execute_query("UPDATE empresas SET nome=%s, cnpj=%s, responsavel=%s, telefone=%s, email=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s WHERE id=%s", 
-                                              (ne_nome, ne_cnpj, ne_resp, ne_tel, ne_email, ne_end, ne_servicos, ne_valor, ne_venc, id_emp))
+                                execute_query("UPDATE empresas SET nome=%s, cnpj=%s, responsavel=%s, telefone=%s, email=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s, pop_gestor=%s, pop_pronta_resposta=%s, pop_diretriz_bloqueio=%s, pop_monitoramento=%s WHERE id=%s", 
+                                              (ne_nome, ne_cnpj, ne_resp, ne_tel, ne_email, ne_end, ne_servicos, ne_valor, ne_venc, ne_pop_g, ne_pop_pr, ne_pop_db, ne_pop_mon, id_emp))
                                 registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}", ne_nome)
                                 st.session_state.flash_msg = "Alterações salvas com sucesso!"
                                 limpar_tela()
