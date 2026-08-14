@@ -388,6 +388,7 @@ if 'last_viewed_cli' not in st.session_state: st.session_state.last_viewed_cli =
 if 'link_transferencia' not in st.session_state: st.session_state.link_transferencia = None
 if 'empresa_transferencia' not in st.session_state: st.session_state.empresa_transferencia = None
 if 'mostrar_laudo' not in st.session_state: st.session_state.mostrar_laudo = False
+if 'editando_meu_cadastro' not in st.session_state: st.session_state.editando_meu_cadastro = False
 
 chaves_necessarias = {
     'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0, 'dash_mes': 0
@@ -408,6 +409,7 @@ def limpar_tela():
     st.session_state.link_transferencia = None
     st.session_state.empresa_transferencia = None
     st.session_state.mostrar_laudo = False
+    st.session_state.editando_meu_cadastro = False
     for k in st.session_state.reset_keys:
         st.session_state.reset_keys[k] += 1
 
@@ -1752,6 +1754,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             else:
                 st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
+    # --- TELA: MEU CADASTRO (MODO LEITURA TRAVADO COM BOTÃO DE EDITAR) ---
     elif aba_ativa == "cadastro" and not st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>⚙️ Meu Cadastro Profissional</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
@@ -1792,42 +1795,132 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             """
             st.markdown(html_readonly, unsafe_allow_html=True)
             
-            st.markdown("### 📝 Atualização de Dados e POP (Procedimentos)")
-            
-            with st.form("form_atualizacao_cadastral"):
-                st.markdown("<h4 style='color: #4a0e4e;'>Contatos Administrativos Gerais</h4>", unsafe_allow_html=True)
-                c1, c2 = st.columns(2)
-                c_resp = c1.text_input("Nome do Responsável", value=dados_emp.get('responsavel', ''))
-                c_tel = c2.text_input("Telefone Corporativo Geral", value=dados_emp.get('telefone', ''))
-                c_email = c1.text_input("E-mail Profissional", value=dados_emp.get('email', ''))
-                c_end = c2.text_input("Endereço Completo", value=dados_emp.get('endereco', ''))
+            # --- SE ESTIVER NO MODO VISUALIZAÇÃO (TRAVADO / PADRÃO) ---
+            if not st.session_state.editando_meu_cadastro:
+                # 1. Card Contatos Administrativos
+                txt_resp = dados_emp.get('responsavel') or 'Não informado'
+                txt_tel = dados_emp.get('telefone') or 'Não informado'
+                txt_mail = dados_emp.get('email') or 'Não informado'
+                txt_end = dados_emp.get('endereco') or 'Não informado'
                 
-                st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+                st.markdown(f"""
+                <div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+                    <div style="margin-bottom: 10px;">
+                        <span style="font-weight: bold; color: #4a0e4e; font-size: 15px;">👤 CONTATOS ADMINISTRATIVOS GERAIS</span>
+                    </div>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 13px; color: #444;">
+                        <div><b>Responsável:</b> {txt_resp}</div>
+                        <div><b>Telefone Geral:</b> {txt_tel}</div>
+                        <div><b>E-mail Profissional:</b> {txt_mail}</div>
+                        <div><b>Endereço Completo:</b> {txt_end}</div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                st.markdown("<h4 style='color: #8b0000;'>🚨 POP - Emergência (Furto e Roubo)</h4>", unsafe_allow_html=True)
-                st.markdown("<p style='font-size: 12px; color: #555;'>Configure os contatos e a regra imediata para a Central agir em caso de <b>Furto ou Roubo</b>.</p>", unsafe_allow_html=True)
-                c_pop1, c_pop2 = st.columns(2)
-                c_pop_g = c_pop1.text_input("Contato do Gestor 24h / Plantão", value=dados_emp.get('pop_gestor', ''))
-                c_pop_pr = c_pop2.text_input("Contato da Equipe de Pronta Resposta", value=dados_emp.get('pop_pronta_resposta', ''))
-                c_pop_db = st.text_area("Diretriz Tática de Bloqueio e Ação Exata", value=dados_emp.get('pop_diretriz_bloqueio', ''))
+                # 2. Card POP de Emergência
+                txt_gestor = dados_emp.get('pop_gestor') or 'Não informado'
+                txt_pr = dados_emp.get('pop_pronta_resposta') or 'Não informado'
+                txt_db = dados_emp.get('pop_diretriz_bloqueio') or 'Nenhuma diretriz de bloqueio cadastrada.'
                 
-                st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+                st.markdown(f"""
+                <div style="background: #ffffff; border-left: 5px solid #8b0000; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(139,0,0,0.06); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                        <span style="font-weight: bold; color: #8b0000; font-size: 15px;">🚨 POP - EMERGÊNCIA (FURTO E ROUBO)</span>
+                        <span style="background: #ffebee; color: #b71c1c; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">🔒 BLOQUEADO P/ EDIÇÃO</span>
+                    </div>
+                    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
+                        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">📞 GESTOR 24H / PLANTÃO</span>
+                            <strong style="color: #222; font-size: 13px;">{txt_gestor}</strong>
+                        </div>
+                        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛡️ PRONTA RESPOSTA</span>
+                            <strong style="color: #222; font-size: 13px;">{txt_pr}</strong>
+                        </div>
+                    </div>
+                    <div style="background: #fff8f8; border: 1px dashed #ef9a9a; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
+                        <strong style="color: #8b0000;">🛑 Diretriz Tática de Bloqueio:</strong> {txt_db}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
                 
-                st.markdown("<h4 style='color: #4a0e4e;'>📡 POP - Monitoramento & Roteamento de Setores</h4>", unsafe_allow_html=True)
-                st.markdown("<p style='font-size: 12px; color: #555;'>Defina os números de WhatsApp dos seus setores para a Central transferir os chamados direto para a pessoa certa.</p>", unsafe_allow_html=True)
-                c_wpp1, c_wpp2 = st.columns(2)
-                c_wpp_fin = c_wpp1.text_input("WhatsApp do Setor Financeiro (Faturas/Cobranças)", value=dados_emp.get('pop_wpp_financeiro', ''))
-                c_wpp_tec = c_wpp2.text_input("WhatsApp do Setor Técnico (Suporte/Manutenção)", value=dados_emp.get('pop_wpp_tecnico', ''))
-                c_pop_mon = st.text_area("Instruções de Contato / Triagem (Rotina)", value=dados_emp.get('pop_monitoramento', ''))
+                # 3. Card POP de Monitoramento
+                txt_w_fin = dados_emp.get('pop_wpp_financeiro') or 'Não informado'
+                txt_w_tec = dados_emp.get('pop_wpp_tecnico') or 'Não informado'
+                txt_mon = dados_emp.get('pop_monitoramento') or 'Nenhuma instrução de triagem cadastrada.'
                 
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.form_submit_button("💾 Salvar Alterações e POP", type="primary"):
-                    execute_query("UPDATE empresas SET responsavel=%s, telefone=%s, email=%s, endereco=%s, pop_gestor=%s, pop_pronta_resposta=%s, pop_diretriz_bloqueio=%s, pop_monitoramento=%s, pop_wpp_financeiro=%s, pop_wpp_tecnico=%s WHERE nome=%s", 
-                                  (c_resp, c_tel, c_email, c_end, c_pop_g, c_pop_pr, c_pop_db, c_pop_mon, c_wpp_fin, c_wpp_tec, st.session_state.nome_empresa))
+                st.markdown(f"""
+                <div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(74,14,78,0.06); margin-bottom: 25px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                        <span style="font-weight: bold; color: #4a0e4e; font-size: 15px;">📡 POP - MONITORAMENTO & ROTEAMENTO DE SETORES</span>
+                        <span style="background: #f3e5f5; color: #4a0e4e; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">🔒 BLOQUEADO P/ EDIÇÃO</span>
+                    </div>
+                    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
+                        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">💰 WPP FINANCEIRO</span>
+                            <strong style="color: #222; font-size: 13px;">{txt_w_fin}</strong>
+                        </div>
+                        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛠️ WPP SUPORTE TÉCNICO</span>
+                            <strong style="color: #222; font-size: 13px;">{txt_w_tec}</strong>
+                        </div>
+                    </div>
+                    <div style="background: #fdfaff; border: 1px dashed #ce93d8; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
+                        <strong style="color: #4a0e4e;">📋 Instruções de Contato / Triagem:</strong> {txt_mon}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # BOTÃO PRINCIPAL PARA LIBERAR A EDIÇÃO
+                if st.button("✏️ Editar Meus Dados e Procedimentos (POP)", type="primary", use_container_width=True):
+                    st.session_state.editando_meu_cadastro = True
+                    st.rerun()
+
+            # --- SE ESTIVER NO MODO EDIÇÃO ---
+            else:
+                st.markdown("### 📝 Atualização de Dados e POP (Procedimentos)")
+                
+                with st.form("form_atualizacao_cadastral"):
+                    st.markdown("<h4 style='color: #4a0e4e;'>Contatos Administrativos Gerais</h4>", unsafe_allow_html=True)
+                    c1, c2 = st.columns(2)
+                    c_resp = c1.text_input("Nome do Responsável", value=dados_emp.get('responsavel', ''))
+                    c_tel = c2.text_input("Telefone Corporativo Geral", value=dados_emp.get('telefone', ''))
+                    c_email = c1.text_input("E-mail Profissional", value=dados_emp.get('email', ''))
+                    c_end = c2.text_input("Endereço Completo", value=dados_emp.get('endereco', ''))
                     
-                    registrar_auditoria("Edição", "Cadastro Parceiro", "Atualizou dados cadastrais, números de setores e POP.", st.session_state.nome_empresa)
-                    st.session_state.flash_msg = "Dados e procedimentos atualizados com sucesso!"
-                    limpar_tela()
+                    st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+                    
+                    st.markdown("<h4 style='color: #8b0000;'>🚨 POP - Emergência (Furto e Roubo)</h4>", unsafe_allow_html=True)
+                    st.markdown("<p style='font-size: 12px; color: #555;'>Configure os contatos e a regra imediata para a Central agir em caso de <b>Furto ou Roubo</b>.</p>", unsafe_allow_html=True)
+                    c_pop1, c_pop2 = st.columns(2)
+                    c_pop_g = c_pop1.text_input("Contato do Gestor 24h / Plantão", value=dados_emp.get('pop_gestor', ''))
+                    c_pop_pr = c_pop2.text_input("Contato da Equipe de Pronta Resposta", value=dados_emp.get('pop_pronta_resposta', ''))
+                    c_pop_db = st.text_area("Diretriz Tática de Bloqueio e Ação Exata", value=dados_emp.get('pop_diretriz_bloqueio', ''))
+                    
+                    st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+                    
+                    st.markdown("<h4 style='color: #4a0e4e;'>📡 POP - Monitoramento & Roteamento de Setores</h4>", unsafe_allow_html=True)
+                    st.markdown("<p style='font-size: 12px; color: #555;'>Defina os números de WhatsApp dos seus setores para a Central transferir os chamados direto para a pessoa certa.</p>", unsafe_allow_html=True)
+                    c_wpp1, c_wpp2 = st.columns(2)
+                    c_wpp_fin = c_wpp1.text_input("WhatsApp do Setor Financeiro (Faturas/Cobranças)", value=dados_emp.get('pop_wpp_financeiro', ''))
+                    c_wpp_tec = c_wpp2.text_input("WhatsApp do Setor Técnico (Suporte/Manutenção)", value=dados_emp.get('pop_wpp_tecnico', ''))
+                    c_pop_mon = st.text_area("Instruções de Contato / Triagem (Rotina)", value=dados_emp.get('pop_monitoramento', ''))
+                    
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    btn_salvar = st.form_submit_button("💾 Salvar Alterações e POP", type="primary", use_container_width=True)
+                    
+                    if btn_salvar:
+                        execute_query("UPDATE empresas SET responsavel=%s, telefone=%s, email=%s, endereco=%s, pop_gestor=%s, pop_pronta_resposta=%s, pop_diretriz_bloqueio=%s, pop_monitoramento=%s, pop_wpp_financeiro=%s, pop_wpp_tecnico=%s WHERE nome=%s", 
+                                      (c_resp, c_tel, c_email, c_end, c_pop_g, c_pop_pr, c_pop_db, c_pop_mon, c_wpp_fin, c_wpp_tec, st.session_state.nome_empresa))
+                        
+                        registrar_auditoria("Edição", "Cadastro Parceiro", "Atualizou dados cadastrais, números de setores e POP.", st.session_state.nome_empresa)
+                        st.session_state.flash_msg = "Dados e procedimentos atualizados com sucesso!"
+                        st.session_state.editando_meu_cadastro = False
+                        limpar_tela()
+                        st.rerun()
+
+                if st.button("❌ Cancelar Edição", use_container_width=True):
+                    st.session_state.editando_meu_cadastro = False
                     st.rerun()
         else:
             st.error("Erro ao localizar cadastro da empresa.")
