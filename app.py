@@ -107,6 +107,8 @@ def init_db():
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_pronta_resposta TEXT DEFAULT '';")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_diretriz_bloqueio TEXT DEFAULT '';")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_monitoramento TEXT DEFAULT '';")
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_wpp_financeiro TEXT DEFAULT '';")
+        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_wpp_tecnico TEXT DEFAULT '';")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -814,7 +816,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.session_state.mostrar_laudo = False
                         st.rerun()
 
-    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - DOSSIÊ POR PLACA E POP ---
+    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - CARDS MODERNIZADOS E ROTEAMENTO SMART ---
     elif aba_ativa == "central" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🚨 Central de Operações e Ocorrências 24h</h2>", unsafe_allow_html=True)
         
@@ -860,12 +862,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         placa_sel = placa_sel_texto.split(" - ")[0]
                         info_veic = next(item for item in resultados if item["placa"] == placa_sel)
                         
-                        # --- BUSCA O POP DO PARCEIRO ---
-                        pop_dados = fetch_data("SELECT pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento FROM empresas WHERE nome=%s", (info_veic['empresa'],))
+                        # --- BUSCA O POP E OS NÚMEROS DO PARCEIRO ---
+                        pop_dados = fetch_data("SELECT pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento, pop_wpp_financeiro, pop_wpp_tecnico FROM empresas WHERE nome=%s", (info_veic['empresa'],))
                         pop_g = pop_dados[0].get('pop_gestor', '') if pop_dados else ''
                         pop_pr = pop_dados[0].get('pop_pronta_resposta', '') if pop_dados else ''
                         pop_db = pop_dados[0].get('pop_diretriz_bloqueio', '') if pop_dados else ''
                         pop_mon = pop_dados[0].get('pop_monitoramento', '') if pop_dados else ''
+                        pop_wpp_fin = pop_dados[0].get('pop_wpp_financeiro', '') if pop_dados else ''
+                        pop_wpp_tec = pop_dados[0].get('pop_wpp_tecnico', '') if pop_dados else ''
 
                         # --- IMPLEMENTAÇÃO DO DOSSIÊ / HISTÓRICO RECENTE DA PLACA ---
                         historico_placa = fetch_data("SELECT data_hora, tipo, status, detalhes FROM historico WHERE placa=%s ORDER BY id DESC LIMIT 5", (placa_sel,))
@@ -879,12 +883,31 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.markdown("---")
                         tipo_servico = st.radio("📋 **Ação na Central:**", ["Abertura de Furto/Roubo", "Monitoramento Técnico"], horizontal=True, key=f"radio_serv_{st.session_state.rk}")
                         
+                        # --- CARD MODERNO DE EMERGÊNCIA ---
                         if tipo_servico == "Abertura de Furto/Roubo":
+                            txt_gestor = pop_g if pop_g else "Não informado"
+                            txt_pr = pop_pr if pop_pr else "Não informado"
+                            txt_dir = pop_db if pop_db else "Nenhuma diretriz de bloqueio cadastrada pelo parceiro."
+
                             st.markdown(f"""
-                            <div style='background-color: #fff5f5; border: 2px solid #8b0000; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
-                                <h4 style='color: #8b0000; margin-top: 0; font-size: 16px;'>🔴 POP DE EMERGÊNCIA — BASE: {info_veic['empresa']}</h4>
-                                <p style='margin: 5px 0; font-size: 14px;'>📞 <b>Gestor 24h:</b> {pop_g if pop_g else 'Não informado'} | 🛡️ <b>Pronta Resposta:</b> {pop_pr if pop_pr else 'Não informado'}</p>
-                                <p style='margin: 5px 0; font-size: 14px;'>🛑 <b>Diretriz Tática:</b> {pop_db if pop_db else 'Nenhuma diretriz de bloqueio cadastrada.'}</p>
+                            <div style="background: #ffffff; border-left: 5px solid #8b0000; border-radius: 8px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(139,0,0,0.08); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                    <span style="font-weight: bold; color: #8b0000; font-size: 14px;">🚨 PROTOCOLO TÁTICO DE EMERGÊNCIA — {info_veic['empresa']}</span>
+                                    <span style="background: #ffebee; color: #b71c1c; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">URGÊNCIA</span>
+                                </div>
+                                <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
+                                    <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                                        <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">📞 GESTOR 24H / PLANTÃO</span>
+                                        <strong style="color: #222; font-size: 13px;">{txt_gestor}</strong>
+                                    </div>
+                                    <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                                        <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛡️ PRONTA RESPOSTA</span>
+                                        <strong style="color: #222; font-size: 13px;">{txt_pr}</strong>
+                                    </div>
+                                </div>
+                                <div style="background: #fff8f8; border: 1px dashed #ef9a9a; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
+                                    <strong style="color: #8b0000;">🛑 Diretriz Tática:</strong> {txt_dir}
+                                </div>
                             </div>
                             """, unsafe_allow_html=True)
                             
@@ -911,11 +934,31 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 limpar_tela()
                                 st.rerun()
                         
+                        # --- CARD MODERNO DE MONITORAMENTO & ROTINA ---
                         elif tipo_servico == "Monitoramento Técnico":
+                            txt_mon = pop_mon if pop_mon else "Nenhuma regra de triagem cadastrada pelo parceiro."
+                            txt_w_fin = pop_wpp_fin if pop_wpp_fin else "Usar telefone geral da empresa"
+                            txt_w_tec = pop_wpp_tec if pop_wpp_tec else "Usar telefone geral da empresa"
+
                             st.markdown(f"""
-                            <div style='background-color: #f3e5f5; border: 2px solid #4a0e4e; padding: 15px; border-radius: 8px; margin-bottom: 20px;'>
-                                <h4 style='color: #4a0e4e; margin-top: 0; font-size: 16px;'>🔵 DIRETRIZ DE MONITORAMENTO — BASE: {info_veic['empresa']}</h4>
-                                <p style='margin: 5px 0; font-size: 14px;'>📋 <b>Regra de Contato/Triagem:</b> {pop_mon if pop_mon else 'Nenhuma regra de rotina cadastrada pelo parceiro.'}</p>
+                            <div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(74,14,78,0.08); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                    <span style="font-weight: bold; color: #4a0e4e; font-size: 14px;">📡 DIRETRIZES DE MONITORAMENTO — {info_veic['empresa']}</span>
+                                    <span style="background: #f3e5f5; color: #4a0e4e; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">TRIAGEM</span>
+                                </div>
+                                <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
+                                    <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                                        <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">💰 WPP FINANCEIRO</span>
+                                        <strong style="color: #222; font-size: 13px;">{txt_w_fin}</strong>
+                                    </div>
+                                    <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                                        <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛠️ WPP SUPORTE TÉCNICO</span>
+                                        <strong style="color: #222; font-size: 13px;">{txt_w_tec}</strong>
+                                    </div>
+                                </div>
+                                <div style="background: #fdfaff; border: 1px dashed #ce93d8; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
+                                    <strong style="color: #4a0e4e;">📋 Regra de Triagem / Contato:</strong> {txt_mon}
+                                </div>
                             </div>
                             """, unsafe_allow_html=True)
                             
@@ -950,7 +993,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             eh_transferencia = "Transferência" in evento_mon
                             
                             if eh_transferencia:
-                                st.info(f"💡 **Roteamento e Abertura de Ticket:** Essa solicitação irá para a aba **Pendências** e o link do WhatsApp para a **{info_veic['empresa']}** será gerado em seguida.")
+                                st.info(f"💡 **Roteamento e Abertura de Ticket:** Essa solicitação irá para a aba **Pendências** e o link do WhatsApp para o setor correto da **{info_veic['empresa']}** será gerado em seguida.")
                             
                             texto_botao = "📲 Abrir Pendência e Gerar WhatsApp" if eh_transferencia else "💾 Salvar Registro/Monitoramento"
                             
@@ -972,8 +1015,15 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 registrar_auditoria("Registro", tipo_hist, texto_audit, info_veic['empresa'])
                                 
                                 if eh_transferencia:
-                                    res_empresa = fetch_data("SELECT telefone FROM empresas WHERE nome=%s", (info_veic['empresa'],))
-                                    tel_bruto = res_empresa[0]['telefone'] if res_empresa and res_empresa[0]['telefone'] else ""
+                                    res_empresa = fetch_data("SELECT telefone, pop_wpp_financeiro, pop_wpp_tecnico FROM empresas WHERE nome=%s", (info_veic['empresa'],))
+                                    
+                                    tel_bruto = ""
+                                    if res_empresa:
+                                        emp_dados_tel = res_empresa[0]
+                                        if "Financeiro" in evento_mon:
+                                            tel_bruto = emp_dados_tel.get('pop_wpp_financeiro') or emp_dados_tel.get('telefone') or ""
+                                        else:
+                                            tel_bruto = emp_dados_tel.get('pop_wpp_tecnico') or emp_dados_tel.get('telefone') or ""
                                     
                                     tel_limpo = re.sub(r'\D', '', str(tel_bruto))
                                     
@@ -998,7 +1048,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                         st.session_state.empresa_transferencia = info_veic["empresa"]
                                         st.rerun()
                                     else:
-                                        st.error(f"❌ Falha no roteamento: A empresa **{info_veic['empresa']}** não possui um telefone válido cadastrado. Vá na aba Empresas e atualize o cadastro.")
+                                        st.error(f"❌ Falha no roteamento: A empresa **{info_veic['empresa']}** não possui um telefone ou WhatsApp válido cadastrado para este setor. Vá na aba Empresas e atualize o cadastro.")
                                 else:
                                     st.session_state.flash_msg = "Salvo com sucesso!"
                                     limpar_tela()
@@ -1706,7 +1756,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>⚙️ Meu Cadastro Profissional</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
         
-        res_emp = fetch_data("SELECT nome, cnpj, servicos, valor_veiculo, dia_vencimento, responsavel, telefone, email, endereco, pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+        res_emp = fetch_data("SELECT nome, cnpj, servicos, valor_veiculo, dia_vencimento, responsavel, telefone, email, endereco, pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento, pop_wpp_financeiro, pop_wpp_tecnico FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
         if res_emp:
             dados_emp = res_emp[0]
             val_veic = dados_emp['valor_veiculo'] if dados_emp['valor_veiculo'] is not None else 0.0
@@ -1745,17 +1795,17 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             st.markdown("### 📝 Atualização de Dados e POP (Procedimentos)")
             
             with st.form("form_atualizacao_cadastral"):
-                st.markdown("<h4 style='color: #4a0e4e;'>Contatos Administrativos</h4>", unsafe_allow_html=True)
+                st.markdown("<h4 style='color: #4a0e4e;'>Contatos Administrativos Gerais</h4>", unsafe_allow_html=True)
                 c1, c2 = st.columns(2)
                 c_resp = c1.text_input("Nome do Responsável", value=dados_emp.get('responsavel', ''))
-                c_tel = c2.text_input("Telefone Corporativo / WhatsApp", value=dados_emp.get('telefone', ''))
+                c_tel = c2.text_input("Telefone Corporativo Geral", value=dados_emp.get('telefone', ''))
                 c_email = c1.text_input("E-mail Profissional", value=dados_emp.get('email', ''))
                 c_end = c2.text_input("Endereço Completo", value=dados_emp.get('endereco', ''))
                 
                 st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
                 
-                st.markdown("<h4 style='color: #8b0000;'>🚨 POP - Procedimento Operacional Padrão (Emergência)</h4>", unsafe_allow_html=True)
-                st.markdown("<p style='font-size: 12px; color: #555;'>Preencha a regra tática que a Central 24h deve seguir em caso de <b>Furto ou Roubo</b> na sua frota.</p>", unsafe_allow_html=True)
+                st.markdown("<h4 style='color: #8b0000;'>🚨 POP - Emergência (Furto e Roubo)</h4>", unsafe_allow_html=True)
+                st.markdown("<p style='font-size: 12px; color: #555;'>Configure os contatos e a regra imediata para a Central agir em caso de <b>Furto ou Roubo</b>.</p>", unsafe_allow_html=True)
                 c_pop1, c_pop2 = st.columns(2)
                 c_pop_g = c_pop1.text_input("Contato do Gestor 24h / Plantão", value=dados_emp.get('pop_gestor', ''))
                 c_pop_pr = c_pop2.text_input("Contato da Equipe de Pronta Resposta", value=dados_emp.get('pop_pronta_resposta', ''))
@@ -1763,17 +1813,20 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 
                 st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
                 
-                st.markdown("<h4 style='color: #4a0e4e;'>📡 POP - Diretrizes de Monitoramento & Rotina</h4>", unsafe_allow_html=True)
-                st.markdown("<p style='font-size: 12px; color: #555;'>Defina as exceções e orientações de triagem da sua frota no dia a dia.</p>", unsafe_allow_html=True)
+                st.markdown("<h4 style='color: #4a0e4e;'>📡 POP - Monitoramento & Roteamento de Setores</h4>", unsafe_allow_html=True)
+                st.markdown("<p style='font-size: 12px; color: #555;'>Defina os números de WhatsApp dos seus setores para a Central transferir os chamados direto para a pessoa certa.</p>", unsafe_allow_html=True)
+                c_wpp1, c_wpp2 = st.columns(2)
+                c_wpp_fin = c_wpp1.text_input("WhatsApp do Setor Financeiro (Faturas/Cobranças)", value=dados_emp.get('pop_wpp_financeiro', ''))
+                c_wpp_tec = c_wpp2.text_input("WhatsApp do Setor Técnico (Suporte/Manutenção)", value=dados_emp.get('pop_wpp_tecnico', ''))
                 c_pop_mon = st.text_area("Instruções de Contato / Triagem (Rotina)", value=dados_emp.get('pop_monitoramento', ''))
                 
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.form_submit_button("💾 Salvar Alterações e POP", type="primary"):
-                    execute_query("UPDATE empresas SET responsavel=%s, telefone=%s, email=%s, endereco=%s, pop_gestor=%s, pop_pronta_resposta=%s, pop_diretriz_bloqueio=%s, pop_monitoramento=%s WHERE nome=%s", 
-                                  (c_resp, c_tel, c_email, c_end, c_pop_g, c_pop_pr, c_pop_db, c_pop_mon, st.session_state.nome_empresa))
+                    execute_query("UPDATE empresas SET responsavel=%s, telefone=%s, email=%s, endereco=%s, pop_gestor=%s, pop_pronta_resposta=%s, pop_diretriz_bloqueio=%s, pop_monitoramento=%s, pop_wpp_financeiro=%s, pop_wpp_tecnico=%s WHERE nome=%s", 
+                                  (c_resp, c_tel, c_email, c_end, c_pop_g, c_pop_pr, c_pop_db, c_pop_mon, c_wpp_fin, c_wpp_tec, st.session_state.nome_empresa))
                     
-                    registrar_auditoria("Edição", "Cadastro Parceiro", "Atualizou dados cadastrais e POP Dinâmico.", st.session_state.nome_empresa)
-                    st.session_state.flash_msg = "Dados atualizados com sucesso!"
+                    registrar_auditoria("Edição", "Cadastro Parceiro", "Atualizou dados cadastrais, números de setores e POP.", st.session_state.nome_empresa)
+                    st.session_state.flash_msg = "Dados e procedimentos atualizados com sucesso!"
                     limpar_tela()
                     st.rerun()
         else:
@@ -1785,7 +1838,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
         st.markdown("---")
         
-        empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, email, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago, pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento FROM empresas ORDER BY nome")
+        empresas_res = fetch_data("SELECT id, nome, cnpj, endereco, telefone, email, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago, pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento, pop_wpp_financeiro, pop_wpp_tecnico FROM empresas ORDER BY nome")
         df_empresas = pd.DataFrame(empresas_res) if empresas_res else pd.DataFrame()
         
         if acao_parceiros == "Listar":
@@ -1811,7 +1864,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 e_nome = st.text_input("Nome da Empresa (Será o Login) *")
                 e_cnpj = st.text_input("CNPJ/Senha Inicial *")
                 e_end = st.text_input("Endereço")
-                e_tel = st.text_input("Telefone")
+                e_tel = st.text_input("Telefone Geral")
                 e_email = st.text_input("E-mail")
                 e_resp = st.text_input("Responsável")
                 e_servicos = st.selectbox("Serviços Contratados", ["Ambos (Furto/Roubo + Monitoramento)", "Apenas Furto e Roubo", "Apenas Monitoramento"])
@@ -1850,16 +1903,22 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             ne_nome = st.text_input("Nome", value=dados_e['nome'])
                             ne_cnpj = st.text_input("CNPJ (Se precisar corrigir)", value=dados_e['cnpj'])
                             ne_resp = st.text_input("Responsável", value=dados_e['responsavel'])
-                            ne_tel = st.text_input("Telefone", value=dados_e['telefone'])
+                            ne_tel = st.text_input("Telefone Geral", value=dados_e['telefone'])
                             ne_email = st.text_input("E-mail", value=dados_e.get('email', ''))
                             ne_end = st.text_input("Endereço", value=dados_e['endereco'])
                             
                             st.markdown("---")
-                            st.write("🚨 **Configuração do POP (Procedimento Padrão do Parceiro)**")
-                            ne_pop_g = st.text_input("Contato do Gestor 24h / Plantão", value=dados_e.get('pop_gestor', ''))
-                            ne_pop_pr = st.text_input("Contato da Pronta Resposta", value=dados_e.get('pop_pronta_resposta', ''))
+                            st.write("🚨 **Configuração do POP & Telefones Setoriais**")
+                            c_edit_pop1, c_edit_pop2 = st.columns(2)
+                            ne_pop_g = c_edit_pop1.text_input("Contato do Gestor 24h / Plantão", value=dados_e.get('pop_gestor', ''))
+                            ne_pop_pr = c_edit_pop2.text_input("Contato da Pronta Resposta", value=dados_e.get('pop_pronta_resposta', ''))
+                            
+                            c_edit_w1, c_edit_w2 = st.columns(2)
+                            ne_pop_wpp_fin = c_edit_w1.text_input("WhatsApp do Setor Financeiro", value=dados_e.get('pop_wpp_financeiro', ''))
+                            ne_pop_wpp_tec = c_edit_w2.text_input("WhatsApp do Setor Técnico", value=dados_e.get('pop_wpp_tecnico', ''))
+                            
                             ne_pop_db = st.text_area("Diretriz Tática de Bloqueio e Ação Exata", value=dados_e.get('pop_diretriz_bloqueio', ''))
-                            ne_pop_mon = st.text_area("Instruções de Contato / Triagem (Rotina de Monitoramento)", value=dados_e.get('pop_monitoramento', ''))
+                            ne_pop_mon = st.text_area("Instruções de Contato / Triagem (Rotina)", value=dados_e.get('pop_monitoramento', ''))
                             st.markdown("---")
                             
                             serv_atual = dados_e['servicos'] if 'servicos' in dados_e and dados_e['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
@@ -1874,8 +1933,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
 
                             if st.form_submit_button("💾 Salvar Alterações"):
-                                execute_query("UPDATE empresas SET nome=%s, cnpj=%s, responsavel=%s, telefone=%s, email=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s, pop_gestor=%s, pop_pronta_resposta=%s, pop_diretriz_bloqueio=%s, pop_monitoramento=%s WHERE id=%s", 
-                                              (ne_nome, ne_cnpj, ne_resp, ne_tel, ne_email, ne_end, ne_servicos, ne_valor, ne_venc, ne_pop_g, ne_pop_pr, ne_pop_db, ne_pop_mon, id_emp))
+                                execute_query("UPDATE empresas SET nome=%s, cnpj=%s, responsavel=%s, telefone=%s, email=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s, pop_gestor=%s, pop_pronta_resposta=%s, pop_diretriz_bloqueio=%s, pop_monitoramento=%s, pop_wpp_financeiro=%s, pop_wpp_tecnico=%s WHERE id=%s", 
+                                              (ne_nome, ne_cnpj, ne_resp, ne_tel, ne_email, ne_end, ne_servicos, ne_valor, ne_venc, ne_pop_g, ne_pop_pr, ne_pop_db, ne_pop_mon, ne_pop_wpp_fin, ne_pop_wpp_tec, id_emp))
                                 registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}", ne_nome)
                                 st.session_state.flash_msg = "Alterações salvas com sucesso!"
                                 limpar_tela()
