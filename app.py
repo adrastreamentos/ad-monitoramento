@@ -390,7 +390,7 @@ DIAGNOSTICOS_TECNICOS = {
     },
     "Transferência - Setor Financeiro": {
         "diagnostico": "Elevado número de chamados transferidos para tratativas de faturas, cobranças e bloqueios.",
-        "causa": "Dificuldades dos clientes finais em localizar os boletos, dúvidas sobre mensalidades atrasadas ou pedidos de reativação.",
+        "causa": "Dificuldades des clientes finais em localizar os boletos, dúvidas sobre mensalidades atrasadas ou pedidos de reativação.",
         "acao": "Implementar réguas de cobrança automatizadas via WhatsApp/E-mail para reduzir a sobrecarga no suporte financeiro."
     },
     "Transferência - Setor Técnico": {
@@ -1125,39 +1125,47 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
     # --- TELA: GESTÃO DE PENDÊNCIAS ---
     elif aba_ativa == "pendencias":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🛠️ Gestão de Chamados e Pendências</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 13px; color: #666;'>Painel de transferências financeiras e técnicas aguardando resolução pela empresa parceira. Finalizar um chamado encerra o documento e o transfere para os Relatórios.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 13px; color: #666;'>Painel unificado de ocorrências em andamento (Furto/Roubo, Setor Financeiro e Setor Técnico).</p>", unsafe_allow_html=True)
         
-        q_pend = "SELECT * FROM historico WHERE tipo='Transferência' AND status='PENDENTE' ORDER BY id DESC"
+        q_pend = "SELECT * FROM historico WHERE status='PENDENTE' ORDER BY id DESC"
         if not st.session_state.is_admin:
-            q_pend = "SELECT * FROM historico WHERE tipo='Transferência' AND status='PENDENTE' AND empresa=%s ORDER BY id DESC"
+            q_pend = "SELECT * FROM historico WHERE status='PENDENTE' AND empresa=%s ORDER BY id DESC"
             res_pend = fetch_data(q_pend, (st.session_state.nome_empresa,))
         else:
             res_pend = fetch_data(q_pend)
             
         if res_pend:
             for p in res_pend:
-                with st.expander(f"🔴 CHAMADO PENDENTE #{p['id']} - {p['cliente']} (Placa: {p['placa']}) - {p['data_hora']}", expanded=False):
-                    st.write(f"**Empresa Responsável:** {p['empresa']}")
-                    st.write(f"**Detalhes da Solicitação Inicial:**")
-                    st.info(p['detalhes'])
+                is_sinistro = p['tipo'] in ['Furto', 'Roubo']
+                borda_cor = "#8b0000" if is_sinistro else "#4a0e4e"
+                fundo_cor = "#fff8f8" if is_sinistro else "#fafafa"
+                tag_tipo = f"🚨 {p['tipo'].upper()} (EM ANDAMENTO)" if is_sinistro else f"📌 {p['tipo'].upper()} (PENDENTE)"
+                
+                with st.expander(f"{tag_tipo} — #{p['id']} | Cliente: {p['cliente']} (Placa: {p['placa']}) — {p['data_hora']}", expanded=is_sinistro):
+                    st.markdown(f"""
+                    <div style="background: {fundo_cor}; border-left: 5px solid {borda_cor}; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
+                        <p><b>Empresa Responsável:</b> {p['empresa']}</p>
+                        <p><b>Detalhes / Solicitação:</b></p>
+                        <p>{p['detalhes']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
                     
-                    st.markdown("---")
-                    st.write("🟢 **Finalizar Chamado (Resolver Pendência):**")
-                    desfecho_pend = st.text_area("Descreva o desfecho ou a solução aplicada (Ex: 'Fatura regularizada' ou 'Equipamento resetado e online'):", key=f"desf_pend_{p['id']}")
+                    st.write("🟢 **Finalizar Atendimento / Resolver Chamado:**")
+                    desfecho_pend = st.text_area("Descreva o desfecho ou a solução aplicada:", key=f"desf_pend_{p['id']}")
                     
-                    if st.button("✅ Marcar como Resolvido / Encerrar Documento", key=f"btn_res_pend_{p['id']}", type="primary"):
+                    if st.button("✅ Concluir e Encerrar Chamado", key=f"btn_res_pend_{p['id']}", type="primary"):
                         if not desfecho_pend.strip():
                             st.error("Por favor, preencha o desfecho antes de finalizar o chamado.")
                         else:
                             agora = get_horario_brasil_str()
-                            novo_detalhe = f"{p['detalhes']} | RESOLUÇÃO ({agora}): {desfecho_pend}"
+                            novo_detalhe = f"{p['detalhes']} | DESFECHO ({agora}): {desfecho_pend}"
                             execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, p['id']))
                             
                             registrar_auditoria("Resolução", "Pendências", f"Chamado #{p['id']} ({p['placa']}) finalizado. Desfecho: {desfecho_pend}", p['empresa'])
-                            st.session_state.flash_msg = f"Chamado #{p['id']} resolvido com sucesso! O registro e as assinaturas foram fechados nos Relatórios."
+                            st.session_state.flash_msg = f"Chamado #{p['id']} resolvido com sucesso! O registro foi fechado nos Relatórios."
                             st.rerun()
         else:
-            st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
+            st.success("✅ Nenhuma pendência ou sinistro em aberto no momento. Toda a operação está limpa!")
 
     # --- TELA: CLIENTES E FROTAS (ABERTURA AUTOMÁTICA NA BUSCA) ---
     elif aba_ativa == "clientes":
@@ -1178,7 +1186,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         if acao_clientes == "Listar":
             busca_cli = st.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"lista_busca_{st.session_state.rk}")
             
-            # Detecta se há uma busca ativa de pelo menos 3 caracteres
             tem_busca_ativa = bool(busca_cli and len(busca_cli.strip()) >= 3)
             
             q_tela = """
@@ -1209,7 +1216,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     df_emp = df_tela[df_tela['empresa'] == emp_ativa]
                     total_encontrados_emp = len(df_emp)
                     
-                    # Se tiver pesquisa ativa, abre a pasta direto e mostra a quantidade encontrada
                     titulo_pasta = f"📁 Clientes da Empresa: {emp_ativa}"
                     if tem_busca_ativa:
                         titulo_pasta += f" ({total_encontrados_emp} encontrado{'s' if total_encontrados_emp > 1 else ''})"
@@ -1230,7 +1236,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
                             veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
                             
-                            # --- BUSCA O ÚLTIMO ATENDIMENTO POR PLACA DESTE CLIENTE ---
                             placas_cli = [str(v['placa']).strip() for v in veiculos_cli_ficha if v.get('placa') and str(v['placa']).strip()]
                             ultimos_atendimentos = []
                             if placas_cli:
@@ -1271,7 +1276,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             else:
                                 st.info("Nenhum veículo vinculado a este cliente.")
 
-                            # --- SEÇÃO DO ÚLTIMO ATENDIMENTO (SÓ RENDERIZA SE HOUVER ATENDIMENTOS) ---
                             if ultimos_atendimentos:
                                 st.markdown("""
                                 <hr style="border: 0; border-top: 1px solid #e0e0e0; margin: 15px 0 10px 0;">
@@ -1620,12 +1624,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             
             if mostrar_fr:
                 with sub_tabs[idx_sub]:
-                    st.subheader("Controle de Ocorrências de Furto e Roubo")
+                    st.subheader("Controle de Ocorrências de Furto e Roubo (Finalizados)")
                     col_f1, col_f2 = st.columns(2)
                     b_fr = col_f1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"b_fr_{st.session_state.rk}")
                     p_fr = col_f2.text_input("📅 Filtrar por Data (Furto/Roubo)", key=f"p_fr_{st.session_state.rk}")
                     
-                    q_fr = "SELECT * FROM historico WHERE tipo IN ('Furto', 'Roubo')"
+                    q_fr = "SELECT * FROM historico WHERE tipo IN ('Furto', 'Roubo') AND status='FINALIZADO'"
                     p_list_fr = []
                     if not st.session_state.is_admin:
                         q_fr += " AND empresa=%s"
@@ -1644,11 +1648,11 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         df_fr = pd.DataFrame(res_fr)
                         st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
-                        st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
+                        st.markdown("### 🔎 Ficha de Ocorrência Concluída")
                         lista_sel_fr = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_fr]
                         
                         k_rel_fr = st.session_state.reset_keys['rel_fr']
-                        reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", lista_sel_fr, key=f"sb_rel_fr_{k_rel_fr}")
+                        reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar:", lista_sel_fr, key=f"sb_rel_fr_{k_rel_fr}")
                         
                         if reg_sel_fr != "":
                             id_r = int(reg_sel_fr.split(" - ")[0])
@@ -1674,35 +1678,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             </div>
                             ''', unsafe_allow_html=True)
                             
-                            if dados_fr['status'] == 'EM ANDAMENTO':
-                                st.markdown("---")
-                                st.write("🟢 **Finalizar Atendimento:**")
-                                desfecho = st.text_area("Informe o desfecho do caso (ex: Veículo recuperado com sucesso)", key=f"desfecho_{id_r}")
-                                if st.button("✅ Concluir e Finalizar Ocorrência", key=f"btn_concluir_fr_{id_r}", type="primary"):
-                                    agora = get_horario_brasil()
-                                    try:
-                                        dt_abertura = datetime.strptime(dados_fr['data_hora'], "%d/%m/%Y %H:%M:%S")
-                                        dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
-                                        tempo_decorrido = agora - dt_abertura
-                                        horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
-                                        minutos, _ = divmod(resto, 60)
-                                        sla_str = f"{int(horas)}h e {int(minutos)}m"
-                                    except Exception:
-                                        sla_str = "Não calculado"
-
-                                    protocolo = f"AD-{id_r}-{agora.strftime('%Y%m%d%H%M')}"
-                                    novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho} | SLA DE RESPOSTA: {sla_str} | PROTOCOLO: {protocolo}"
-                                    
-                                    execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, id_r))
-                                    registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada. Protocolo: {protocolo}", dados_fr['empresa'])
-                                    st.session_state.flash_msg = "Ocorrência finalizada e protocolada com sucesso!"
-                                    limpar_tela()
-                                    st.rerun()
-                            
                             st.markdown("<br>", unsafe_allow_html=True)
                             st.markdown(gerar_relatorio_html(dados_fr, st.session_state.nome_empresa), unsafe_allow_html=True)
                     else:
-                        st.info("Nenhum registro de Furto ou Roubo encontrado.")
+                        st.info("Nenhum registro de Furto ou Roubo finalizado encontrado.")
                 idx_sub += 1
 
             if mostrar_mon:
