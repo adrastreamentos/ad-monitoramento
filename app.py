@@ -1159,7 +1159,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         else:
             st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
 
-    # --- TELA: CLIENTES E FROTAS (ÚLTIMO ATENDIMENTO CONDICIONAL E DISCRETO) ---
+    # --- TELA: CLIENTES E FROTAS (ABERTURA AUTOMÁTICA NA BUSCA) ---
     elif aba_ativa == "clientes":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</h2>", unsafe_allow_html=True)
         
@@ -1178,6 +1178,9 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         if acao_clientes == "Listar":
             busca_cli = st.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"lista_busca_{st.session_state.rk}")
             
+            # Detecta se há uma busca ativa de pelo menos 3 caracteres
+            tem_busca_ativa = bool(busca_cli and len(busca_cli.strip()) >= 3)
+            
             q_tela = """
                 SELECT c.id as cli_id, c.nome, c.documento, c.telefone, c.empresa, c.status, c.endereco,
                        (SELECT COUNT(v.id) FROM veiculos v WHERE v.cliente_id = c.id) as qtd_veiculos
@@ -1189,8 +1192,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 q_tela += " AND c.empresa = %s"
                 params_tela.append(st.session_state.nome_empresa)
                 
-            if busca_cli and len(busca_cli) >= 3:
-                termo = f"%{busca_cli}%"
+            if tem_busca_ativa:
+                termo = f"%{busca_cli.strip()}%"
                 q_tela += " AND (c.nome ILIKE %s OR c.documento ILIKE %s OR EXISTS (SELECT 1 FROM veiculos v2 WHERE v2.cliente_id = c.id AND v2.placa ILIKE %s))"
                 params_tela.extend([termo, termo, termo])
                 
@@ -1203,8 +1206,15 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 empresas_ativas = df_tela['empresa'].unique()
                 
                 for emp_ativa in empresas_ativas:
-                    with st.expander(f"📁 Clientes da Empresa: {emp_ativa}"):
-                        df_emp = df_tela[df_tela['empresa'] == emp_ativa]
+                    df_emp = df_tela[df_tela['empresa'] == emp_ativa]
+                    total_encontrados_emp = len(df_emp)
+                    
+                    # Se tiver pesquisa ativa, abre a pasta direto e mostra a quantidade encontrada
+                    titulo_pasta = f"📁 Clientes da Empresa: {emp_ativa}"
+                    if tem_busca_ativa:
+                        titulo_pasta += f" ({total_encontrados_emp} encontrado{'s' if total_encontrados_emp > 1 else ''})"
+                    
+                    with st.expander(titulo_pasta, expanded=tem_busca_ativa):
                         df_display = df_emp[['nome', 'documento', 'telefone', 'qtd_veiculos', 'status']].copy()
                         df_display.columns = ['Cliente', 'CPF/CNPJ', 'Telefone', 'Qtd. Veículos', 'Status']
                         st.dataframe(df_display, use_container_width=True)
