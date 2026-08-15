@@ -1925,6 +1925,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         else:
             st.error("Erro ao localizar cadastro da empresa.")
 
+    # --- TELA: GERENCIAMENTO DE EMPRESAS (ADMIN - COM DOSSIÊ COMPLETO NA LISTAGEM) ---
     elif aba_ativa == "empresas" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🏢 Gerenciamento de Empresas Parceiras e Precificação</h2>", unsafe_allow_html=True)
         
@@ -1937,18 +1938,70 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         if acao_parceiros == "Listar":
             if not df_empresas.empty:
                 for _, emp in df_empresas.iterrows():
-                    with st.expander(f"📁 Empresa: {emp['nome']}"):
-                        st.write(f"**Responsável:** {emp['responsavel']}")
-                        e_mail_disp = emp['email'] if emp['email'] else "Não informado"
-                        st.write(f"**Telefone:** {emp['telefone']} | **E-mail:** {e_mail_disp} | **Endereço:** {emp['endereco']}")
+                    with st.expander(f"📁 Empresa Parceira: {emp['nome']}"):
+                        # Variáveis formatadas
+                        cnpj_disp = emp['cnpj'] if emp['cnpj'] else "Não informado"
+                        resp_disp = emp['responsavel'] if emp['responsavel'] else "Não informado"
+                        tel_disp = emp['telefone'] if emp['telefone'] else "Não informado"
+                        mail_disp = emp['email'] if emp['email'] else "Não informado"
+                        end_disp = emp['endereco'] if emp['endereco'] else "Não informado"
+                        
                         servico_vinculado = emp['servicos'] if 'servicos' in emp and emp['servicos'] else "Ambos (Furto/Roubo + Monitoramento)"
                         valor_unit = emp['valor_veiculo'] if ('valor_veiculo' in emp and emp['valor_veiculo'] is not None) else 3.00
                         dia_v = emp['dia_vencimento'] if ('dia_vencimento' in emp and emp['dia_vencimento'] is not None) else 10
                         stat_pag = emp['status_pagamento'] if ('status_pagamento' in emp and emp['status_pagamento'] is not None) else "Pendente"
                         val_pago_ef = emp['valor_pago'] if ('valor_pago' in emp and emp['valor_pago'] is not None) else 0.00
                         
-                        st.write(f"**Pacote:** {servico_vinculado} | **Preço/Veículo:** R$ {valor_unit:.2f} | **Vencimento:** Dia {dia_v}")
-                        st.write(f"**Status Fatura Atual:** {stat_pag} | **Valor Pago Registrado:** R$ {val_pago_ef:.2f}")
+                        pop_g_disp = emp['pop_gestor'] if emp['pop_gestor'] else "Não informado"
+                        pop_pr_disp = emp['pop_pronta_resposta'] if emp['pop_pronta_resposta'] else "Não informado"
+                        pop_db_disp = emp['pop_diretriz_bloqueio'] if emp['pop_diretriz_bloqueio'] else "Nenhuma diretriz cadastrada."
+                        
+                        pop_fin_disp = emp['pop_wpp_financeiro'] if emp['pop_wpp_financeiro'] else "Usa telefone geral"
+                        pop_tec_disp = emp['pop_wpp_tecnico'] if emp['pop_wpp_tecnico'] else "Usa telefone geral"
+                        pop_mon_disp = emp['pop_monitoramento'] if emp['pop_monitoramento'] else "Nenhuma instrução cadastrada."
+
+                        # 1. BLOCO DADOS CADASTRAIS & CONTRATO
+                        st.markdown(f"""
+                        <div style="background: #fafafa; border-left: 4px solid #4a0e4e; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
+                            <span style="font-weight: bold; color: #4a0e4e; font-size: 14px; display: block; margin-bottom: 8px;">🏢 IDENTIFICAÇÃO & CONTRATO</span>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; color: #333;">
+                                <div><b>CNPJ:</b> {cnpj_disp}</div>
+                                <div><b>Responsável:</b> {resp_disp}</div>
+                                <div><b>Telefone Geral:</b> {tel_disp}</div>
+                                <div><b>E-mail:</b> {mail_disp}</div>
+                                <div style="grid-column: span 2;"><b>Endereço:</b> {end_disp}</div>
+                                <div><b>Pacote:</b> {servico_vinculado}</div>
+                                <div><b>Valor/Veículo:</b> R$ {valor_unit:.2f}</div>
+                                <div><b>Vencimento:</b> Todo dia {dia_v}</div>
+                                <div><b>Status Fatura:</b> {stat_pag}</div>
+                                <div><b>Valor Pago Registrado:</b> R$ {val_pago_ef:.2f}</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # 2. BLOCO POP EMERGÊNCIA
+                        st.markdown(f"""
+                        <div style="background: #fff8f8; border-left: 4px solid #8b0000; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
+                            <span style="font-weight: bold; color: #8b0000; font-size: 14px; display: block; margin-bottom: 8px;">🚨 POP DE EMERGÊNCIA (FURTO / ROUBO)</span>
+                            <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 6px;">
+                                <div><b>📞 Gestor 24h:</b> {pop_g_disp}</div>
+                                <div><b>🛡️ Pronta Resposta:</b> {pop_pr_disp}</div>
+                            </div>
+                            <div><b>🛑 Diretriz Tática de Bloqueio:</b> {pop_db_disp}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # 3. BLOCO POP MONITORAMENTO
+                        st.markdown(f"""
+                        <div style="background: #fdfaff; border-left: 4px solid #6a1b9a; padding: 12px 16px; border-radius: 6px; font-size: 13px;">
+                            <span style="font-weight: bold; color: #6a1b9a; font-size: 14px; display: block; margin-bottom: 8px;">📡 DIRETRIZES DE MONITORAMENTO & SETORES</span>
+                            <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 6px;">
+                                <div><b>💰 WPP Financeiro:</b> {pop_fin_disp}</div>
+                                <div><b>🛠️ WPP Suporte Técnico:</b> {pop_tec_disp}</div>
+                            </div>
+                            <div><b>📋 Regra de Triagem / Contato:</b> {pop_mon_disp}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
             else:
                 st.info("Nenhuma empresa parceira cadastrada.")
         
