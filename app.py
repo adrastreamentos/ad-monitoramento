@@ -605,17 +605,28 @@ else:
         st.markdown("### 📞 Suporte Oficial")
         st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Empresa Logada: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
 
+    # --- BARRA DE NOTIFICAÇÕES MODERNA E DISCRETA (SÓ ADMIN) ---
     if st.session_state.is_admin:
         alertas = fetch_data("SELECT * FROM notificacoes WHERE lida = FALSE ORDER BY id DESC")
         if alertas:
-            st.markdown("### 🚨 Central de Alertas (Novos Cadastros)")
+            st.markdown("<div style='margin-bottom: 6px;'><span style='font-size: 12px; font-weight: 700; color: #8b0000; letter-spacing: 0.5px;'>🔔 NOTIFICAÇÕES RECENTES</span></div>", unsafe_allow_html=True)
             for alerta in alertas:
-                col_al1, col_al2 = st.columns([5, 1])
-                col_al1.error(f"🔴 **NOVO VEÍCULO ADICIONADO ({alerta['empresa']}):** {alerta['mensagem']} - *{alerta['data_hora']}*")
-                if col_al2.button("Limpar Aviso", key=f"limpar_notif_{alerta['id']}", use_container_width=True, type="secondary"):
-                    execute_query("UPDATE notificacoes SET lida = TRUE WHERE id = %s", (alerta['id'],))
-                    st.rerun()
-            st.markdown("---")
+                col_al1, col_al2 = st.columns([6, 1])
+                with col_al1:
+                    st.markdown(f"""
+                    <div style="background: #ffffff; border: 1px solid #fee2e2; border-left: 4px solid #8b0000; border-radius: 6px; padding: 7px 12px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+                        <div>
+                            <span style="background: #fef2f2; color: #991b1b; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; margin-right: 8px; text-transform: uppercase;">{alerta['empresa']}</span>
+                            <span style="font-size: 13px; color: #374151; font-weight: 500;">{alerta['mensagem']}</span>
+                        </div>
+                        <span style="font-size: 11px; color: #9ca3af; margin-left: 10px; white-space: nowrap;">🕒 {alerta['data_hora']}</span>
+                    </div>
+                    """, unsafe_allow_html=True)
+                with col_al2:
+                    if st.button("Limpar", key=f"limpar_notif_{alerta['id']}", use_container_width=True, type="secondary"):
+                        execute_query("UPDATE notificacoes SET lida = TRUE WHERE id = %s", (alerta['id'],))
+                        st.rerun()
+            st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
 
     if st.session_state.is_admin:
         res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE tipo='Transferência' AND status='PENDENTE'")
@@ -1767,7 +1778,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         if status_visual == "🔴 Vencida / Atrasada":
             msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #ffebee; color: #c62828; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>ATENÇÃO - FATURA ATRASADA:</b> Sua fatura venceu e encontra-se em atraso. Serviços temporariamente suspensos até a quitação.</div>"
         elif status_visual == "🟠 Vence Hoje":
-            msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fff3e0; color: #e65100; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>AVISO FINANCEIRO:</b> Sua fatura referente ao fechamento do不断último mês vence hoje. Evite bloqueios realizando o pagamento.</div>"
+            msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fff3e0; color: #e65100; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>AVISO FINANCEIRO:</b> Sua fatura referente ao fechamento do último mês vence hoje. Evite bloqueios realizando o pagamento.</div>"
         elif status_visual == "🟡 Fatura Fechada (Próxima ao Vencimento)":
             msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fffde7; color: #f57f17; font-size: 13px; margin-bottom: 10px;'>🔔 <b>Aviso Financeiro:</b> Sua fatura foi fechada (corte de 2 dias antes do vencimento dia {dia_venc}). Fique atento.</div>"
         else:
