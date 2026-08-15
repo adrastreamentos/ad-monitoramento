@@ -438,6 +438,7 @@ if 'link_transferencia' not in st.session_state: st.session_state.link_transfere
 if 'empresa_transferencia' not in st.session_state: st.session_state.empresa_transferencia = None
 if 'mostrar_laudo' not in st.session_state: st.session_state.mostrar_laudo = False
 if 'editando_meu_cadastro' not in st.session_state: st.session_state.editando_meu_cadastro = False
+if 'menu_navegacao' not in st.session_state: st.session_state.menu_navegacao = "dashboard"
 
 chaves_necessarias = {
     'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0, 'dash_mes': 0
@@ -655,7 +656,10 @@ else:
     else:
         lista_abas = ["dashboard", "pendencias", "clientes", "relatorios", "faturamento", "cadastro", "auditoria"]
         
-    aba_ativa = st.radio("Navegação", lista_abas, format_func=formatar_nome_menu, horizontal=True, label_visibility="collapsed")
+    if st.session_state.menu_navegacao not in lista_abas:
+        st.session_state.menu_navegacao = lista_abas[0]
+
+    aba_ativa = st.radio("Navegação", lista_abas, format_func=formatar_nome_menu, horizontal=True, label_visibility="collapsed", key="menu_navegacao")
     st.markdown("---")
 
     # =======================================================================
