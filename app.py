@@ -451,6 +451,13 @@ else:
         if chave not in st.session_state.reset_keys:
             st.session_state.reset_keys[chave] = valor_padrao
 
+# --- OBTÉM O PACOTE DO PARCEIRO PARA FILTROS GLOBAIS ---
+servico_parceiro = "Ambos (Furto/Roubo + Monitoramento)"
+if not st.session_state.get('is_admin', True) and st.session_state.get('nome_empresa'):
+    res_serv = fetch_data("SELECT servicos FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+    if res_serv and res_serv[0].get('servicos'):
+        servico_parceiro = res_serv[0]['servicos']
+
 def limpar_tela():
     st.session_state.rk += 1
     st.session_state.termo_busca_ativo = ""
@@ -629,11 +636,23 @@ else:
                         st.rerun()
             st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
 
+    # --- CONTADOR INTELIGENTE DE PENDÊNCIAS (POR PACOTE) ---
     if st.session_state.is_admin:
         res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO')")
     else:
-        res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO') AND empresa=%s", (st.session_state.nome_empresa,))
-    
+        tipos_ver = []
+        if "Monitoramento" in servico_parceiro or "Ambos" in servico_parceiro:
+            tipos_ver.extend(['Monitoramento', 'Transferência'])
+        if "Furto" in servico_parceiro or "Ambos" in servico_parceiro:
+            tipos_ver.extend(['Furto', 'Roubo'])
+            
+        if tipos_ver:
+            placeholders = ', '.join(['%s'] * len(tipos_ver))
+            q_count = f"SELECT count(id) as c FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO') AND empresa=%s AND tipo IN ({placeholders})"
+            res_count_pend = fetch_data(q_count, tuple([st.session_state.nome_empresa] + tipos_ver))
+        else:
+            res_count_pend = [{'c': 0}]
+            
     qtd_pend = res_count_pend[0]['c'] if res_count_pend else 0
 
     def formatar_nome_menu(aba_id):
@@ -1127,22 +1146,26 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🛠️ Gestão de Chamados e Pendências</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel unificado de ocorrências ativas. Resolva os sinistros e pendências abaixo para enviá-los aos Relatórios Oficiais.</p>", unsafe_allow_html=True)
         
-        q_pend = "SELECT * FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO') ORDER BY id DESC"
         if not st.session_state.is_admin:
-            q_pend = "SELECT * FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO') AND empresa=%s ORDER BY id DESC"
-            res_pend = fetch_data(q_pend, (st.session_state.nome_empresa,))
+            if tipos_ver:
+                placeholders = ', '.join(['%s'] * len(tipos_ver))
+                q_pend = f"SELECT * FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO') AND empresa=%s AND tipo IN ({placeholders}) ORDER BY id DESC"
+                res_pend = fetch_data(q_pend, tuple([st.session_state.nome_empresa] + tipos_ver))
+            else:
+                res_pend = []
         else:
+            q_pend = "SELECT * FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO') ORDER BY id DESC"
             res_pend = fetch_data(q_pend)
             
         if res_pend:
-            # Separando as listas por prioridade
             pend_sinistros = [p for p in res_pend if p['tipo'] in ['Furto', 'Roubo']]
             pend_fin = [p for p in res_pend if 'Financeiro' in p['detalhes'] and p['tipo'] not in ['Furto', 'Roubo']]
             pend_tec = [p for p in res_pend if 'Técnico' in p['detalhes'] and p['tipo'] not in ['Furto', 'Roubo']]
             pend_outros = [p for p in res_pend if p not in pend_sinistros and p not in pend_fin and p not in pend_tec]
 
             def render_pendencia(p, cor_borda, cor_fundo, icone, titulo_sessao):
-                with st.expander(f"{icone} #{p['id']} - {p['cliente']} (Placa: {p['placa']}) — {p['data_hora']}", expanded=(p['tipo'] in ['Furto', 'Roubo'])):
+                is_sinistro = p['tipo'] in ['Furto', 'Roubo']
+                with st.expander(f"{icone} #{p['id']} - {p['cliente']} (Placa: {p['placa']}) — {p['data_hora']}", expanded=is_sinistro):
                     st.markdown(f'''
                     <div style="background: {cor_fundo}; border-left: 5px solid {cor_borda}; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
                         <p style="margin-top:0;"><b>Empresa Parceira:</b> {p['empresa']}</p>
@@ -1152,36 +1175,39 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     </div>
                     ''', unsafe_allow_html=True)
                     
-                    st.write(f"🟢 **Finalizar {titulo_sessao}:**")
-                    desfecho_pend = st.text_area("Descreva o desfecho final ou a solução aplicada:", key=f"desf_pend_{p['id']}")
-                    
-                    if st.button("✅ Concluir e Encerrar Documento", key=f"btn_res_pend_{p['id']}", type="primary"):
-                        if not desfecho_pend.strip():
-                            st.error("Por favor, preencha o desfecho antes de finalizar.")
-                        else:
-                            agora = get_horario_brasil()
-                            agora_str = agora.strftime("%d/%m/%Y %H:%M:%S")
-                            
-                            if p['tipo'] in ['Furto', 'Roubo']:
-                                try:
-                                    dt_abertura = datetime.strptime(p['data_hora'], "%d/%m/%Y %H:%M:%S")
-                                    dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
-                                    tempo_decorrido = agora - dt_abertura
-                                    horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
-                                    minutos, _ = divmod(resto, 60)
-                                    sla_str = f"{int(horas)}h e {int(minutos)}m"
-                                except Exception:
-                                    sla_str = "Não calculado"
-                                protocolo = f"AD-{p['id']}-{agora.strftime('%Y%m%d%H%M')}"
-                                novo_detalhe = p['detalhes'] + f" | DESFECHO: {desfecho_pend} | SLA DE RESPOSTA: {sla_str} | PROTOCOLO: {protocolo}"
+                    if is_sinistro and not st.session_state.is_admin:
+                        st.info("🔒 Esta ocorrência está sob gestão exclusiva da Central 24h. Acompanhe os detalhes acima.")
+                    else:
+                        st.write(f"🟢 **Finalizar {titulo_sessao}:**")
+                        desfecho_pend = st.text_area("Descreva o desfecho final ou a solução aplicada:", key=f"desf_pend_{p['id']}")
+                        
+                        if st.button("✅ Concluir e Encerrar Documento", key=f"btn_res_pend_{p['id']}", type="primary"):
+                            if not desfecho_pend.strip():
+                                st.error("Por favor, preencha o desfecho antes de finalizar.")
                             else:
-                                novo_detalhe = f"{p['detalhes']} | RESOLUÇÃO ({agora_str}): {desfecho_pend}"
+                                agora = get_horario_brasil()
+                                agora_str = agora.strftime("%d/%m/%Y %H:%M:%S")
                                 
-                            execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, p['id']))
-                            registrar_auditoria("Resolução", "Pendências", f"Ocorrência/Chamado #{p['id']} ({p['placa']}) finalizado.", p['empresa'])
-                            st.session_state.flash_msg = f"#{p['id']} resolvido com sucesso! Transferido para Relatórios."
-                            limpar_tela()
-                            st.rerun()
+                                if is_sinistro:
+                                    try:
+                                        dt_abertura = datetime.strptime(p['data_hora'], "%d/%m/%Y %H:%M:%S")
+                                        dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
+                                        tempo_decorrido = agora - dt_abertura
+                                        horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
+                                        minutos, _ = divmod(resto, 60)
+                                        sla_str = f"{int(horas)}h e {int(minutos)}m"
+                                    except Exception:
+                                        sla_str = "Não calculado"
+                                    protocolo = f"AD-{p['id']}-{agora.strftime('%Y%m%d%H%M')}"
+                                    novo_detalhe = p['detalhes'] + f" | DESFECHO: {desfecho_pend} | SLA DE RESPOSTA: {sla_str} | PROTOCOLO: {protocolo}"
+                                else:
+                                    novo_detalhe = f"{p['detalhes']} | RESOLUÇÃO ({agora_str}): {desfecho_pend}"
+                                    
+                                execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, p['id']))
+                                registrar_auditoria("Resolução", "Pendências", f"Ocorrência/Chamado #{p['id']} ({p['placa']}) finalizado.", p['empresa'])
+                                st.session_state.flash_msg = f"#{p['id']} resolvido com sucesso! Transferido para Relatórios."
+                                limpar_tela()
+                                st.rerun()
 
             if pend_sinistros:
                 st.markdown("<h3 style='color: #8b0000; font-size: 16px; margin-top: 20px; border-bottom: 1px solid #ffcdd2; padding-bottom: 5px;'>🚨 PRIORIDADE MÁXIMA: Furto e Roubo (Em Andamento)</h3>", unsafe_allow_html=True)
@@ -1639,17 +1665,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
     elif aba_ativa == "relatorios":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📖 Relatórios Operacionais</h2>", unsafe_allow_html=True)
         
-        if st.session_state.is_admin:
-            servico_atual = "Ambos (Furto/Roubo + Monitoramento)"
-        else:
-            res_servico = fetch_data("SELECT servicos FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
-            if res_servico and res_servico[0].get('servicos'):
-                servico_atual = res_servico[0]['servicos']
-            else:
-                servico_atual = "Ambos (Furto/Roubo + Monitoramento)"
-        
-        mostrar_fr = "Furto e Roubo" in servico_atual or "Ambos" in servico_atual
-        mostrar_mon = "Monitoramento" in servico_atual or "Ambos" in servico_atual
+        mostrar_fr = "Furto e Roubo" in servico_parceiro or "Ambos" in servico_parceiro
+        mostrar_mon = "Monitoramento" in servico_parceiro or "Ambos" in servico_parceiro
         
         abas_relatorios_ativas = []
         if mostrar_fr: abas_relatorios_ativas.append("🚨 Relatórios de Furto e Roubo")
