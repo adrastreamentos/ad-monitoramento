@@ -1220,7 +1220,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 registrar_auditoria("Visualização", "Clientes", f"Visualizou a ficha completa do cliente: {dados_cli_ficha['nome']}", dados_cli_ficha['empresa'])
                                 st.session_state.last_viewed_cli = id_cli_ficha
                             
-                            # BOTÃO FECHAR MODERNIZADO (OUTLINE)
                             col_f_btn1, col_f_btn2 = st.columns([1, 4])
                             with col_f_btn1:
                                 if st.button("❌ Fechar Ficha", key=f"btn_close_ficha_cli_{id_cli_ficha}_{emp_ativa}", type="secondary", use_container_width=True):
@@ -1768,7 +1767,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         if status_visual == "🔴 Vencida / Atrasada":
             msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #ffebee; color: #c62828; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>ATENÇÃO - FATURA ATRASADA:</b> Sua fatura venceu e encontra-se em atraso. Serviços temporariamente suspensos até a quitação.</div>"
         elif status_visual == "🟠 Vence Hoje":
-            msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fff3e0; color: #e65100; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>AVISO FINANCEIRO:</b> Sua fatura referente ao fechamento do último mês vence hoje. Evite bloqueios realizando o pagamento.</div>"
+            msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fff3e0; color: #e65100; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>AVISO FINANCEIRO:</b> Sua fatura referente ao fechamento do不断último mês vence hoje. Evite bloqueios realizando o pagamento.</div>"
         elif status_visual == "🟡 Fatura Fechada (Próxima ao Vencimento)":
             msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fffde7; color: #f57f17; font-size: 13px; margin-bottom: 10px;'>🔔 <b>Aviso Financeiro:</b> Sua fatura foi fechada (corte de 2 dias antes do vencimento dia {dia_venc}). Fique atento.</div>"
         else:
@@ -1871,7 +1870,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             
             # --- SE ESTIVER NO MODO VISUALIZAÇÃO (TRAVADO / PADRÃO) ---
             if not st.session_state.editando_meu_cadastro:
-                # 1. Card Contatos Administrativos
                 txt_resp = dados_emp.get('responsavel') or 'Não informado'
                 txt_tel = dados_emp.get('telefone') or 'Não informado'
                 txt_mail = dados_emp.get('email') or 'Não informado'
@@ -1891,7 +1889,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # 2. Card POP de Emergência
                 txt_gestor = dados_emp.get('pop_gestor') or 'Não informado'
                 txt_pr = dados_emp.get('pop_pronta_resposta') or 'Não informado'
                 txt_db = dados_emp.get('pop_diretriz_bloqueio') or 'Nenhuma diretriz de bloqueio cadastrada.'
@@ -1918,7 +1915,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # 3. Card POP de Monitoramento
                 txt_w_fin = dados_emp.get('pop_wpp_financeiro') or 'Não informado'
                 txt_w_tec = dados_emp.get('pop_wpp_tecnico') or 'Não informado'
                 txt_mon = dados_emp.get('pop_monitoramento') or 'Nenhuma instrução de triagem cadastrada.'
@@ -1945,7 +1941,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # BOTÃO PRINCIPAL PARA LIBERAR A EDIÇÃO
                 if st.button("✏️ Editar Meus Dados e Procedimentos (POP)", type="primary", use_container_width=True):
                     st.session_state.editando_meu_cadastro = True
                     st.rerun()
@@ -2325,6 +2320,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         limpar_tela()
                         st.rerun()
 
+    # --- TELA: AUDITORIA E BACKUP DE BASE ---
     elif aba_ativa == "auditoria":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🕵️ Auditoria e Registros de Atividades</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666; margin-bottom: 15px;'>🔒 <b>Blindagem Jurídica Ativa:</b> Todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações de acordo com a LGPD e Marco Civil da Internet.</p>", unsafe_allow_html=True)
@@ -2359,6 +2355,57 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         else:
             st.info(f"Nenhum registro de auditoria para os termos buscados.")
             
+        # --- PAINEL DE BACKUP E EXPORTAÇÃO DE BASE DE DADOS ---
+        st.markdown("---")
+        with st.expander("📦 Backup e Exportação de Base de Dados", expanded=False):
+            st.markdown("<p style='font-size: 13px; color: #666;'>Exporte os dados cadastrais completos (Clientes, Documentos e Veículos) estruturados por empresa parceira.</p>", unsafe_allow_html=True)
+            
+            if st.session_state.is_admin:
+                empresas_bkp = fetch_data("SELECT nome FROM empresas ORDER BY nome")
+                opcoes_bkp = ["Todas as Empresas"] + [e['nome'] for e in empresas_bkp] if empresas_bkp else ["Todas as Empresas"]
+                emp_sel_bkp = st.selectbox("Selecione a Empresa para Gerar Backup:", opcoes_bkp, key=f"sb_bkp_{st.session_state.rk}")
+            else:
+                emp_sel_bkp = st.session_state.nome_empresa
+                st.write(f"**Empresa:** {emp_sel_bkp}")
+                
+            q_bkp = """
+                SELECT c.empresa as "Empresa", c.nome as "Cliente", c.documento as "CPF / CNPJ", 
+                       c.telefone as "Telefone", c.endereco as "Endereço", c.status as "Status Cliente",
+                       v.tipo_veic as "Tipo Veículo", v.placa as "Placa", v.modelo as "Modelo", 
+                       v.cor as "Cor", v.info_chip as "Chip / Equipamento"
+                FROM clientes c
+                LEFT JOIN veiculos v ON c.id = v.cliente_id
+                WHERE 1=1
+            """
+            params_bkp = []
+            if emp_sel_bkp != "Todas as Empresas":
+                q_bkp += " AND c.empresa = %s"
+                params_bkp.append(emp_sel_bkp)
+                
+            q_bkp += " ORDER BY c.empresa, c.nome, v.placa"
+            
+            res_bkp = fetch_data(q_bkp, tuple(params_bkp))
+            
+            if res_bkp:
+                df_export = pd.DataFrame(res_bkp)
+                st.dataframe(df_export, use_container_width=True)
+                
+                csv_bytes = df_export.to_csv(index=False, sep=";").encode('utf-8-sig')
+                nome_arq = f"Backup_{emp_sel_bkp.replace(' ', '_')}_{get_horario_brasil().strftime('%d_%m_%Y')}.csv"
+                
+                col_bkp1, col_bkp2 = st.columns([1, 3])
+                with col_bkp1:
+                    st.download_button(
+                        label="📥 Baixar Backup em Planilha (CSV)",
+                        data=csv_bytes,
+                        file_name=nome_arq,
+                        mime="text/csv",
+                        type="primary",
+                        use_container_width=True
+                    )
+            else:
+                st.info("Nenhum dado cadastrado encontrado para exportar desta empresa.")
+
         # --- PAINEL EXCLUSIVO DO ADMIN PARA VER ACEITES DA LGPD ---
         if st.session_state.is_admin:
             st.markdown("---")
