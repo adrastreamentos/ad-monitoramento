@@ -17,31 +17,72 @@ st.set_page_config(page_title="Central de Operações", page_icon="🛡️", lay
 
 st.markdown("""
 <style>
-    .stApp { background-color: #fdfdfd; }
+    .stApp { background-color: #fcfcfc; }
     h1, h2, h3 { color: #4a0e4e; margin-top: 0px; margin-bottom: 10px; }
-    .stButton>button { background-color: #8b0000; color: white; font-weight: bold; border-radius: 6px; border: none; transition: 0.3s; }
-    .stButton>button:hover { background-color: #4a0e4e; color: white; border: 1px solid #8b0000; }
+    
+    /* --- PADRONIZAÇÃO MODERNA DE TODOS OS BOTÕES --- */
+    .stButton>button {
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 13.5px;
+        padding: 8px 16px;
+        transition: all 0.2s ease-in-out;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+    }
+    
+    .stButton>button:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+    }
+    
+    .stButton>button:active {
+        transform: translateY(0px);
+    }
+
+    /* Botões Primários (Ação Principal, Salvar, Pesquisar) */
+    button[kind="primary"] {
+        background-color: #8b0000 !important;
+        color: #ffffff !important;
+        border: none !important;
+    }
+    button[kind="primary"]:hover {
+        background-color: #4a0e4e !important;
+        color: #ffffff !important;
+    }
+
+    /* Botões Secundários (Fechar, Cancelar, Limpar, Voltar) */
+    button[kind="secondary"] {
+        background-color: #ffffff !important;
+        color: #444444 !important;
+        border: 1.5px solid #e0e0e0 !important;
+    }
+    button[kind="secondary"]:hover {
+        background-color: #fef8f8 !important;
+        color: #8b0000 !important;
+        border-color: #8b0000 !important;
+    }
+
     div[data-testid="stSidebar"] { background-color: #4a0e4e; }
     div[data-testid="stSidebar"] * { color: white; }
     
-    /* --- MENU VISUALMENTE SEPARADO --- */
+    /* --- MENU DE NAVEGAÇÃO VISUALMENTE SEPARADO --- */
     div[role="radiogroup"] { 
         justify-content: center; 
-        gap: 15px; 
-        padding: 15px; 
+        gap: 12px; 
+        padding: 14px; 
         background-color: #f7f7f7; 
-        border-radius: 8px;
+        border-radius: 10px;
         border-bottom: 4px solid #4a0e4e;
     }
     
     div[role="radiogroup"] > label {
         background-color: #ffffff;
-        border: 2px solid #e0e0e0;
+        border: 1.5px solid #e2e8f0;
         padding: 8px 18px;
         border-radius: 8px;
         cursor: pointer;
         transition: 0.2s;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
     }
     
     div[role="radiogroup"] > label:hover {
@@ -54,13 +95,21 @@ st.markdown("""
         background-color: #fff5f5;
     }
     
-    div[data-testid="stExpander"] { border-left: 4px solid #4a0e4e; }
+    div[data-testid="stExpander"] { border-left: 4px solid #4a0e4e; border-radius: 6px; }
     
-    .ficha-box { border: 2px solid #4a0e4e; padding: 20px; border-radius: 10px; background-color: #fafafa; margin-top: 15px;}
+    .ficha-box { 
+        border: 1.5px solid #e2e8f0; 
+        border-left: 5px solid #4a0e4e; 
+        padding: 22px; 
+        border-radius: 10px; 
+        background-color: #ffffff; 
+        margin-top: 15px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
     
     /* Títulos refinados para o Dashboard */
-    .dash-title { color: #4a0e4e; font-size: 20px; font-weight: 600; text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
-    .dash-legend { font-size: 14px; color: #555; display: flex; justify-content: space-between; padding: 5px 10px; border-bottom: 1px solid #f0f0f0; }
+    .dash-title { color: #4a0e4e; font-size: 18px; font-weight: 600; text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
+    .dash-legend { font-size: 13.5px; color: #555; display: flex; justify-content: space-between; padding: 5px 10px; border-bottom: 1px solid #f0f0f0; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -199,7 +248,7 @@ def gerar_link_whatsapp(contexto):
     telefone = "5584999305771"
     mensagem = urllib.parse.quote(f"Olá, AD Rastreamento Veicular! Preciso de suporte/ajuda na Central de Operações.\n\n📍 Contexto: {contexto}")
     link = f"https://wa.me/{telefone}?text={mensagem}"
-    return f'<a href="{link}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%;">💬 Solicitar Suporte via WhatsApp</button></a>'
+    return f'<a href="{link}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; width:100%;">💬 Solicitar Suporte via WhatsApp</button></a>'
 
 def gerar_relatorio_html(dados_relatorio, empresa_nome):
     detalhes_texto = dados_relatorio['detalhes']
@@ -253,7 +302,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     </html>
     """
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
-    return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
+    return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
 def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
     hash_exibicao = dados_aceite.get('hash_assinatura')
@@ -320,7 +369,7 @@ def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
     </html>
     """
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
-    return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
+    return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
 
 # --- BASE DE CONHECIMENTO (DIAGNÓSTICO TÉCNICO INTELIGENTE) ---
 DIAGNOSTICOS_TECNICOS = {
@@ -429,7 +478,7 @@ if not st.session_state.logged_in:
         with st.form("login_form"):
             user = st.text_input("Usuário ou Nome da Empresa")
             senha = st.text_input("Senha ou CNPJ", type="password")
-            submit = st.form_submit_button("Entrar no Sistema")
+            submit = st.form_submit_button("Entrar no Sistema", type="primary")
             
             if submit:
                 if user == "AD" and senha == "admin":
@@ -543,7 +592,7 @@ else:
                     st.success("Logo atualizada com sucesso!")
                     st.rerun()
 
-        if st.button("🚪 Sair do Sistema"):
+        if st.button("🚪 Sair do Sistema", type="secondary"):
             st.session_state.logged_in = False
             st.session_state.is_admin = False
             st.session_state.nome_empresa = ""
@@ -563,7 +612,7 @@ else:
             for alerta in alertas:
                 col_al1, col_al2 = st.columns([5, 1])
                 col_al1.error(f"🔴 **NOVO VEÍCULO ADICIONADO ({alerta['empresa']}):** {alerta['mensagem']} - *{alerta['data_hora']}*")
-                if col_al2.button("Limpar Aviso", key=f"limpar_notif_{alerta['id']}", use_container_width=True):
+                if col_al2.button("Limpar Aviso", key=f"limpar_notif_{alerta['id']}", use_container_width=True, type="secondary"):
                     execute_query("UPDATE notificacoes SET lida = TRUE WHERE id = %s", (alerta['id'],))
                     st.rerun()
             st.markdown("---")
@@ -814,7 +863,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         use_container_width=True
                     )
                 with col_btn_laudo2:
-                    if st.button("❌ Fechar Laudo", use_container_width=True):
+                    if st.button("❌ Fechar Laudo", use_container_width=True, type="secondary"):
                         st.session_state.mostrar_laudo = False
                         st.rerun()
 
@@ -828,16 +877,16 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             link_wpp = st.session_state.link_transferencia
             emp = st.session_state.empresa_transferencia
             
-            st.markdown(f'<a href="{link_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:15px; border-radius:5px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">💬 Clicar Aqui para Enviar a Solicitação no WhatsApp da {emp}</button></a>', unsafe_allow_html=True)
+            st.markdown(f'<a href="{link_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:15px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">💬 Clicar Aqui para Enviar a Solicitação no WhatsApp da {emp}</button></a>', unsafe_allow_html=True)
             st.markdown("<br>", unsafe_allow_html=True)
             
-            if st.button("🧹 Limpar Tela e Iniciar Novo Atendimento", type="primary", use_container_width=True):
+            if st.button("🧹 Iniciar Novo Atendimento", type="secondary", use_container_width=True):
                 limpar_tela()
                 st.rerun()
         else:
             col_b1, col_b2 = st.columns([4, 1])
             busca_op_input = col_b1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"busca_op_{st.session_state.rk}")
-            btn_buscar = col_b2.button("Pesquisar Veículo", use_container_width=True)
+            btn_buscar = col_b2.button("Pesquisar Veículo", use_container_width=True, type="primary")
             st.markdown("<br>", unsafe_allow_html=True)
             
             if btn_buscar and len(busca_op_input) >= 3:
@@ -1095,7 +1144,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         else:
             st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
 
-    # --- TELA: CLIENTES E FROTAS (AGORA COM ÚLTIMO ATENDIMENTO POR VEÍCULO) ---
+    # --- TELA: CLIENTES E FROTAS (ÚLTIMO ATENDIMENTO CONDICIONAL E DISCRETO) ---
     elif aba_ativa == "clientes":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</h2>", unsafe_allow_html=True)
         
@@ -1171,9 +1220,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 registrar_auditoria("Visualização", "Clientes", f"Visualizou a ficha completa do cliente: {dados_cli_ficha['nome']}", dados_cli_ficha['empresa'])
                                 st.session_state.last_viewed_cli = id_cli_ficha
                             
-                            if st.button("❌ Fechar Ficha Cadastral", key=f"btn_close_ficha_cli_{id_cli_ficha}_{emp_ativa}"):
-                                limpar_tela()
-                                st.rerun()
+                            # BOTÃO FECHAR MODERNIZADO (OUTLINE)
+                            col_f_btn1, col_f_btn2 = st.columns([1, 4])
+                            with col_f_btn1:
+                                if st.button("❌ Fechar Ficha", key=f"btn_close_ficha_cli_{id_cli_ficha}_{emp_ativa}", type="secondary", use_container_width=True):
+                                    limpar_tela()
+                                    st.rerun()
 
                             st.markdown(f"""
                             <div class="ficha-box">
@@ -1195,18 +1247,16 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             else:
                                 st.info("Nenhum veículo vinculado a este cliente.")
 
-                            # --- SEÇÃO DO ÚLTIMO ATENDIMENTO POR VEÍCULO ---
-                            st.markdown("""
-                            <hr style="border: 0; border-top: 2px solid #4a0e4e; margin: 15px 0;">
-                            <h4 style="color:#4a0e4e;">🕒 Último Atendimento Registrado por Veículo</h4>
-                            """, unsafe_allow_html=True)
-                            
+                            # --- SEÇÃO DO ÚLTIMO ATENDIMENTO (SÓ RENDERIZA SE HOUVER ATENDIMENTOS) ---
                             if ultimos_atendimentos:
+                                st.markdown("""
+                                <hr style="border: 0; border-top: 1px solid #e0e0e0; margin: 15px 0 10px 0;">
+                                <span style="font-size: 13px; font-weight: bold; color: #4a0e4e; display: block; margin-bottom: 8px;">🕒 Último Atendimento Registrado</span>
+                                """, unsafe_allow_html=True)
+                                
                                 df_ult = pd.DataFrame(ultimos_atendimentos)[['placa', 'data_hora', 'tipo', 'status', 'detalhes']]
                                 df_ult.columns = ['Placa', 'Data/Hora', 'Último Evento', 'Status', 'Detalhes / Ação da Central']
                                 st.dataframe(df_ult, use_container_width=True)
-                            else:
-                                st.info("Nenhum atendimento operacional registrado anteriormente para os veículos deste cliente.")
                                 
                             st.markdown("</div>", unsafe_allow_html=True)
             else:
@@ -1309,7 +1359,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             if arquivo_csv is not None:
                 try:
                     df_import = pd.read_csv(arquivo_csv).fillna("")
-                    if st.button("🚀 Processar Importação Inteligente"):
+                    if st.button("🚀 Processar Importação Inteligente", type="primary"):
                         importados_clientes = 0
                         importados_veiculos = 0
                         
@@ -1483,7 +1533,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 limpar_tela()
                                 st.rerun()
                                 
-                            if col_salvar2.button("❌ Cancelar / Fechar", key=f"btn_cancel_edit_{id_c_sel}"):
+                            if col_salvar2.button("❌ Cancelar / Fechar", key=f"btn_cancel_edit_{id_c_sel}", type="secondary"):
                                 limpar_tela()
                                 st.rerun()
 
@@ -1492,7 +1542,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         
                         if clientes_selecionados:
                             st.warning("⚠️ **Atenção:** Excluir estes clientes removerá os cadastros e TODOS os veículos vinculados a eles!")
-                            if st.button("🗑️ Confirmar Exclusão Múltipla"):
+                            if st.button("🗑️ Confirmar Exclusão Múltipla", type="primary"):
                                 ids_para_excluir = [int(c.split(" - ")[0]) for c in clientes_selecionados]
                                 if ids_para_excluir:
                                     ids_tuple = tuple(ids_para_excluir)
@@ -1582,7 +1632,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
                             col_b1, col_b2 = st.columns([1, 4])
                             with col_b1:
-                                if st.button("❌ Fechar Ficha", key="fechar_fr_btn"):
+                                if st.button("❌ Fechar Ficha", key="fechar_fr_btn", type="secondary", use_container_width=True):
                                     limpar_tela()
                                     st.rerun()
                             
@@ -1604,7 +1654,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 st.markdown("---")
                                 st.write("🟢 **Finalizar Atendimento:**")
                                 desfecho = st.text_area("Informe o desfecho do caso (ex: Veículo recuperado com sucesso)", key=f"desfecho_{id_r}")
-                                if st.button("✅ Concluir e Finalizar Ocorrência", key=f"btn_concluir_fr_{id_r}"):
+                                if st.button("✅ Concluir e Finalizar Ocorrência", key=f"btn_concluir_fr_{id_r}", type="primary"):
                                     agora = get_horario_brasil()
                                     try:
                                         dt_abertura = datetime.strptime(dados_fr['data_hora'], "%d/%m/%Y %H:%M:%S")
@@ -1670,7 +1720,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
                             col_mb1, col_mb2 = st.columns([1, 4])
                             with col_mb1:
-                                if st.button("❌ Fechar Ficha", key="fechar_mon_btn"):
+                                if st.button("❌ Fechar Ficha", key="fechar_mon_btn", type="secondary", use_container_width=True):
                                     limpar_tela()
                                     st.rerun()
 
@@ -1943,7 +1993,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         limpar_tela()
                         st.rerun()
 
-                if st.button("❌ Cancelar Edição", use_container_width=True):
+                if st.button("❌ Cancelar Edição", use_container_width=True, type="secondary"):
                     st.session_state.editando_meu_cadastro = False
                     st.rerun()
         else:
@@ -1963,7 +2013,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             if not df_empresas.empty:
                 for _, emp in df_empresas.iterrows():
                     with st.expander(f"📁 Empresa Parceira: {emp['nome']}"):
-                        # Variáveis formatadas
                         cnpj_disp = emp['cnpj'] if emp['cnpj'] else "Não informado"
                         resp_disp = emp['responsavel'] if emp['responsavel'] else "Não informado"
                         tel_disp = emp['telefone'] if emp['telefone'] else "Não informado"
@@ -2041,7 +2090,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 e_valor = st.number_input("Valor por Veículo (R$) *", min_value=0.0, value=3.00, format="%.2f")
                 e_venc = st.number_input("Dia de Vencimento da Fatura *", min_value=1, max_value=31, value=10)
                 
-                if st.form_submit_button("Registrar Parceiro"):
+                if st.form_submit_button("Registrar Parceiro", type="primary"):
                     if e_nome and e_cnpj:
                         senha_hash = hash_senha(e_cnpj)
                         execute_query("INSERT INTO empresas (nome, cnpj, senha, endereco, telefone, email, responsavel, servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
@@ -2061,9 +2110,11 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 emp_selecionada = st.selectbox("🔍 Selecione a Empresa na lista:", [""] + lista_opcoes_e, key=f"sb_edit_emp_{k_edit_emp}")
                 
                 if emp_selecionada:
-                    if st.button("❌ Fechar Seleção", key="btn_close_edit_emp"):
-                        limpar_tela()
-                        st.rerun()
+                    col_e_btn1, col_e_btn2 = st.columns([1, 4])
+                    with col_e_btn1:
+                        if st.button("❌ Fechar Seleção", key="btn_close_edit_emp", type="secondary", use_container_width=True):
+                            limpar_tela()
+                            st.rerun()
 
                     id_emp = int(emp_selecionada.split(" - ")[0])
                     dados_e = next(item for item in empresas_res if item["id"] == id_emp)
@@ -2102,7 +2153,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             venc_atual = dados_e['dia_vencimento'] if ('dia_vencimento' in dados_e and dados_e['dia_vencimento'] is not None) else 10
                             ne_venc = st.number_input("Dia de Vencimento da Fatura", min_value=1, max_value=31, value=int(venc_atual))
 
-                            if st.form_submit_button("💾 Salvar Alterações"):
+                            if st.form_submit_button("💾 Salvar Alterações", type="primary"):
                                 execute_query("UPDATE empresas SET nome=%s, cnpj=%s, responsavel=%s, telefone=%s, email=%s, endereco=%s, servicos=%s, valor_veiculo=%s, dia_vencimento=%s, pop_gestor=%s, pop_pronta_resposta=%s, pop_diretriz_bloqueio=%s, pop_monitoramento=%s, pop_wpp_financeiro=%s, pop_wpp_tecnico=%s WHERE id=%s", 
                                               (ne_nome, ne_cnpj, ne_resp, ne_tel, ne_email, ne_end, ne_servicos, ne_valor, ne_venc, ne_pop_g, ne_pop_pr, ne_pop_db, ne_pop_mon, ne_pop_wpp_fin, ne_pop_wpp_tec, id_emp))
                                 registrar_auditoria("Edição", "Parceiros", f"Parceiro ID {id_emp} alterado. Preço: R$ {ne_valor:.2f} | Venc. Dia {ne_venc}", ne_nome)
@@ -2112,7 +2163,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     
                     elif acao_parceiros == "Excluir":
                         st.warning(f"Tem certeza que deseja excluir a empresa **{dados_e['nome']}**?")
-                        if st.button("🗑️ Excluir Parceiro"):
+                        if st.button("🗑️ Excluir Parceiro", type="primary"):
                             execute_query("DELETE FROM empresas WHERE id=%s", (id_emp,))
                             registrar_auditoria("Exclusão", "Parceiros", f"Parceiro ID {id_emp} excluído.", dados_e['nome'])
                             st.session_state.flash_msg = "Empresa excluída com sucesso!"
@@ -2230,9 +2281,11 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             emp_escolhida_pagto = st.selectbox("Selecione a Empresa Parceira:", [""] + lista_p_nomes, key=f"sel_fin_emp_{k_fin}")
             
             if emp_escolhida_pagto != "":
-                if st.button("❌ Cancelar / Limpar Seleção", key="btn_close_fin"):
-                    limpar_tela()
-                    st.rerun()
+                col_fin_b1, col_fin_b2 = st.columns([1, 4])
+                with col_fin_b1:
+                    if st.button("❌ Cancelar Seleção", key="btn_close_fin", type="secondary", use_container_width=True):
+                        limpar_tela()
+                        st.rerun()
                     
                 dados_emp_fin = next(item for item in empresas_cad if item["nome"] == emp_escolhida_pagto)
                 val_atual = dados_emp_fin['valor_veiculo'] if dados_emp_fin['valor_veiculo'] is not None else 3.00
@@ -2258,7 +2311,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     idx_st_fin = opcoes_st_fin.index(stat_atual) if stat_atual in opcoes_st_fin else 0
                     novo_status_pagto = col_f4.selectbox("Status:", opcoes_st_fin, index=idx_st_fin, key=f"fin_st_{k_fin}")
                     
-                    if st.form_submit_button("💾 Salvar Pagamento e Registrar Histórico"):
+                    if st.form_submit_button("💾 Salvar Pagamento e Registrar Histórico", type="primary"):
                         execute_query("UPDATE empresas SET status_pagamento=%s, valor_veiculo=%s, valor_pago=%s WHERE nome=%s", (novo_status_pagto, novo_valor_unit, novo_valor_pago, emp_escolhida_pagto))
                         
                         data_pgto_hoje = get_horario_brasil_str()
@@ -2341,8 +2394,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     st.markdown("<br>", unsafe_allow_html=True)
                     st.markdown(gerar_certificado_lgpd_html(dados_a, cnpj_parceiro), unsafe_allow_html=True)
                     
-                    if st.button("❌ Fechar Gerador", key="btn_close_cert"):
-                        limpar_tela()
-                        st.rerun()
+                    col_cert_b1, col_cert_b2 = st.columns([1, 4])
+                    with col_cert_b1:
+                        if st.button("❌ Fechar Gerador", key="btn_close_cert", type="secondary", use_container_width=True):
+                            limpar_tela()
+                            st.rerun()
             else:
                 st.info("Nenhuma assinatura registrada ainda.")
