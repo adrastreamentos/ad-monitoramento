@@ -1095,7 +1095,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         else:
             st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
 
-    # --- TELA: CLIENTES E FROTAS ---
+    # --- TELA: CLIENTES E FROTAS (AGORA COM ÚLTIMO ATENDIMENTO POR VEÍCULO) ---
     elif aba_ativa == "clientes":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</h2>", unsafe_allow_html=True)
         
@@ -1156,6 +1156,17 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
                             veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
                             
+                            # --- BUSCA O ÚLTIMO ATENDIMENTO POR PLACA DESTE CLIENTE ---
+                            placas_cli = [str(v['placa']).strip() for v in veiculos_cli_ficha if v.get('placa') and str(v['placa']).strip()]
+                            ultimos_atendimentos = []
+                            if placas_cli:
+                                res_hist_cli = fetch_data("SELECT id, placa, data_hora, tipo, status, detalhes FROM historico WHERE placa = ANY(%s) ORDER BY id DESC", (placas_cli,))
+                                placas_vistas = set()
+                                for h in res_hist_cli:
+                                    if h['placa'] not in placas_vistas:
+                                        ultimos_atendimentos.append(h)
+                                        placas_vistas.add(h['placa'])
+                            
                             if st.session_state.last_viewed_cli != id_cli_ficha:
                                 registrar_auditoria("Visualização", "Clientes", f"Visualizou a ficha completa do cliente: {dados_cli_ficha['nome']}", dados_cli_ficha['empresa'])
                                 st.session_state.last_viewed_cli = id_cli_ficha
@@ -1183,6 +1194,19 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 st.dataframe(df_veics, use_container_width=True)
                             else:
                                 st.info("Nenhum veículo vinculado a este cliente.")
+
+                            # --- SEÇÃO DO ÚLTIMO ATENDIMENTO POR VEÍCULO ---
+                            st.markdown("""
+                            <hr style="border: 0; border-top: 2px solid #4a0e4e; margin: 15px 0;">
+                            <h4 style="color:#4a0e4e;">🕒 Último Atendimento Registrado por Veículo</h4>
+                            """, unsafe_allow_html=True)
+                            
+                            if ultimos_atendimentos:
+                                df_ult = pd.DataFrame(ultimos_atendimentos)[['placa', 'data_hora', 'tipo', 'status', 'detalhes']]
+                                df_ult.columns = ['Placa', 'Data/Hora', 'Último Evento', 'Status', 'Detalhes / Ação da Central']
+                                st.dataframe(df_ult, use_container_width=True)
+                            else:
+                                st.info("Nenhum atendimento operacional registrado anteriormente para os veículos deste cliente.")
                                 
                             st.markdown("</div>", unsafe_allow_html=True)
             else:
