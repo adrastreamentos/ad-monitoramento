@@ -390,7 +390,7 @@ DIAGNOSTICOS_TECNICOS = {
     },
     "Transferência - Setor Financeiro": {
         "diagnostico": "Elevado número de chamados transferidos para tratativas de faturas, cobranças e bloqueios.",
-        "causa": "Dificuldades des clientes finais em localizar os boletos, dúvidas sobre mensalidades atrasadas ou pedidos de reativação.",
+        "causa": "Dificuldades dos clientes finais em localizar os boletos, dúvidas sobre mensalidades atrasadas ou pedidos de reativação.",
         "acao": "Implementar réguas de cobrança automatizadas via WhatsApp/E-mail para reduzir a sobrecarga no suporte financeiro."
     },
     "Transferência - Setor Técnico": {
@@ -630,9 +630,9 @@ else:
             st.markdown("<div style='margin-bottom: 10px;'></div>", unsafe_allow_html=True)
 
     if st.session_state.is_admin:
-        res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE tipo='Transferência' AND status='PENDENTE'")
+        res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO')")
     else:
-        res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE tipo='Transferência' AND status='PENDENTE' AND empresa=%s", (st.session_state.nome_empresa,))
+        res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO') AND empresa=%s", (st.session_state.nome_empresa,))
     
     qtd_pend = res_count_pend[0]['c'] if res_count_pend else 0
 
@@ -1122,48 +1122,87 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     else:
                         st.warning("Nenhum veículo encontrado com este termo.")
 
-    # --- TELA: GESTÃO DE PENDÊNCIAS ---
+    # --- TELA: GESTÃO DE PENDÊNCIAS E GUERRA (WAR ROOM) ---
     elif aba_ativa == "pendencias":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🛠️ Gestão de Chamados e Pendências</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 13px; color: #666;'>Painel unificado de ocorrências em andamento (Furto/Roubo, Setor Financeiro e Setor Técnico).</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 13px; color: #666;'>Painel unificado de ocorrências ativas. Resolva os sinistros e pendências abaixo para enviá-los aos Relatórios Oficiais.</p>", unsafe_allow_html=True)
         
-        q_pend = "SELECT * FROM historico WHERE status='PENDENTE' ORDER BY id DESC"
+        q_pend = "SELECT * FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO') ORDER BY id DESC"
         if not st.session_state.is_admin:
-            q_pend = "SELECT * FROM historico WHERE status='PENDENTE' AND empresa=%s ORDER BY id DESC"
+            q_pend = "SELECT * FROM historico WHERE status IN ('PENDENTE', 'EM ANDAMENTO') AND empresa=%s ORDER BY id DESC"
             res_pend = fetch_data(q_pend, (st.session_state.nome_empresa,))
         else:
             res_pend = fetch_data(q_pend)
             
         if res_pend:
-            for p in res_pend:
-                is_sinistro = p['tipo'] in ['Furto', 'Roubo']
-                borda_cor = "#8b0000" if is_sinistro else "#4a0e4e"
-                fundo_cor = "#fff8f8" if is_sinistro else "#fafafa"
-                tag_tipo = f"🚨 {p['tipo'].upper()} (EM ANDAMENTO)" if is_sinistro else f"📌 {p['tipo'].upper()} (PENDENTE)"
-                
-                with st.expander(f"{tag_tipo} — #{p['id']} | Cliente: {p['cliente']} (Placa: {p['placa']}) — {p['data_hora']}", expanded=is_sinistro):
-                    st.markdown(f"""
-                    <div style="background: {fundo_cor}; border-left: 5px solid {borda_cor}; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
-                        <p><b>Empresa Responsável:</b> {p['empresa']}</p>
-                        <p><b>Detalhes / Solicitação:</b></p>
-                        <p>{p['detalhes']}</p>
+            # Separando as listas por prioridade
+            pend_sinistros = [p for p in res_pend if p['tipo'] in ['Furto', 'Roubo']]
+            pend_fin = [p for p in res_pend if 'Financeiro' in p['detalhes'] and p['tipo'] not in ['Furto', 'Roubo']]
+            pend_tec = [p for p in res_pend if 'Técnico' in p['detalhes'] and p['tipo'] not in ['Furto', 'Roubo']]
+            pend_outros = [p for p in res_pend if p not in pend_sinistros and p not in pend_fin and p not in pend_tec]
+
+            def render_pendencia(p, cor_borda, cor_fundo, icone, titulo_sessao):
+                with st.expander(f"{icone} #{p['id']} - {p['cliente']} (Placa: {p['placa']}) — {p['data_hora']}", expanded=(p['tipo'] in ['Furto', 'Roubo'])):
+                    st.markdown(f'''
+                    <div style="background: {cor_fundo}; border-left: 5px solid {cor_borda}; padding: 12px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
+                        <p style="margin-top:0;"><b>Empresa Parceira:</b> {p['empresa']}</p>
+                        <p><b>Status Atual:</b> {p['status']}</p>
+                        <p><b>Detalhes da Solicitação / Dinâmica:</b></p>
+                        <p style="margin-bottom:0;">{p['detalhes']}</p>
                     </div>
-                    """, unsafe_allow_html=True)
+                    ''', unsafe_allow_html=True)
                     
-                    st.write("🟢 **Finalizar Atendimento / Resolver Chamado:**")
-                    desfecho_pend = st.text_area("Descreva o desfecho ou a solução aplicada:", key=f"desf_pend_{p['id']}")
+                    st.write(f"🟢 **Finalizar {titulo_sessao}:**")
+                    desfecho_pend = st.text_area("Descreva o desfecho final ou a solução aplicada:", key=f"desf_pend_{p['id']}")
                     
-                    if st.button("✅ Concluir e Encerrar Chamado", key=f"btn_res_pend_{p['id']}", type="primary"):
+                    if st.button("✅ Concluir e Encerrar Documento", key=f"btn_res_pend_{p['id']}", type="primary"):
                         if not desfecho_pend.strip():
-                            st.error("Por favor, preencha o desfecho antes de finalizar o chamado.")
+                            st.error("Por favor, preencha o desfecho antes de finalizar.")
                         else:
-                            agora = get_horario_brasil_str()
-                            novo_detalhe = f"{p['detalhes']} | DESFECHO ({agora}): {desfecho_pend}"
-                            execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, p['id']))
+                            agora = get_horario_brasil()
+                            agora_str = agora.strftime("%d/%m/%Y %H:%M:%S")
                             
-                            registrar_auditoria("Resolução", "Pendências", f"Chamado #{p['id']} ({p['placa']}) finalizado. Desfecho: {desfecho_pend}", p['empresa'])
-                            st.session_state.flash_msg = f"Chamado #{p['id']} resolvido com sucesso! O registro foi fechado nos Relatórios."
+                            if p['tipo'] in ['Furto', 'Roubo']:
+                                try:
+                                    dt_abertura = datetime.strptime(p['data_hora'], "%d/%m/%Y %H:%M:%S")
+                                    dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
+                                    tempo_decorrido = agora - dt_abertura
+                                    horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
+                                    minutos, _ = divmod(resto, 60)
+                                    sla_str = f"{int(horas)}h e {int(minutos)}m"
+                                except Exception:
+                                    sla_str = "Não calculado"
+                                protocolo = f"AD-{p['id']}-{agora.strftime('%Y%m%d%H%M')}"
+                                novo_detalhe = p['detalhes'] + f" | DESFECHO: {desfecho_pend} | SLA DE RESPOSTA: {sla_str} | PROTOCOLO: {protocolo}"
+                            else:
+                                novo_detalhe = f"{p['detalhes']} | RESOLUÇÃO ({agora_str}): {desfecho_pend}"
+                                
+                            execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, p['id']))
+                            registrar_auditoria("Resolução", "Pendências", f"Ocorrência/Chamado #{p['id']} ({p['placa']}) finalizado.", p['empresa'])
+                            st.session_state.flash_msg = f"#{p['id']} resolvido com sucesso! Transferido para Relatórios."
+                            limpar_tela()
                             st.rerun()
+
+            if pend_sinistros:
+                st.markdown("<h3 style='color: #8b0000; font-size: 16px; margin-top: 20px; border-bottom: 1px solid #ffcdd2; padding-bottom: 5px;'>🚨 PRIORIDADE MÁXIMA: Furto e Roubo (Em Andamento)</h3>", unsafe_allow_html=True)
+                for p in pend_sinistros:
+                    render_pendencia(p, "#8b0000", "#fff8f8", "🚨 FURTO/ROUBO", "Sinistro")
+            
+            if pend_fin:
+                st.markdown("<h3 style='color: #4a0e4e; font-size: 16px; margin-top: 20px; border-bottom: 1px solid #e1bee7; padding-bottom: 5px;'>💰 SETOR FINANCEIRO (Pendentes)</h3>", unsafe_allow_html=True)
+                for p in pend_fin:
+                    render_pendencia(p, "#4a0e4e", "#fafafa", "💰 FINANCEIRO", "Chamado")
+                    
+            if pend_tec:
+                st.markdown("<h3 style='color: #1565c0; font-size: 16px; margin-top: 20px; border-bottom: 1px solid #bbdefb; padding-bottom: 5px;'>🛠️ SETOR TÉCNICO (Pendentes)</h3>", unsafe_allow_html=True)
+                for p in pend_tec:
+                    render_pendencia(p, "#1565c0", "#fafafa", "🛠️ TÉCNICO", "Chamado")
+
+            if pend_outros:
+                st.markdown("<h3 style='color: #f57f17; font-size: 16px; margin-top: 20px; border-bottom: 1px solid #fff9c4; padding-bottom: 5px;'>📌 OUTRAS PENDÊNCIAS</h3>", unsafe_allow_html=True)
+                for p in pend_outros:
+                    render_pendencia(p, "#f57f17", "#fafafa", "📌 PENDÊNCIA", "Chamado")
+
         else:
             st.success("✅ Nenhuma pendência ou sinistro em aberto no momento. Toda a operação está limpa!")
 
@@ -1686,12 +1725,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
             if mostrar_mon:
                 with sub_tabs[idx_sub]:
-                    st.subheader("Eventos de Monitoramento Técnico e Transferências")
+                    st.subheader("Eventos de Monitoramento Técnico e Transferências (Finalizados)")
                     col_m1, col_m2 = st.columns(2)
                     b_mon = col_m1.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"b_mon_{st.session_state.rk}")
                     p_mon = col_m2.text_input("📅 Filtrar por Data", key=f"p_mon_{st.session_state.rk}")
                     
-                    q_mon = "SELECT * FROM historico WHERE tipo IN ('Monitoramento', 'Transferência')"
+                    q_mon = "SELECT * FROM historico WHERE tipo IN ('Monitoramento', 'Transferência') AND status='FINALIZADO'"
                     p_list_mon = []
                     if not st.session_state.is_admin:
                         q_mon += " AND empresa=%s"
