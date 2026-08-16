@@ -559,7 +559,7 @@ else:
             
             **2. Responsabilidade Exclusiva:** O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá **exclusivamente sobre a empresa PARCEIRA**, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.
             
-            **3. Penalidades Legais:** O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).
+            **3. Penalidades Legais:** O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem কাশী à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).
             
             *Ao clicar em "Eu li e concordo", você assina digitalmente este termo, confirmando estar ciente e de acordo com suas responsabilidades jurídicas no trato dos dados hospedados na Central.*
             """)
@@ -1320,8 +1320,19 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 f_doc = c2.text_input("CPF / CNPJ *", key=f"in_doc_{rk}")
                 f_end = c1.text_input("Endereço", key=f"in_end_{rk}")
                 f_tel = c2.text_input("Telefone", key=f"in_tel_{rk}")
-                f_emp = c1.selectbox("Empresa (Pasta) *", opcoes_emp, key=f"in_emp_{rk}")
-                f_palavra = c2.text_input("🔑 Palavra-Chave (Contra-senha)", key=f"in_palavra_{rk}", help="Palavra usada para autorizar desbloqueios.")
+                
+                if st.session_state.is_admin:
+                    f_emp = c1.selectbox("Empresa (Pasta) *", opcoes_emp, key=f"in_emp_{rk}")
+                else:
+                    f_emp = st.session_state.nome_empresa
+                
+                st.markdown("""
+                <div style="background-color: #fff3e0; border-left: 5px solid #e65100; padding: 10px; border-radius: 5px; margin-top: 10px; margin-bottom: 5px;">
+                    <span style="color: #e65100; font-size: 14px; font-weight: bold;">🔑 Palavra-Chave de Segurança (Contra-senha)</span><br>
+                    <span style="color: #555; font-size: 12px;">Crie a palavra-chave do cliente. Ela será exigida pela Central para comandos de bloqueio e desbloqueio.</span>
+                </div>
+                """, unsafe_allow_html=True)
+                f_palavra = st.text_input("Digite a Palavra-Chave:", key=f"in_palavra_{rk}")
                 
                 st.markdown("---")
                 st.write("🚗 **Frota / Veículos do Cliente:**")
@@ -1395,6 +1406,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 "CPF / CNPJ": ["123.456.789-00", "123.456.789-00"],
                 "Endereço": ["Rua A, 100", "Rua A, 100"],
                 "Telefone": ["(84) 99999-1111", "(84) 99999-1111"],
+                "Palavra-Chave": ["Senha123", "Senha123"],
                 "Tipo": ["Carro", "Moto"],
                 "Placa": ["ABC-1234", "XYZ-5678"],
                 "Modelo": ["Fiat Palio", "Honda CG"],
@@ -1426,6 +1438,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             nome = str(primeira_linha.get("Nome", "")).strip()
                             end = str(primeira_linha.get("Endereço", "")).strip()
                             tel = str(primeira_linha.get("Telefone", "")).strip()
+                            pal_chave_lote = str(primeira_linha.get("Palavra-Chave", "")).strip()
                             
                             if not nome: continue
 
@@ -1436,8 +1449,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 cli_id = cli_res['id']
                             else:
                                 agora_importacao = get_horario_brasil_str()
-                                cur.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status, data_cadastro) VALUES (%s,%s,%s,%s,%s,'Ativo',%s) RETURNING id", 
-                                            (nome, doc_str, end, tel, emp_lote, agora_importacao))
+                                cur.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status, data_cadastro, palavra_chave) VALUES (%s,%s,%s,%s,%s,'Ativo',%s,%s) RETURNING id", 
+                                            (nome, doc_str, end, tel, emp_lote, agora_importacao, pal_chave_lote))
                                 cli_id = cur.fetchone()['id']
                                 importados_clientes += 1
                                 
@@ -1505,11 +1518,19 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             st.markdown("---")
                             st.write("📝 **Atualizando Dados Cadastrais:**")
                             st.info(f"📅 Cliente cadastrado no sistema em: {dados_cliente_sel.get('data_cadastro') or 'Data antiga/Não registrada'}")
-                            en_nome = st.text_input("Nome", value=dados_cliente_sel['nome'], key=f"e_nome_{id_c_sel}")
-                            en_doc = st.text_input("CPF/CNPJ", value=dados_cliente_sel['documento'], key=f"e_doc_{id_c_sel}")
-                            en_end = st.text_input("Endereço", value=dados_cliente_sel.get('endereco', ''), key=f"e_end_{id_c_sel}")
-                            en_tel = st.text_input("Telefone", value=dados_cliente_sel['telefone'], key=f"e_tel_{id_c_sel}")
-                            en_palavra = st.text_input("🔑 Palavra-Chave de Segurança", value=dados_cliente_sel.get('palavra_chave', ''), key=f"e_pal_{id_c_sel}")
+                            
+                            c_ed1, c_ed2 = st.columns(2)
+                            en_nome = c_ed1.text_input("Nome", value=dados_cliente_sel['nome'], key=f"e_nome_{id_c_sel}")
+                            en_doc = c_ed2.text_input("CPF/CNPJ", value=dados_cliente_sel['documento'], key=f"e_doc_{id_c_sel}")
+                            en_end = c_ed1.text_input("Endereço", value=dados_cliente_sel.get('endereco', ''), key=f"e_end_{id_c_sel}")
+                            en_tel = c_ed2.text_input("Telefone", value=dados_cliente_sel['telefone'], key=f"e_tel_{id_c_sel}")
+                            
+                            st.markdown("""
+                            <div style="background-color: #fff3e0; border-left: 5px solid #e65100; padding: 10px; border-radius: 5px; margin-top: 10px; margin-bottom: 5px;">
+                                <span style="color: #e65100; font-size: 14px; font-weight: bold;">🔑 Palavra-Chave de Segurança (Contra-senha)</span>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            en_palavra = st.text_input("Atualizar Palavra-Chave:", value=dados_cliente_sel.get('palavra_chave', ''), key=f"e_pal_{id_c_sel}")
                             
                             st.markdown("---")
                             st.write("🚗 **Veículos Já Vinculados (Edite os dados abaixo):**")
