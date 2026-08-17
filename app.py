@@ -2135,15 +2135,38 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     df_usu.columns = ['ID', 'Nome do Operador', 'Login de Acesso']
                     st.dataframe(df_usu, use_container_width=True)
                     
-                    col_del1, col_del2 = st.columns([2, 2])
-                    usu_del = col_del1.selectbox("Remover um Operador:", [""] + [f"{u['id']} - {u['nome']}" for u in res_usuarios], key=f"del_usu_{st.session_state.rk}")
-                    if col_del2.button("🗑️ Excluir Operador", type="secondary"):
-                        if usu_del:
-                            id_del = int(usu_del.split(" - ")[0])
-                            execute_query("DELETE FROM usuarios_secundarios WHERE id=%s", (id_del,))
-                            st.success("Operador removido com sucesso!")
-                            limpar_tela()
-                            st.rerun()
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    col_op1, col_op2 = st.columns(2)
+                    
+                    with col_op1.expander("🔑 Redefinir Senha de Operador", expanded=False):
+                        with st.form("form_reset_senha_usu", clear_on_submit=True):
+                            st.info("Senhas são criptografadas (não podem ser lidas). Caso o operador esqueça, crie uma nova abaixo.")
+                            usu_reset = st.selectbox("Selecione o Operador:", [""] + [f"{u['id']} - {u['nome']}" for u in res_usuarios], key=f"res_usu_{st.session_state.rk}")
+                            nova_senha_op = st.text_input("Nova Senha", type="password")
+                            
+                            if st.form_submit_button("💾 Salvar Nova Senha", type="primary"):
+                                if usu_reset and nova_senha_op:
+                                    id_reset = int(usu_reset.split(" - ")[0])
+                                    hash_nova = hash_senha(nova_senha_op)
+                                    execute_query("UPDATE usuarios_secundarios SET senha=%s WHERE id=%s", (hash_nova, id_reset))
+                                    st.success("Senha atualizada com sucesso!")
+                                    limpar_tela()
+                                    st.rerun()
+                                else:
+                                    st.error("Selecione um operador e digite a nova senha.")
+
+                    with col_op2.expander("🗑️ Remover Operador", expanded=False):
+                        with st.form("form_del_usu_2", clear_on_submit=True):
+                            usu_del = st.selectbox("Remover um Operador:", [""] + [f"{u['id']} - {u['nome']}" for u in res_usuarios], key=f"del_usu_sb_{st.session_state.rk}")
+                            if st.form_submit_button("🗑️ Excluir Operador", type="primary"):
+                                if usu_del:
+                                    id_del = int(usu_del.split(" - ")[0])
+                                    execute_query("DELETE FROM usuarios_secundarios WHERE id=%s", (id_del,))
+                                    st.success("Operador removido com sucesso!")
+                                    limpar_tela()
+                                    st.rerun()
+                                else:
+                                    st.error("Selecione um operador.")
                 else:
                     st.info("Nenhum operador secundário cadastrado.")
                     
