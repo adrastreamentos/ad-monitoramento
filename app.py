@@ -2126,8 +2126,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
                 # --- NOVO BLOCO: GESTÃO DE OPERADORES (SUB-USUÁRIOS) ---
                 st.markdown("---")
-                st.markdown("### 👥 Gestão de Usuários (Operadores)")
-                st.markdown("<p style='font-size: 13px; color: #666;'>Crie logins para a sua equipe. Eles terão acesso ao painel de veículos, histórico e auditoria, mas <b>não verão o faturamento nem poderão alterar estes dados contratuais.</b></p>", unsafe_allow_html=True)
+                st.markdown("""
+<div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+    <div style="margin-bottom: 10px;">
+        <span style="font-weight: bold; color: #4a0e4e; font-size: 16px;">👥 GESTÃO DE USUÁRIOS (OPERADORES)</span>
+    </div>
+    <p style='font-size: 13px; color: #555; margin: 0;'>Crie logins para a sua equipe. Eles terão acesso ao painel de veículos, histórico e auditoria, mas <b>não verão o faturamento nem poderão alterar seus dados contratuais.</b></p>
+</div>
+""", unsafe_allow_html=True)
                 
                 res_usuarios = fetch_data("SELECT id, nome, login FROM usuarios_secundarios WHERE empresa=%s ORDER BY nome", (st.session_state.nome_empresa,))
                 if res_usuarios:
@@ -2139,8 +2145,13 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     col_op1, col_op2 = st.columns(2)
                     
                     with col_op1.expander("🔑 Redefinir Senha de Operador", expanded=False):
+                        st.markdown("""
+<div style="background-color: #fff3e0; border-left: 5px solid #e65100; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+    <span style="color: #e65100; font-size: 13px; font-weight: bold; text-transform: uppercase;">🔑 Nova Senha</span>
+    <p style="font-size: 11px; color: #777; margin: 5px 0 0 0;">Senhas são criptografadas. Caso o operador esqueça, crie uma nova abaixo.</p>
+</div>
+""", unsafe_allow_html=True)
                         with st.form("form_reset_senha_usu", clear_on_submit=True):
-                            st.info("Senhas são criptografadas (não podem ser lidas). Caso o operador esqueça, crie uma nova abaixo.")
                             usu_reset = st.selectbox("Selecione o Operador:", [""] + [f"{u['id']} - {u['nome']}" for u in res_usuarios], key=f"res_usu_{st.session_state.rk}")
                             nova_senha_op = st.text_input("Nova Senha", type="password")
                             
@@ -2156,9 +2167,15 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     st.error("Selecione um operador e digite a nova senha.")
 
                     with col_op2.expander("🗑️ Remover Operador", expanded=False):
+                        st.markdown("""
+<div style="background-color: #ffebee; border-left: 5px solid #c62828; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+    <span style="color: #c62828; font-size: 13px; font-weight: bold; text-transform: uppercase;">🗑️ Excluir Acesso</span>
+    <p style="font-size: 11px; color: #777; margin: 5px 0 0 0;">Esta ação revoga imediatamente o acesso do operador ao sistema.</p>
+</div>
+""", unsafe_allow_html=True)
                         with st.form("form_del_usu_2", clear_on_submit=True):
                             usu_del = st.selectbox("Remover um Operador:", [""] + [f"{u['id']} - {u['nome']}" for u in res_usuarios], key=f"del_usu_sb_{st.session_state.rk}")
-                            if st.form_submit_button("🗑️ Excluir Operador", type="primary"):
+                            if st.form_submit_button("🗑️ Confirmar Exclusão", type="primary"):
                                 if usu_del:
                                     id_del = int(usu_del.split(" - ")[0])
                                     execute_query("DELETE FROM usuarios_secundarios WHERE id=%s", (id_del,))
@@ -2171,6 +2188,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     st.info("Nenhum operador secundário cadastrado.")
                     
                 with st.expander("➕ Adicionar Novo Operador", expanded=False):
+                    st.markdown("""
+<div style="background-color: #e8f5e9; border-left: 5px solid #2e7d32; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
+    <span style="color: #2e7d32; font-size: 13px; font-weight: bold; text-transform: uppercase;">📝 Cadastrar Novo Acesso</span>
+    <p style="font-size: 11px; color: #777; margin: 5px 0 0 0;">Crie uma credencial exclusiva para seu funcionário usar o painel tático.</p>
+</div>
+""", unsafe_allow_html=True)
                     with st.form("form_novo_usu", clear_on_submit=True):
                         c_u1, c_u2 = st.columns(2)
                         n_nome = c_u1.text_input("Nome Completo do Operador *")
