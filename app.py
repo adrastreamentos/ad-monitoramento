@@ -516,6 +516,8 @@ if 'logged_in' not in st.session_state:
     st.session_state.nome_empresa = ""
     st.session_state.lgpd_aceito = False
 
+if 'is_subuser' not in st.session_state: st.session_state.is_subuser = False
+if 'nome_usuario' not in st.session_state: st.session_state.nome_usuario = st.session_state.get('nome_empresa', '')
 if 'acao_clientes' not in st.session_state: st.session_state.acao_clientes = "Listar"
 if 'num_veiculos_state' not in st.session_state: st.session_state.num_veiculos_state = 1
 if 'rk' not in st.session_state: st.session_state.rk = 0 
@@ -684,11 +686,11 @@ else:
                     pass
 
         if st.session_state.get('is_subuser'):
-            st.write(f"👤 **Conectado como:** {st.session_state.nome_usuario}")
-            st.write(f"🏢 **Empresa:** {st.session_state.nome_empresa}")
+            st.write(f"👤 **Conectado como:** {st.session_state.get('nome_usuario', '')}")
+            st.write(f"🏢 **Empresa:** {st.session_state.get('nome_empresa', '')}")
             st.write("🛡️ Nível: Operador")
         else:
-            st.write(f"👤 **Conectado como:** {st.session_state.nome_empresa}")
+            st.write(f"👤 **Conectado como:** {st.session_state.get('nome_empresa', '')}")
             st.write("🛡️ Nível: Gestor/Titular")
         
         # Oculta a alteração de logo para o sub-usuário
@@ -718,7 +720,8 @@ else:
         st.markdown("**Foco total na segurança, agilidade e comprometimento.** Nossa missão é garantir proteção máxima e resposta rápida para a nossa frota e a de nossos parceiros.")
         st.markdown("---")
         st.markdown("### 📞 Suporte Oficial")
-        st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Usuário Logado: {st.session_state.nome_usuario}"), unsafe_allow_html=True)
+        nome_zap = st.session_state.get('nome_usuario', st.session_state.get('nome_empresa', 'Visitante'))
+        st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Usuário Logado: {nome_zap}"), unsafe_allow_html=True)
 
     # --- BARRA DE NOTIFICAÇÕES MODERNA E DISCRETA (SÓ ADMIN) ---
     if st.session_state.is_admin:
