@@ -379,6 +379,87 @@ def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
 
+def gerar_laudo_mensal_html(empresa, mes, total, campeao, pct_campeao, diag, dados_h, detalhamento_op):
+    linhas_tabela = ""
+    for h in dados_h:
+        placa_str = h.get('placa', 'N/A')
+        if not placa_str: placa_str = "N/A"
+        dt_str = h.get('data_hora', '')
+        tipo_str = h.get('tipo', '')
+        status_str = h.get('status', '')
+        det_str = h.get('detalhes', '')
+        
+        linhas_tabela += f"""
+        <tr>
+            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">{dt_str}</td>
+            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;"><b>{placa_str}</b></td>
+            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">{tipo_str}</td>
+            <td style="padding: 8px; border: 1px solid #ddd; font-size: 12px;">{status_str}</td>
+            <td style="padding: 8px; border: 1px solid #ddd; font-size: 11px; color: #555;">{det_str}</td>
+        </tr>
+        """
+        
+    html_content = f"""
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Relatório Operacional Mensal - {empresa}</title>
+        <style>
+            body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; line-height: 1.5; }}
+            .header {{ text-align: center; border-bottom: 4px solid #4a0e4e; padding-bottom: 15px; margin-bottom: 30px; }}
+            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 26px; text-transform: uppercase; }}
+            .header h3 {{ color: #8b0000; margin: 5px 0 0 0; font-size: 16px; font-weight: normal; }}
+            .section-title {{ color: #4a0e4e; font-size: 18px; border-bottom: 2px solid #eee; padding-bottom: 5px; margin-top: 30px; }}
+            .summary-box {{ background: #f9f9f9; border-left: 5px solid #4a0e4e; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+            .diag-box {{ background: #fff8f8; border-left: 5px solid #8b0000; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
+            th {{ background-color: #4a0e4e; color: white; padding: 10px; text-align: left; font-size: 13px; }}
+            .footer {{ margin-top: 50px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 15px; }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>📊 RELATÓRIO OPERACIONAL CONSOLIDADO</h1>
+            <h3>Mês de Referência: {mes} | Frota: {empresa}</h3>
+        </div>
+        
+        <h2 class="section-title">1. RESUMO EXECUTIVO E DISTRIBUIÇÃO</h2>
+        <div class="summary-box">
+            <p style="margin:0 0 10px 0;"><b>Total de Ocorrências Registradas:</b> {total}</p>
+            <p style="margin:0; font-size:13px; color:#555;"><b>Detalhamento de Eventos:</b><br>{detalhamento_op.replace(chr(10), '<br>')}</p>
+        </div>
+        
+        <h2 class="section-title">2. DIAGNÓSTICO TÉCNICO E PLANO DE AÇÃO</h2>
+        <div class="diag-box">
+            <p style="margin-top:0;"><strong>🚨 Principal Gargalo do Mês:</strong> {campeao} ({pct_campeao:.1f}% dos chamados)</p>
+            <p><strong>🔎 Diagnóstico da Central:</strong> {diag['diagnostico']}</p>
+            <p><strong>⚠️ Causa Raiz Identificada:</strong> {diag['causa']}</p>
+            <p style="margin-bottom:0;"><strong>✅ Sugestão / Plano de Ação:</strong> {diag['acao']}</p>
+        </div>
+        
+        <h2 class="section-title">3. EXTRATO DETALHADO DE ATENDIMENTOS (LOG OFICIAL)</h2>
+        <table>
+            <tr>
+                <th>Data e Hora</th>
+                <th>Placa</th>
+                <th>Ocorrência</th>
+                <th>Status</th>
+                <th>Detalhes / Desfecho</th>
+            </tr>
+            {linhas_tabela}
+        </table>
+        
+        <div class="footer">
+            Documento gerado automaticamente pelo Sistema de Inteligência da AD Rastreamento Veicular.<br>
+            Este relatório serve como extrato de prestação de serviços de monitoramento e telemetria.
+        </div>
+    </body>
+    </html>
+    """
+    b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
+    nome_arquivo = f"Relatorio_Mensal_{empresa.replace(' ', '_')}_{mes.replace('/', '_')}.html"
+    return f'<a href="data:text/html;base64,{b64}" download="{nome_arquivo}" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:12px 20px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">📥 Baixar Super Relatório Detalhado (HTML/PDF)</button></a>'
+
 # --- BASE DE CONHECIMENTO (DIAGNÓSTICO TÉCNICO INTELIGENTE) ---
 DIAGNOSTICOS_TECNICOS = {
     "Registro - Falta de Comunicação": {
@@ -692,13 +773,13 @@ else:
             
             if empresa_filtro_dash == "Todas as Frotas (Visão Global)":
                 q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.status = 'Ativo'"
-                q_h = "SELECT tipo, detalhes FROM historico WHERE data_hora ILIKE %s"
+                q_h = "SELECT id, data_hora, cliente, placa, tipo, status, detalhes FROM historico WHERE data_hora ILIKE %s"
                 dados_v = fetch_data(q_v)
                 dados_h = fetch_data(q_h, (f"%{mes_filtro_dash}%",))
                 emp_alvo_rel = "Todas as Frotas (Visão Global)"
             else:
                 q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
-                q_h = "SELECT tipo, detalhes FROM historico WHERE empresa=%s AND data_hora ILIKE %s"
+                q_h = "SELECT id, data_hora, cliente, placa, tipo, status, detalhes FROM historico WHERE empresa=%s AND data_hora ILIKE %s"
                 dados_v = fetch_data(q_v, (empresa_filtro_dash,))
                 dados_h = fetch_data(q_h, (empresa_filtro_dash, f"%{mes_filtro_dash}%"))
                 emp_alvo_rel = empresa_filtro_dash
@@ -709,7 +790,7 @@ else:
                 mes_filtro_dash = st.text_input("Filtrar Período de Análise (Mês/Ano):", value=mes_atual, key=f"dash_m_{st.session_state.reset_keys['dash_mes']}")
             
             q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
-            q_h = "SELECT tipo, detalhes FROM historico WHERE empresa=%s AND data_hora ILIKE %s"
+            q_h = "SELECT id, data_hora, cliente, placa, tipo, status, detalhes FROM historico WHERE empresa=%s AND data_hora ILIKE %s"
             dados_v = fetch_data(q_v, (st.session_state.nome_empresa,))
             dados_h = fetch_data(q_h, (st.session_state.nome_empresa, f"%{mes_filtro_dash}%"))
             emp_alvo_rel = st.session_state.nome_empresa
@@ -777,14 +858,14 @@ else:
 
         st.markdown("<br><hr>", unsafe_allow_html=True)
         st.markdown("<h3 style='color: #4a0e4e; font-size: 20px; text-align: center;'>📄 Sistema de Inteligência Operacional</h3>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 13px; color: #666; text-align: center;'>Gere um laudo automático baseado no maior gargalo técnico que a frota enfrentou neste mês.</p>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 13px; color: #666; text-align: center;'>Gere o Relatório Consolidado detalhado baseado na telemetria deste mês.</p>", unsafe_allow_html=True)
         
         col_laudo1, col_laudo2, col_laudo3 = st.columns([1, 2, 1])
         with col_laudo2:
             if not st.session_state.get('mostrar_laudo', False):
-                if st.button("🚀 Processar Laudo Executivo do Mês", type="primary", use_container_width=True):
+                if st.button("🚀 Processar Relatório Executivo Mensal", type="primary", use_container_width=True):
                     if df_eventos.empty:
-                        st.warning("Não há chamados suficientes para gerar um laudo analítico neste mês.")
+                        st.warning("Não há chamados suficientes para gerar um relatório neste mês.")
                     else:
                         st.session_state.mostrar_laudo = True
                         st.rerun()
@@ -871,24 +952,22 @@ Este evento representou {porcentagem_campeao:.1f}% de todo o fluxo da central ({
 Gerado pelo Sistema de Inteligência AD Rastreamento
                 """
                 
-                st.success("Laudo analisado e gerado com sucesso!")
+                st.success("Relatório analisado e montado com sucesso!")
+                
+                # Renderiza o Preview do Laudo
                 st.markdown(f"""
 <div style="background-color: #f0f4f8; padding: 20px; border-left: 5px solid #8b0000; border-radius: 5px; font-family: monospace; white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: #333; margin-bottom: 15px;">{texto_laudo_markdown}</div>
 """, unsafe_allow_html=True)
                 
-                col_btn_laudo1, col_btn_laudo2 = st.columns(2)
-                with col_btn_laudo1:
-                    st.download_button(
-                        label="📥 Baixar Laudo de Texto",
-                        data=texto_laudo_markdown,
-                        file_name=f"Laudo_Tecnico_{emp_alvo_rel.replace(' ', '_')}_{mes_filtro_dash.replace('/', '_')}.txt",
-                        mime="text/plain",
-                        use_container_width=True
-                    )
-                with col_btn_laudo2:
-                    if st.button("❌ Fechar Laudo", use_container_width=True, type="secondary"):
-                        st.session_state.mostrar_laudo = False
-                        st.rerun()
+                # Gera o arquivo HTML do Super Relatório Mensal
+                html_btn = gerar_laudo_mensal_html(emp_alvo_rel, mes_filtro_dash, total_geral_chamados, evento_campeao, porcentagem_campeao, dict_diag, dados_h, detalhamento_operacional)
+                
+                st.markdown(html_btn, unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                if st.button("❌ Fechar Painel de Relatório", use_container_width=True, type="secondary"):
+                    st.session_state.mostrar_laudo = False
+                    st.rerun()
 
     # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - CARDS MODERNIZADOS E ROTEAMENTO SMART ---
     elif aba_ativa == "central" and st.session_state.is_admin:
