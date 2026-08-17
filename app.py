@@ -144,6 +144,9 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_fatura_calculada REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS notificacoes (id SERIAL PRIMARY KEY, data_hora TEXT, empresa TEXT, mensagem TEXT, lida BOOLEAN DEFAULT FALSE)''')
     c.execute('''CREATE TABLE IF NOT EXISTS aceites_lgpd (id SERIAL PRIMARY KEY, empresa TEXT, data_hora TEXT, ip_aceite TEXT DEFAULT 'Sistema Web', hash_assinatura TEXT)''')
+    
+    # Nova tabela para sub-usuários (Operadores)
+    c.execute('''CREATE TABLE IF NOT EXISTS usuarios_secundarios (id SERIAL PRIMARY KEY, empresa TEXT, nome TEXT, login TEXT UNIQUE, senha TEXT, nivel TEXT DEFAULT 'Operador')''')
 
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS senha TEXT;")
@@ -233,7 +236,7 @@ def registrar_auditoria(acao, modulo, detalhes, empresa_rel=None):
     if st.session_state.get('is_admin'):
         usuario = "AD ADMIN"
     else:
-        usuario = st.session_state.get('nome_empresa', 'Desconhecido')
+        usuario = st.session_state.get('nome_usuario', st.session_state.get('nome_empresa', 'Desconhecido'))
     
     if empresa_rel:
         detalhes = f"{detalhes} | Alvo: {empresa_rel}"
@@ -506,16 +509,12 @@ DIAGNOSTICOS_TECNICOS = {
 
 # --- CONTROLE DE SESSÃO SEGURO E LIMPEZA DE TELA ---
 if 'logged_in' not in st.session_state:
-    if st.query_params.get("logged_in") == "true":
-        st.session_state.logged_in = True
-        st.session_state.is_admin = (st.query_params.get("admin") == "true")
-        st.session_state.nome_empresa = st.query_params.get("empresa", "")
-        st.session_state.lgpd_aceito = True 
-    else:
-        st.session_state.logged_in = False
-        st.session_state.is_admin = False
-        st.session_state.nome_empresa = ""
-        st.session_state.lgpd_aceito = False
+    st.session_state.logged_in = False
+    st.session_state.is_admin = False
+    st.session_state.is_subuser = False
+    st.session_state.nome_usuario = ""
+    st.session_state.nome_empresa = ""
+    st.session_state.lgpd_aceito = False
 
 if 'acao_clientes' not in st.session_state: st.session_state.acao_clientes = "Listar"
 if 'num_veiculos_state' not in st.session_state: st.session_state.num_veiculos_state = 1
@@ -566,7 +565,7 @@ if not st.session_state.logged_in:
         st.markdown("<p style='text-align: center; color: #8b0000; font-weight: bold;'>Administrador: AD Rastreamento Veicular</p>", unsafe_allow_html=True)
         
         with st.form("login_form"):
-            user = st.text_input("Usuário ou Nome da Empresa")
+            user = st.text_input("Usuário, Login ou Nome da Empresa")
             senha = st.text_input("Senha ou CNPJ", type="password")
             submit = st.form_submit_button("Entrar no Sistema", type="primary")
             
@@ -574,14 +573,14 @@ if not st.session_state.logged_in:
                 if user == "AD" and senha == "admin":
                     st.session_state.logged_in = True
                     st.session_state.is_admin = True
+                    st.session_state.is_subuser = False
+                    st.session_state.nome_usuario = "AD RASTREAMENTO VEICULAR"
                     st.session_state.nome_empresa = "AD RASTREAMENTO VEICULAR"
                     st.session_state.lgpd_aceito = True 
-                    st.query_params["logged_in"] = "true"
-                    st.query_params["admin"] = "true"
-                    st.query_params["empresa"] = "AD RASTREAMENTO VEICULAR"
                     st.rerun()
                 else:
                     senha_criptografada = hash_senha(senha)
+                    # Primeiro, tenta logar como Empresa Parceira Principal
                     res = fetch_data("SELECT nome, cnpj, senha FROM empresas WHERE nome=%s", (user,))
                     
                     if res:
@@ -604,18 +603,34 @@ if not st.session_state.logged_in:
                         if login_sucesso:
                             st.session_state.logged_in = True
                             st.session_state.is_admin = False
+                            st.session_state.is_subuser = False
+                            st.session_state.nome_usuario = emp_dados['nome']
                             st.session_state.nome_empresa = emp_dados['nome']
                             st.session_state.lgpd_aceito = False 
                             
-                            st.query_params["logged_in"] = "true"
-                            st.query_params["admin"] = "false"
-                            st.query_params["empresa"] = emp_dados['nome']
-                            registrar_auditoria("Acesso", "Login", f"Acessou o sistema de forma segura.", emp_dados['nome'])
+                            registrar_auditoria("Acesso", "Login", f"Acessou o sistema de forma segura (Gestor).", emp_dados['nome'])
                             st.rerun()
                         else:
                             st.error("Acesso Negado: Senha incorreta.")
                     else:
-                        st.error("Acesso Negado: Login não encontrado.")
+                        # Se não achou empresa, tenta logar como Operador (Sub-usuário)
+                        res_sub = fetch_data("SELECT empresa, nome, senha FROM usuarios_secundarios WHERE login=%s", (user,))
+                        if res_sub:
+                            sub_dados = res_sub[0]
+                            if sub_dados['senha'] == senha_criptografada:
+                                st.session_state.logged_in = True
+                                st.session_state.is_admin = False
+                                st.session_state.is_subuser = True
+                                st.session_state.nome_usuario = sub_dados['nome']
+                                st.session_state.nome_empresa = sub_dados['empresa']
+                                st.session_state.lgpd_aceito = False # O Muro LGPD vai validar se a empresa pai já aceitou
+                                
+                                registrar_auditoria("Acesso", "Login", f"Acessou o sistema de forma segura (Operador: {sub_dados['nome']}).", sub_dados['empresa'])
+                                st.rerun()
+                            else:
+                                st.error("Acesso Negado: Senha incorreta.")
+                        else:
+                            st.error("Acesso Negado: Login não encontrado.")
         
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown(gerar_link_whatsapp("Tela de Login - Tentativa de acesso / Dúvida com Senha"), unsafe_allow_html=True)
@@ -625,6 +640,7 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     if not st.session_state.is_admin and not st.session_state.lgpd_aceito:
+        # A trava da LGPD olha para a empresa principal. Se o chefe já aceitou, o operador passa livre.
         res_lgpd = fetch_data("SELECT id FROM aceites_lgpd WHERE empresa=%s", (st.session_state.nome_empresa,))
         if res_lgpd:
             st.session_state.lgpd_aceito = True
@@ -667,9 +683,16 @@ else:
                 except Exception:
                     pass
 
-        st.write(f"👤 **Conectado como:** {st.session_state.nome_empresa}")
+        if st.session_state.get('is_subuser'):
+            st.write(f"👤 **Conectado como:** {st.session_state.nome_usuario}")
+            st.write(f"🏢 **Empresa:** {st.session_state.nome_empresa}")
+            st.write("🛡️ Nível: Operador")
+        else:
+            st.write(f"👤 **Conectado como:** {st.session_state.nome_empresa}")
+            st.write("🛡️ Nível: Gestor/Titular")
         
-        if not st.session_state.is_admin:
+        # Oculta a alteração de logo para o sub-usuário
+        if not st.session_state.is_admin and not st.session_state.get('is_subuser'):
             with st.expander("🖼️ Enviar / Alterar Minha Logo"):
                 up_logo = st.file_uploader("Escolha a imagem (PNG/JPG)", type=["png", "jpg", "jpeg"], key="up_logo_parceiro")
                 if up_logo is not None:
@@ -685,6 +708,8 @@ else:
         if st.button("🚪 Sair do Sistema", type="secondary"):
             st.session_state.logged_in = False
             st.session_state.is_admin = False
+            st.session_state.is_subuser = False
+            st.session_state.nome_usuario = ""
             st.session_state.nome_empresa = ""
             st.query_params.clear()
             st.rerun()
@@ -693,7 +718,7 @@ else:
         st.markdown("**Foco total na segurança, agilidade e comprometimento.** Nossa missão é garantir proteção máxima e resposta rápida para a nossa frota e a de nossos parceiros.")
         st.markdown("---")
         st.markdown("### 📞 Suporte Oficial")
-        st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Empresa Logada: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
+        st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Usuário Logado: {st.session_state.nome_usuario}"), unsafe_allow_html=True)
 
     # --- BARRA DE NOTIFICAÇÕES MODERNA E DISCRETA (SÓ ADMIN) ---
     if st.session_state.is_admin:
@@ -740,8 +765,11 @@ else:
         }
         return mapa.get(aba_id, aba_id)
 
+    # --- TRAVA DE ACESSO AO MENU (SUB-USUÁRIO PERDE ACESSO A FATURAMENTO E CADASTRO) ---
     if st.session_state.is_admin:
         lista_abas = ["dashboard", "central", "pendencias", "clientes", "relatorios", "empresas", "financeiro", "auditoria"]
+    elif st.session_state.get('is_subuser', False):
+        lista_abas = ["dashboard", "pendencias", "clientes", "relatorios", "auditoria"]
     else:
         lista_abas = ["dashboard", "pendencias", "clientes", "relatorios", "faturamento", "cadastro", "auditoria"]
         
@@ -1891,8 +1919,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.info("Nenhum registro encontrado.")
                 idx_sub += 1
 
-    # --- TELA: MEU FATURAMENTO (SÓ PARCEIROS) ---
-    elif aba_ativa == "faturamento" and not st.session_state.is_admin:
+    # --- TELA: MEU FATURAMENTO (SÓ PARCEIROS E BLOQUEADO PARA OPERADOR) ---
+    elif aba_ativa == "faturamento" and not st.session_state.is_admin and not st.session_state.get('is_subuser'):
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>💰 Meu Faturamento e Frotas Ativas</h2>", unsafe_allow_html=True)
         
         res_emp_info = fetch_data("SELECT servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
@@ -1976,7 +2004,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
     # --- TELA: MEU CADASTRO (MODO LEITURA TRAVADO COM BOTÃO DE EDITAR) ---
-    elif aba_ativa == "cadastro" and not st.session_state.is_admin:
+    elif aba_ativa == "cadastro" and not st.session_state.is_admin and not st.session_state.get('is_subuser'):
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>⚙️ Meu Cadastro Profissional</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
         
@@ -2092,6 +2120,51 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 if st.button("✏️ Editar Meus Dados e Procedimentos (POP)", type="primary", use_container_width=True):
                     st.session_state.editando_meu_cadastro = True
                     st.rerun()
+
+                # --- NOVO BLOCO: GESTÃO DE OPERADORES (SUB-USUÁRIOS) ---
+                st.markdown("---")
+                st.markdown("### 👥 Gestão de Usuários (Operadores)")
+                st.markdown("<p style='font-size: 13px; color: #666;'>Crie logins para a sua equipe. Eles terão acesso ao painel de veículos, histórico e auditoria, mas <b>não verão o faturamento nem poderão alterar estes dados contratuais.</b></p>", unsafe_allow_html=True)
+                
+                res_usuarios = fetch_data("SELECT id, nome, login FROM usuarios_secundarios WHERE empresa=%s ORDER BY nome", (st.session_state.nome_empresa,))
+                if res_usuarios:
+                    df_usu = pd.DataFrame(res_usuarios)
+                    df_usu.columns = ['ID', 'Nome do Operador', 'Login de Acesso']
+                    st.dataframe(df_usu, use_container_width=True)
+                    
+                    col_del1, col_del2 = st.columns([2, 2])
+                    usu_del = col_del1.selectbox("Remover um Operador:", [""] + [f"{u['id']} - {u['nome']}" for u in res_usuarios], key=f"del_usu_{st.session_state.rk}")
+                    if col_del2.button("🗑️ Excluir Operador", type="secondary"):
+                        if usu_del:
+                            id_del = int(usu_del.split(" - ")[0])
+                            execute_query("DELETE FROM usuarios_secundarios WHERE id=%s", (id_del,))
+                            st.success("Operador removido com sucesso!")
+                            limpar_tela()
+                            st.rerun()
+                else:
+                    st.info("Nenhum operador secundário cadastrado.")
+                    
+                with st.expander("➕ Adicionar Novo Operador", expanded=False):
+                    with st.form("form_novo_usu", clear_on_submit=True):
+                        c_u1, c_u2 = st.columns(2)
+                        n_nome = c_u1.text_input("Nome Completo do Operador *")
+                        n_login = c_u2.text_input("Login de Acesso * (Ex: joao.operador)")
+                        n_senha = st.text_input("Senha Provisória *", type="password")
+                        
+                        if st.form_submit_button("💾 Salvar Novo Operador", type="primary"):
+                            if n_nome and n_login and n_senha:
+                                check = fetch_data("SELECT id FROM usuarios_secundarios WHERE login=%s", (n_login,))
+                                check_emp = fetch_data("SELECT id FROM empresas WHERE nome=%s", (n_login,))
+                                if check or check_emp:
+                                    st.error("Este login já está em uso no sistema. Escolha outro.")
+                                else:
+                                    hash_s = hash_senha(n_senha)
+                                    execute_query("INSERT INTO usuarios_secundarios (empresa, nome, login, senha) VALUES (%s,%s,%s,%s)", (st.session_state.nome_empresa, n_nome, n_login, hash_s))
+                                    st.success("Operador cadastrado com sucesso!")
+                                    limpar_tela()
+                                    st.rerun()
+                            else:
+                                st.error("Preencha todos os campos obrigatórios.")
 
             # --- SE ESTIVER NO MODO EDIÇÃO ---
             else:
@@ -2480,6 +2553,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         p_aud = []
         
         if not st.session_state.is_admin:
+            # Sub-usuário e Parceiro só veem auditoria da própria empresa
             q_aud += " AND (usuario = %s OR detalhes ILIKE %s)"
             p_aud.extend([st.session_state.nome_empresa, f"%Alvo: {st.session_state.nome_empresa}%"])
             
