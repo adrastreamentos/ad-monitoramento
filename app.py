@@ -1047,7 +1047,9 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         info_veic = next(item for item in resultados if item["placa"] == placa_sel)
                         
                         # --- BUSCA O POP E OS NÚMEROS DO PARCEIRO ---
-                        pop_dados = fetch_data("SELECT pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento, pop_wpp_financeiro, pop_wpp_tecnico FROM empresas WHERE nome=%s", (info_veic['empresa'],))
+                        pop_dados = fetch_data("SELECT servicos, pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento, pop_wpp_financeiro, pop_wpp_tecnico FROM empresas WHERE nome=%s", (info_veic['empresa'],))
+                        servico_emp_central = pop_dados[0].get('servicos', 'Ambos') if pop_dados else 'Ambos'
+                        
                         pop_g = pop_dados[0].get('pop_gestor', '') if pop_dados else ''
                         pop_pr = pop_dados[0].get('pop_pronta_resposta', '') if pop_dados else ''
                         pop_db = pop_dados[0].get('pop_diretriz_bloqueio', '') if pop_dados else ''
@@ -1065,7 +1067,18 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     st.markdown("---")
 
                         st.markdown("---")
-                        tipo_servico = st.radio("📋 **Ação na Central:**", ["Abertura de Furto/Roubo", "Monitoramento Técnico"], horizontal=True, key=f"radio_serv_{st.session_state.rk}")
+                        
+                        # --- FILTRA AS OPÇÕES DE AÇÃO NA CENTRAL BASEADO NO SERVIÇO CONTRATADO ---
+                        opcoes_acao = []
+                        if "Furto" in servico_emp_central or "Ambos" in servico_emp_central:
+                            opcoes_acao.append("Abertura de Furto/Roubo")
+                        if "Monitoramento" in servico_emp_central or "Ambos" in servico_emp_central:
+                            opcoes_acao.append("Monitoramento Técnico")
+                            
+                        if not opcoes_acao:
+                            opcoes_acao = ["Monitoramento Técnico"]
+                            
+                        tipo_servico = st.radio("📋 **Ação na Central:**", opcoes_acao, horizontal=True, key=f"radio_serv_{st.session_state.rk}")
                         
                         # --- CARD MODERNO DE EMERGÊNCIA ---
                         if tipo_servico == "Abertura de Furto/Roubo":
@@ -2017,6 +2030,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             val_veic = dados_emp['valor_veiculo'] if dados_emp['valor_veiculo'] is not None else 0.0
             dia_v = dados_emp['dia_vencimento'] if dados_emp['dia_vencimento'] is not None else 10
             
+            servico_emp_cad = dados_emp.get('servicos', 'Ambos (Furto/Roubo + Monitoramento)')
+            tem_fr_cad = "Furto" in servico_emp_cad or "Ambos" in servico_emp_cad
+            tem_mon_cad = "Monitoramento" in servico_emp_cad or "Ambos" in servico_emp_cad
+            
             st.markdown("### 🔒 Informações Contratuais")
             
             html_readonly = f"""
@@ -2068,11 +2085,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 </div>
 """, unsafe_allow_html=True)
                 
-                txt_gestor = dados_emp.get('pop_gestor') or 'Não informado'
-                txt_pr = dados_emp.get('pop_pronta_resposta') or 'Não informado'
-                txt_db = dados_emp.get('pop_diretriz_bloqueio') or 'Nenhuma diretriz de bloqueio cadastrada.'
-                
-                st.markdown(f"""
+                if tem_fr_cad:
+                    txt_gestor = dados_emp.get('pop_gestor') or 'Não informado'
+                    txt_pr = dados_emp.get('pop_pronta_resposta') or 'Não informado'
+                    txt_db = dados_emp.get('pop_diretriz_bloqueio') or 'Nenhuma diretriz de bloqueio cadastrada.'
+                    
+                    st.markdown(f"""
 <div style="background: #ffffff; border-left: 5px solid #8b0000; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(139,0,0,0.06); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
         <span style="font-weight: bold; color: #8b0000; font-size: 15px;">🚨 POP - EMERGÊNCIA (FURTO E ROUBO)</span>
@@ -2094,11 +2112,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 </div>
 """, unsafe_allow_html=True)
                 
-                txt_w_fin = dados_emp.get('pop_wpp_financeiro') or 'Não informado'
-                txt_w_tec = dados_emp.get('pop_wpp_tecnico') or 'Não informado'
-                txt_mon = dados_emp.get('pop_monitoramento') or 'Nenhuma instrução de triagem cadastrada.'
-                
-                st.markdown(f"""
+                if tem_mon_cad:
+                    txt_w_fin = dados_emp.get('pop_wpp_financeiro') or 'Não informado'
+                    txt_w_tec = dados_emp.get('pop_wpp_tecnico') or 'Não informado'
+                    txt_mon = dados_emp.get('pop_monitoramento') or 'Nenhuma instrução de triagem cadastrada.'
+                    
+                    st.markdown(f"""
 <div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(74,14,78,0.06); margin-bottom: 25px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
         <span style="font-weight: bold; color: #4a0e4e; font-size: 15px;">📡 POP - MONITORAMENTO & ROTEAMENTO DE SETORES</span>
@@ -2227,23 +2246,31 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     c_email = c1.text_input("E-mail Profissional", value=dados_emp.get('email', ''))
                     c_end = c2.text_input("Endereço Completo", value=dados_emp.get('endereco', ''))
                     
-                    st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-                    
-                    st.markdown("<h4 style='color: #8b0000;'>🚨 POP - Emergência (Furto e Roubo)</h4>", unsafe_allow_html=True)
-                    st.markdown("<p style='font-size: 12px; color: #555;'>Configure os contatos e a regra imediata para a Central agir em caso de <b>Furto ou Roubo</b>.</p>", unsafe_allow_html=True)
-                    c_pop1, c_pop2 = st.columns(2)
-                    c_pop_g = c_pop1.text_input("Contato do Gestor 24h / Plantão", value=dados_emp.get('pop_gestor', ''))
-                    c_pop_pr = c_pop2.text_input("Contato da Equipe de Pronta Resposta", value=dados_emp.get('pop_pronta_resposta', ''))
-                    c_pop_db = st.text_area("Diretriz Tática de Bloqueio e Ação Exata", value=dados_emp.get('pop_diretriz_bloqueio', ''))
-                    
-                    st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-                    
-                    st.markdown("<h4 style='color: #4a0e4e;'>📡 POP - Monitoramento & Roteamento de Setores</h4>", unsafe_allow_html=True)
-                    st.markdown("<p style='font-size: 12px; color: #555;'>Defina os números de WhatsApp dos seus setores para a Central transferir os chamados direto para a pessoa certa.</p>", unsafe_allow_html=True)
-                    c_wpp1, c_wpp2 = st.columns(2)
-                    c_wpp_fin = c_wpp1.text_input("WhatsApp do Setor Financeiro (Faturas/Cobranças)", value=dados_emp.get('pop_wpp_financeiro', ''))
-                    c_wpp_tec = c_wpp2.text_input("WhatsApp do Setor Técnico (Suporte/Manutenção)", value=dados_emp.get('pop_wpp_tecnico', ''))
-                    c_pop_mon = st.text_area("Instruções de Contato / Triagem (Rotina)", value=dados_emp.get('pop_monitoramento', ''))
+                    if tem_fr_cad:
+                        st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+                        st.markdown("<h4 style='color: #8b0000;'>🚨 POP - Emergência (Furto e Roubo)</h4>", unsafe_allow_html=True)
+                        st.markdown("<p style='font-size: 12px; color: #555;'>Configure os contatos e a regra imediata para a Central agir em caso de <b>Furto ou Roubo</b>.</p>", unsafe_allow_html=True)
+                        c_pop1, c_pop2 = st.columns(2)
+                        c_pop_g = c_pop1.text_input("Contato do Gestor 24h / Plantão", value=dados_emp.get('pop_gestor', ''))
+                        c_pop_pr = c_pop2.text_input("Contato da Equipe de Pronta Resposta", value=dados_emp.get('pop_pronta_resposta', ''))
+                        c_pop_db = st.text_area("Diretriz Tática de Bloqueio e Ação Exata", value=dados_emp.get('pop_diretriz_bloqueio', ''))
+                    else:
+                        c_pop_g = dados_emp.get('pop_gestor', '')
+                        c_pop_pr = dados_emp.get('pop_pronta_resposta', '')
+                        c_pop_db = dados_emp.get('pop_diretriz_bloqueio', '')
+                        
+                    if tem_mon_cad:
+                        st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
+                        st.markdown("<h4 style='color: #4a0e4e;'>📡 POP - Monitoramento & Roteamento de Setores</h4>", unsafe_allow_html=True)
+                        st.markdown("<p style='font-size: 12px; color: #555;'>Defina os números de WhatsApp dos seus setores para a Central transferir os chamados direto para a pessoa certa.</p>", unsafe_allow_html=True)
+                        c_wpp1, c_wpp2 = st.columns(2)
+                        c_wpp_fin = c_wpp1.text_input("WhatsApp do Setor Financeiro (Faturas/Cobranças)", value=dados_emp.get('pop_wpp_financeiro', ''))
+                        c_wpp_tec = c_wpp2.text_input("WhatsApp do Setor Técnico (Suporte/Manutenção)", value=dados_emp.get('pop_wpp_tecnico', ''))
+                        c_pop_mon = st.text_area("Instruções de Contato / Triagem (Rotina)", value=dados_emp.get('pop_monitoramento', ''))
+                    else:
+                        c_wpp_fin = dados_emp.get('pop_wpp_financeiro', '')
+                        c_wpp_tec = dados_emp.get('pop_wpp_tecnico', '')
+                        c_pop_mon = dados_emp.get('pop_monitoramento', '')
                     
                     st.markdown("<br>", unsafe_allow_html=True)
                     btn_salvar = st.form_submit_button("💾 Salvar Alterações e POP", type="primary", use_container_width=True)
@@ -2298,6 +2325,9 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         pop_tec_disp = emp['pop_wpp_tecnico'] if emp['pop_wpp_tecnico'] else "Usa telefone geral"
                         pop_mon_disp = emp['pop_monitoramento'] if emp['pop_monitoramento'] else "Nenhuma instrução cadastrada."
 
+                        tem_fr_list = "Furto" in servico_vinculado or "Ambos" in servico_vinculado
+                        tem_mon_list = "Monitoramento" in servico_vinculado or "Ambos" in servico_vinculado
+
                         # 1. BLOCO DADOS CADASTRAIS & CONTRATO
                         st.markdown(f"""
 <div style="background: #fafafa; border-left: 4px solid #4a0e4e; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
@@ -2318,7 +2348,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 """, unsafe_allow_html=True)
                         
                         # 2. BLOCO POP EMERGÊNCIA
-                        st.markdown(f"""
+                        if tem_fr_list:
+                            st.markdown(f"""
 <div style="background: #fff8f8; border-left: 4px solid #8b0000; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
     <span style="font-weight: bold; color: #8b0000; font-size: 14px; display: block; margin-bottom: 8px;">🚨 POP DE EMERGÊNCIA (FURTO / ROUBO)</span>
     <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 6px;">
@@ -2330,7 +2361,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 """, unsafe_allow_html=True)
                         
                         # 3. BLOCO POP MONITORAMENTO
-                        st.markdown(f"""
+                        if tem_mon_list:
+                            st.markdown(f"""
 <div style="background: #fdfaff; border-left: 4px solid #6a1b9a; padding: 12px 16px; border-radius: 6px; font-size: 13px;">
     <span style="font-weight: bold; color: #6a1b9a; font-size: 14px; display: block; margin-bottom: 8px;">📡 DIRETRIZES DE MONITORAMENTO & SETORES</span>
     <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 6px;">
