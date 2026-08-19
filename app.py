@@ -1307,7 +1307,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         acao_clientes = st.radio("Ação Clientes:", opcoes_acao, horizontal=True)
         st.markdown("---")
         
-        empresas_disp = fetch_data("SELECT nome FROM empresas ORDER BY nome")
+        # Agora buscamos também a coluna 'servicos' para aplicar a regra da palavra-chave
+        empresas_disp = fetch_data("SELECT nome, servicos FROM empresas ORDER BY nome")
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
 
         if acao_clientes == "Listar":
@@ -1446,13 +1447,26 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 else:
                     f_emp = st.session_state.nome_empresa
                 
-                st.markdown("""
-<div style="background-color: #fff3e0; border-left: 5px solid #e65100; padding: 10px; border-radius: 5px; margin-top: 10px; margin-bottom: 5px;">
-    <span style="color: #e65100; font-size: 14px; font-weight: bold;">🔑 Palavra-Chave de Segurança (Contra-senha)</span><br>
-    <span style="color: #555; font-size: 12px;">Crie a palavra-chave do cliente. Ela será exigida pela Central para comandos de bloqueio e desbloqueio.</span>
-</div>
-""", unsafe_allow_html=True)
-                f_palavra = st.text_input("Digite a Palavra-Chave:", key=f"in_palavra_{rk}")
+                # --- LÓGICA INTELIGENTE: VERIFICA O PLANO DA EMPRESA ---
+                servico_da_empresa = "Ambos"
+                for emp_data in empresas_disp:
+                    if emp_data['nome'] == f_emp:
+                        servico_da_empresa = emp_data.get('servicos', 'Ambos')
+                        break
+                
+                precisa_palavra_chave = "Furto" in servico_da_empresa or "Ambos" in servico_da_empresa
+                
+                f_palavra = ""
+                if precisa_palavra_chave:
+                    st.markdown("""
+    <div style="background-color: #fff3e0; border-left: 5px solid #e65100; padding: 10px; border-radius: 5px; margin-top: 10px; margin-bottom: 5px;">
+        <span style="color: #e65100; font-size: 14px; font-weight: bold;">🔑 Palavra-Chave de Segurança (Contra-senha)</span><br>
+        <span style="color: #555; font-size: 12px;">Crie a palavra-chave do cliente. Ela será exigida pela Central para comandos de bloqueio e desbloqueio.</span>
+    </div>
+    """, unsafe_allow_html=True)
+                    f_palavra = st.text_input("Digite a Palavra-Chave:", key=f"in_palavra_{rk}")
+                else:
+                    st.info("ℹ️ O plano desta empresa é exclusivo para Monitoramento. A Palavra-Chave (Contra-senha) não é necessária.")
                 
                 st.markdown("---")
                 st.write("🚗 **Frota / Veículos do Cliente:**")
@@ -1645,12 +1659,25 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             en_end = c_ed1.text_input("Endereço", value=dados_cliente_sel.get('endereco', ''), key=f"e_end_{id_c_sel}")
                             en_tel = c_ed2.text_input("Telefone", value=dados_cliente_sel['telefone'], key=f"e_tel_{id_c_sel}")
                             
-                            st.markdown("""
+                            # --- LÓGICA INTELIGENTE NA EDIÇÃO ---
+                            empresa_do_cliente = dados_cliente_sel['empresa']
+                            servico_da_empresa_edit = "Ambos"
+                            for emp_data in empresas_disp:
+                                if emp_data['nome'] == empresa_do_cliente:
+                                    servico_da_empresa_edit = emp_data.get('servicos', 'Ambos')
+                                    break
+                                    
+                            precisa_palavra_chave_edit = "Furto" in servico_da_empresa_edit or "Ambos" in servico_da_empresa_edit
+                            
+                            en_palavra = dados_cliente_sel.get('palavra_chave', '')
+                            
+                            if precisa_palavra_chave_edit:
+                                st.markdown("""
 <div style="background-color: #fff3e0; border-left: 5px solid #e65100; padding: 10px; border-radius: 5px; margin-top: 10px; margin-bottom: 5px;">
     <span style="color: #e65100; font-size: 14px; font-weight: bold;">🔑 Palavra-Chave de Segurança (Contra-senha)</span>
 </div>
 """, unsafe_allow_html=True)
-                            en_palavra = st.text_input("Atualizar Palavra-Chave:", value=dados_cliente_sel.get('palavra_chave', ''), key=f"e_pal_{id_c_sel}")
+                                en_palavra = st.text_input("Atualizar Palavra-Chave:", value=en_palavra, key=f"e_pal_{id_c_sel}")
                             
                             st.markdown("---")
                             st.write("🚗 **Veículos Já Vinculados (Edite os dados abaixo):**")
@@ -1752,8 +1779,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     st.session_state.flash_msg = f"{len(ids_para_excluir)} cliente(s) excluído(s) com sucesso!"
                                     limpar_tela()
                                     st.rerun()
-                else:
-                    st.warning("Nenhum cliente encontrado com este termo.")
+            else:
+                st.warning("Nenhum cliente encontrado com este termo.")
         
         elif acao_clientes == "Solicitar Exclusão":
             st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao suporte oficial informando a placa e o motivo.")
@@ -2143,7 +2170,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     st.session_state.editando_meu_cadastro = True
                     st.rerun()
 
-                # --- NOVO BLOCO: GESTÃO DE OPERADORES (SUB-USUÁRIOS) ---
+                # --- NOVO BLOCO: GESTÃO DE OPERADORES (SUB-USUÁRIO) ---
                 st.markdown("---")
                 st.markdown("""
 <div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
