@@ -984,7 +984,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 if st.button("❌ Fechar Painel de Relatório", use_container_width=True, type="secondary"):
                     st.session_state.mostrar_laudo = False
                     st.rerun()
-                    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - CARDS MODERNIZADOS E ROTEAMENTO SMART ---
+                   # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - CARDS MODERNIZADOS E ROTEAMENTO SMART ---
     elif aba_ativa == "central" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🚨 Central de Operações e Ocorrências 24h</h2>", unsafe_allow_html=True)
         
@@ -1021,6 +1021,31 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         </div>
                     """, unsafe_allow_html=True)
                     
+                    # BUSCA INTELIGENTE DO WHATSAPP DA PRONTA RESPOSTA
+                    pop_ativo_res = fetch_data("SELECT telefone, pop_pronta_resposta FROM empresas WHERE nome=%s", (inc['empresa'],))
+                    tel_ativo_alvo = ""
+                    if pop_ativo_res:
+                        pr_ativo_bruto = pop_ativo_res[0].get('pop_pronta_resposta', '')
+                        num_pr_ativo = re.sub(r'\D', '', str(pr_ativo_bruto))
+                        if len(num_pr_ativo) >= 10:
+                            tel_ativo_alvo = num_pr_ativo
+                        else:
+                            tel_ativo_alvo = re.sub(r'\D', '', str(pop_ativo_res[0].get('telefone', '')))
+                            
+                    if tel_ativo_alvo:
+                        if not tel_ativo_alvo.startswith('55'):
+                            tel_ativo_alvo = f"55{tel_ativo_alvo}"
+                        
+                        detalhes_ativos = inc.get('detalhes', '')
+                        link_extraido = "Não informado"
+                        if "Link Rastreio: " in detalhes_ativos:
+                            link_extraido = detalhes_ativos.split("Link Rastreio: ")[1].split(" |")[0]
+                            
+                        txt_ativo_copiar = f"🚨 ALERTA DE SINISTRO - AD RASTREAMENTO 🚨\n• Tipo: {inc['tipo'].upper()}\n• Veículo: {inc.get('modelo','')} - PLACA: {inc['placa']}\n• Chassi: {inc.get('chassi','')}\n• Cliente: {inc['cliente']}\n• Link Tático: {link_extraido}"
+                        link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_ativo_copiar)}"
+                        
+                        st.markdown(f'<a href="{link_ativo_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:8px 12px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; font-size: 13.5px; margin-bottom: 15px; width: 100%; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📲 Reenviar Dossiê para Pronta Resposta (WhatsApp)</button></a>', unsafe_allow_html=True)
+                    
                     # LINHA DO TEMPO (TIMELINE)
                     timeline_res = fetch_data("SELECT * FROM historico_timeline WHERE historico_id=%s ORDER BY id ASC", (inc['id'],))
                     html_tl = "<div style='background: #ffffff; border-left: 4px solid #b71c1c; padding: 12px; border-radius: 4px; margin-bottom: 15px;'>"
@@ -1037,7 +1062,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     c_tl1, c_tl2 = st.columns(2)
                     c_tl3, c_tl4 = st.columns(2)
                     
-                    # Função para gravar com clique no botão e notificar sucesso
                     def build_inserir(historico_id, acao_texto):
                         def callback():
                             execute_query("INSERT INTO historico_timeline (historico_id, data_hora, acao, operador) VALUES (%s,%s,%s,%s)", 
@@ -1149,7 +1173,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         pop_wpp_fin = pop_dados[0].get('pop_wpp_financeiro', '') if pop_dados else ''
                         pop_wpp_tec = pop_dados[0].get('pop_wpp_tecnico', '') if pop_dados else ''
 
-                        # --- DOSSIÊ RÁPIDO DO VEÍCULO ---
                         chassi_disp = info_veic.get('chassi', '') or "Não inf."
                         renavam_disp = info_veic.get('renavam', '') or "Não inf."
                         
@@ -1233,17 +1256,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 link_rastreio = st.text_input("🔗 Link Espelho (Rastreio Tático)", key=f"link_{st.session_state.rk}")
                                 desc_oc = st.text_area("Descrição Breve / Dinâmica Inicial", key=f"desc_{st.session_state.rk}")
                                 
-                                # --- CHECKLIST TÁTICO ---
-                                st.markdown("<div style='background-color: #fef8f8; border-left: 4px solid #d32f2f; padding: 15px; border-radius: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
-                                st.markdown("**☑️ Checklist Operacional Anti-Pânico** (Obrigatório para iniciar o chamado)")
-                                st.markdown("<span style='font-size: 11px; color: #777;'>Marque as opções para destravar o botão de abertura. Toda confirmação ficará salva na Linha do Tempo oficial.</span>", unsafe_allow_html=True)
-                                chk1 = st.checkbox("🔑 Contra-senha solicitada e confirmada (Ou senha de coação validada).", key="chk1")
-                                chk2 = st.checkbox("🔗 Link espelho / rastreio temporário gerado e disponível.", key="chk2")
-                                chk3 = st.checkbox("📲 Preparado para disparar alerta via WhatsApp.", key="chk3")
-                                st.markdown("</div>", unsafe_allow_html=True)
-                                
                                 # --- DISPARO RÁPIDO DE CERCO ---
-                                st.markdown("**📲 Disparo Rápido de Cerco (Copie e cole no grupo tático)**")
+                                st.markdown("**📲 Disparo Rápido de Cerco (Envio Integrado ao WhatsApp)**")
                                 txt_copiar = f"""🚨 ALERTA DE SINISTRO - AD RASTREAMENTO 🚨
 • Tipo: {tipo_oc}
 • Veículo: {info_veic['modelo']} - PLACA: {placa_sel}
@@ -1252,6 +1266,33 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 • Ponto do Fato: {local_oc}
 • Link Tático Espelho: {link_rastreio}"""
                                 st.code(txt_copiar, language="text")
+                                
+                                # BUSCA INTELIGENTE DO WHATSAPP DA PRONTA RESPOSTA
+                                tel_alvo = ""
+                                num_pr_abertura = re.sub(r'\D', '', str(pop_pr))
+                                emp_tel_res = fetch_data("SELECT telefone FROM empresas WHERE nome=%s", (info_veic['empresa'],))
+                                
+                                if len(num_pr_abertura) >= 10:
+                                    tel_alvo = num_pr_abertura
+                                elif emp_tel_res:
+                                    tel_alvo = re.sub(r'\D', '', str(emp_tel_res[0].get('telefone', '')))
+                                    
+                                if tel_alvo:
+                                    if not tel_alvo.startswith('55'):
+                                        tel_alvo = f"55{tel_alvo}"
+                                    link_alerta_wpp = f"https://wa.me/{tel_alvo}?text={urllib.parse.quote(txt_copiar)}"
+                                    st.markdown(f'<a href="{link_alerta_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; width:100%; margin-bottom:15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📲 Enviar Alerta Direto no WhatsApp da Pronta Resposta</button></a>', unsafe_allow_html=True)
+                                else:
+                                    st.warning("⚠️ Não foi possível gerar o botão do WhatsApp porque a empresa não possui telefone válido cadastrado.")
+
+                                # --- CHECKLIST TÁTICO ---
+                                st.markdown("<div style='background-color: #fef8f8; border-left: 4px solid #d32f2f; padding: 15px; border-radius: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
+                                st.markdown("**☑️ Checklist Operacional Anti-Pânico** (Obrigatório para iniciar o chamado)")
+                                st.markdown("<span style='font-size: 11px; color: #777;'>Marque as opções para destravar o botão de abertura. Toda confirmação ficará salva na Linha do Tempo oficial.</span>", unsafe_allow_html=True)
+                                chk1 = st.checkbox("🔑 Contra-senha solicitada e confirmada (Ou senha de coação validada).", key="chk1")
+                                chk2 = st.checkbox("🔗 Link espelho / rastreio temporário gerado e disponível.", key="chk2")
+                                chk3 = st.checkbox("📲 Alerta de cerco enviado via WhatsApp.", key="chk3")
+                                st.markdown("</div>", unsafe_allow_html=True)
 
                                 if st.button("🚨 Iniciar Sinistro e Abrir Painel Tático", type="primary"):
                                     if not (chk1 and chk2 and chk3):
