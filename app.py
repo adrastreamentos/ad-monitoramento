@@ -164,11 +164,8 @@ def init_db():
 
     c.execute('''CREATE TABLE IF NOT EXISTS veiculos (id SERIAL PRIMARY KEY, cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE, tipo_veic TEXT, placa TEXT, modelo TEXT, cor TEXT)''')
     try:
-        c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS info_chip TEXT DEFAULT '';")
-        # --- NOVOS CAMPOS PARA O DOSSIÊ TÁTICO ---
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS chassi TEXT DEFAULT '';")
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS renavam TEXT DEFAULT '';")
-        c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS caracteristicas TEXT DEFAULT '';")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -257,7 +254,6 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     detalhes_texto = dados_relatorio['detalhes']
     assinatura_bloco = ""
     
-    # Busca a timeline caso exista (Módulo Furto/Roubo)
     timeline_html = ""
     if dados_relatorio.get('tipo') in ['Furto', 'Roubo']:
         res_timeline = fetch_data("SELECT data_hora, acao, operador FROM historico_timeline WHERE historico_id = %s ORDER BY id ASC", (dados_relatorio['id'],))
@@ -356,7 +352,7 @@ def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
             <p><strong>TERMO DE RESPONSABILIDADE, CONFIDENCIALIDADE E ADEQUAÇÃO À LGPD</strong></p>
             <p>A <strong>AD Rastreamento Veicular</strong>, sediada em São Gonçalo do Amarante, na qualidade de provedora do software de gestão e telemetria, estabelece as seguintes diretrizes obrigatórias aceitas pela CONTRATANTE/PARCEIRA para o uso da plataforma:</p>
             <div class="clausula"><strong>1. Sigilo e Confidencialidade:</strong> O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.</div>
-            <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
+            <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsibility por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
             <div class="clausula"><strong>3. Penalidades Legais:</strong> O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).</div>
         </div>
         <div class="assinatura-box">
@@ -524,7 +520,6 @@ if 'empresa_transferencia' not in st.session_state: st.session_state.empresa_tra
 if 'mostrar_laudo' not in st.session_state: st.session_state.mostrar_laudo = False
 if 'editando_meu_cadastro' not in st.session_state: st.session_state.editando_meu_cadastro = False
 if 'menu_navegacao' not in st.session_state: st.session_state.menu_navegacao = "dashboard"
-if 'timer_ocorrencia' not in st.session_state: st.session_state.timer_ocorrencia = None
 
 chaves_necessarias = {
     'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0, 'dash_mes': 0
@@ -550,7 +545,7 @@ def limpar_tela():
         st.session_state.reset_keys[k] += 1
 
 if 'flash_msg' in st.session_state:
-    st.toast(st.session_state.flash_msg, icon="✅")
+    st.success(st.session_state.flash_msg, icon="✅")
     del st.session_state.flash_msg
 
 # ==========================================
@@ -739,15 +734,18 @@ else:
 
     if st.session_state.is_admin:
         res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE tipo='Transferência' AND status='PENDENTE'")
+        res_ativos = fetch_data("SELECT count(id) as c FROM historico WHERE tipo IN ('Furto', 'Roubo') AND status='EM ANDAMENTO'")
+        qtd_ativos = res_ativos[0]['c'] if res_ativos else 0
     else:
         res_count_pend = fetch_data("SELECT count(id) as c FROM historico WHERE tipo='Transferência' AND status='PENDENTE' AND empresa=%s", (st.session_state.nome_empresa,))
+        qtd_ativos = 0
     
     qtd_pend = res_count_pend[0]['c'] if res_count_pend else 0
 
     def formatar_nome_menu(aba_id):
         mapa = {
             "dashboard": "📊 Dashboard",
-            "central": "🚨 Central 24h",
+            "central": f"🚨 Central 24h ({qtd_ativos})" if qtd_ativos > 0 else "🚨 Central 24h",
             "pendencias": f"🛠️ Pendências ({qtd_pend})",
             "clientes": "👤 Clientes",
             "relatorios": "📖 Relatórios",
@@ -990,6 +988,114 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
     elif aba_ativa == "central" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🚨 Central de Operações e Ocorrências 24h</h2>", unsafe_allow_html=True)
         
+        # =====================================================================
+        # 1. PAINEL FIXO DE ALERTA MÁXIMO (ZERO CLIQUES)
+        # =====================================================================
+        q_ativos = """
+            SELECT h.*, v.modelo, v.cor, v.chassi, v.renavam 
+            FROM historico h 
+            LEFT JOIN veiculos v ON h.placa = v.placa 
+            WHERE h.tipo IN ('Furto', 'Roubo') AND h.status='EM ANDAMENTO'
+            ORDER BY h.id DESC
+        """
+        ativos_res = fetch_data(q_ativos)
+        
+        if ativos_res:
+            st.markdown("<div style='background: #c62828; color: white; padding: 10px; border-radius: 6px; text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 15px;'>🚨 ATENÇÃO: SINISTROS EM ANDAMENTO (ACESSO RÁPIDO)</div>", unsafe_allow_html=True)
+            
+            for inc in ativos_res:
+                with st.container():
+                    st.markdown(f"""
+                    <div style="background: #fff8f8; border: 2px solid #e53935; padding: 15px; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(229,57,53,0.1);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ffcdd2; padding-bottom: 10px; margin-bottom: 10px;">
+                            <h3 style="color: #b71c1c; margin: 0; font-size: 18px;">🔥 {inc['tipo'].upper()} - PLACA: {inc['placa']}</h3>
+                            <span style="background: #b71c1c; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold;">CHAMADO #{inc['id']}</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 13px; color: #333; margin-bottom: 15px;">
+                            <div><b>Cliente:</b> {inc['cliente']}</div>
+                            <div><b>Modelo:</b> {inc.get('modelo', 'Não inf.')}</div>
+                            <div><b>Cor:</b> {inc.get('cor', 'Não inf.')}</div>
+                            <div><b>Chassi:</b> {inc.get('chassi', 'Não inf.')}</div>
+                            <div><b>Renavam:</b> {inc.get('renavam', 'Não inf.')}</div>
+                            <div><b>Parceiro:</b> {inc['empresa']}</div>
+                        </div>
+                    """, unsafe_allow_html=True)
+                    
+                    # LINHA DO TEMPO (TIMELINE)
+                    timeline_res = fetch_data("SELECT * FROM historico_timeline WHERE historico_id=%s ORDER BY id ASC", (inc['id'],))
+                    html_tl = "<div style='background: #ffffff; border-left: 4px solid #b71c1c; padding: 12px; border-radius: 4px; margin-bottom: 15px;'>"
+                    html_tl += "<span style='font-weight: bold; color: #b71c1c; font-size: 14px;'>⏱️ LINHA DO TEMPO (AÇÕES TÁTICAS)</span><ul style='font-size: 13px; color: #444; padding-left: 20px; margin-top: 8px; margin-bottom: 0;'>"
+                    if timeline_res:
+                        for t in timeline_res:
+                            html_tl += f"<li style='margin-bottom: 4px;'><b>{t['data_hora']}</b> - {t['acao']} <i>(Op: {t['operador']})</i></li>"
+                    else:
+                        html_tl += "<li><i>Ocorrência aberta. O cronômetro está rodando. Registre as ações abaixo.</i></li>"
+                    html_tl += "</ul></div>"
+                    st.markdown(html_tl, unsafe_allow_html=True)
+                    
+                    st.write("⚡ **Registrar Ação na Linha do Tempo (1-Clique):**")
+                    c_tl1, c_tl2 = st.columns(2)
+                    c_tl3, c_tl4 = st.columns(2)
+                    
+                    # Função para gravar com clique no botão e notificar sucesso
+                    def build_inserir(historico_id, acao_texto):
+                        def callback():
+                            execute_query("INSERT INTO historico_timeline (historico_id, data_hora, acao, operador) VALUES (%s,%s,%s,%s)", 
+                                          (historico_id, get_horario_brasil_str(), acao_texto, st.session_state.nome_usuario))
+                            st.session_state.flash_msg = f"Ação '{acao_texto}' gravada com sucesso!"
+                        return callback
+
+                    c_tl1.button("🔒 Bloqueio Efetuado no Rastreador", key=f"btn_bloq_{inc['id']}", on_click=build_inserir(inc['id'], "Comando de bloqueio executado na telemetria."), use_container_width=True)
+                    c_tl2.button("🏍️ Pronta Resposta Acionada / Deslocando", key=f"btn_pr_{inc['id']}", on_click=build_inserir(inc['id'], "Equipe de Pronta Resposta acionada."), use_container_width=True)
+                    c_tl3.button("📍 Chegada da Pronta Resposta no Local", key=f"btn_cheg_{inc['id']}", on_click=build_inserir(inc['id'], "Apoio terrestre confirmou chegada ao local."), use_container_width=True)
+                    c_tl4.button("👁️ Veículo Visualizado / Abandonado", key=f"btn_vis_{inc['id']}", on_click=build_inserir(inc['id'], "Veículo visualizado. Preservando local."), use_container_width=True)
+                    
+                    with st.form(f"form_nota_timeline_{inc['id']}", clear_on_submit=True):
+                        c_n1, c_n2 = st.columns([4, 1])
+                        nova_nota = c_n1.text_input("📝 Nota de Rota/Posição (Ex: Passou no viaduto da Zona Norte):")
+                        if c_n2.form_submit_button("Inserir Nota", use_container_width=True):
+                            if nova_nota.strip():
+                                execute_query("INSERT INTO historico_timeline (historico_id, data_hora, acao, operador) VALUES (%s,%s,%s,%s)", 
+                                              (inc['id'], get_horario_brasil_str(), f"Nota Operacional: {nova_nota}", st.session_state.nome_usuario))
+                                st.session_state.flash_msg = "Nota inserida com sucesso na Linha do Tempo!"
+                                st.rerun()
+
+                    st.markdown("<hr style='margin: 15px 0; border-top: 1px solid #ffcdd2;'>", unsafe_allow_html=True)
+                    st.write("🟢 **Desfecho Forense (Encerrar Ocorrência)**")
+                    res_recup = st.selectbox("Resultado Principal", ["", "Veículo Recuperado", "Veículo Não Localizado"], key=f"res_{inc['id']}")
+                    res_estado = st.selectbox("Estado do Veículo", ["Íntegro / Sem Danos", "Avariado / Colidido", "Depenado / Faltando Peças", "Perda Total", "Não se aplica"], key=f"est_{inc['id']}")
+                    res_destino = st.selectbox("Destino do Bem", ["Entregue ao Proprietário no Local", "Conduzido à Delegacia", "Removido por Guincho", "Não se aplica"], key=f"des_{inc['id']}")
+                    desc_final = st.text_area("Nota Final / Dinâmica do Desfecho:", key=f"nota_{inc['id']}")
+                    
+                    if st.button("✅ Concluir e Finalizar Ocorrência", type="primary", key=f"btn_fim_{inc['id']}", use_container_width=True):
+                        if not res_recup or not desc_final.strip():
+                            st.error("Selecione o Resultado Principal e preencha a descrição final.")
+                        else:
+                            agora = get_horario_brasil()
+                            try:
+                                dt_abertura = datetime.strptime(inc['data_hora'], "%d/%m/%Y %H:%M:%S")
+                                dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
+                                tempo_decorrido = agora - dt_abertura
+                                horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
+                                minutos, _ = divmod(resto, 60)
+                                sla_str = f"{int(horas)}h e {int(minutos)}m"
+                            except Exception:
+                                sla_str = "Não calculado"
+
+                            protocolo = f"AD-{inc['id']}-{agora.strftime('%Y%m%d%H%M')}"
+                            texto_desfecho = f"| RESULTADO: {res_recup} | ESTADO: {res_estado} | DESTINO: {res_destino} | NOTA FINAL: {desc_final} | SLA TOTAL: {sla_str} | PROTOCOLO: {protocolo}"
+                            novo_detalhe = inc['detalhes'] + " " + texto_desfecho
+                            
+                            execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, inc['id']))
+                            registrar_auditoria("Finalização", "Operação Tática", f"Ocorrência ID {inc['id']} finalizada. Res: {res_recup}", inc['empresa'])
+                            st.session_state.flash_msg = "Ocorrência Tática finalizada e protocolada com sucesso!"
+                            st.rerun()
+                    st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("<hr style='border: 2px solid #ccc; margin: 30px 0;'>", unsafe_allow_html=True)
+
+        # =====================================================================
+        # 2. BUSCA NORMAL (ABERTURA DE NOVOS CHAMADOS)
+        # =====================================================================
         if st.session_state.get('link_transferencia'):
             st.success("✅ Ficha de transferência salva como pendência e pronta para ser enviada!")
             
@@ -1017,7 +1123,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 termo = f"%{st.session_state.termo_busca_ativo}%"
                 q_busca = """
                     SELECT c.nome, c.documento, c.telefone, c.empresa, c.palavra_chave, 
-                           v.placa, v.modelo, v.cor, v.tipo_veic, v.info_chip, v.chassi, v.renavam, v.caracteristicas 
+                           v.placa, v.modelo, v.cor, v.tipo_veic, v.chassi, v.renavam 
                     FROM clientes c JOIN veiculos v ON c.id = v.cliente_id 
                     WHERE c.status='Ativo' AND (c.nome ILIKE %s OR v.placa ILIKE %s OR c.documento ILIKE %s)
                 """
@@ -1046,7 +1152,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         # --- DOSSIÊ RÁPIDO DO VEÍCULO ---
                         chassi_disp = info_veic.get('chassi', '') or "Não inf."
                         renavam_disp = info_veic.get('renavam', '') or "Não inf."
-                        carac_disp = info_veic.get('caracteristicas', '') or "Nenhuma característica registrada."
                         
                         st.markdown(f"""
                         <div style="background: #f4f6f9; border-left: 5px solid #2980b9; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
@@ -1055,7 +1160,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 <div><b>Chassi:</b> {chassi_disp}</div>
                                 <div><b>Renavam:</b> {renavam_disp}</div>
                                 <div><b>Cor:</b> {info_veic['cor']}</div>
-                                <div style="grid-column: span 3;"><b>Características Marcantes:</b> {carac_disp}</div>
+                                <div><b>Tipo:</b> {info_veic['tipo_veic']}</div>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
@@ -1081,93 +1186,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
                         tipo_servico = st.radio("📋 **Ação na Central:**", opcoes_acao, horizontal=True, key=f"radio_serv_{st.session_state.rk}")
                         
-                        # --- MÓDULO: FURTO E ROUBO ---
+                        # --- MÓDULO: ABERTURA DE FURTO E ROUBO ---
                         if tipo_servico == "Abertura de Furto/Roubo":
-                            # Verifica se já existe um sinistro em andamento para esta placa
-                            q_ativo = "SELECT * FROM historico WHERE placa=%s AND tipo IN ('Furto', 'Roubo') AND status='EM ANDAMENTO' ORDER BY id DESC LIMIT 1"
-                            ativo_res = fetch_data(q_ativo, (placa_sel,))
+                            q_check_ativo = "SELECT id FROM historico WHERE placa=%s AND tipo IN ('Furto', 'Roubo') AND status='EM ANDAMENTO' LIMIT 1"
+                            esta_ativo = fetch_data(q_check_ativo, (placa_sel,))
                             
-                            if ativo_res:
-                                # ========== PAINEL TÁTICO ATIVO (TIMELINE) ==========
-                                inc_ativo = ativo_res[0]
-                                st.markdown("<div style='background: #fff0f0; border: 1px solid #ffcdd2; padding: 10px; border-radius: 6px; text-align: center; color: #c62828; font-weight: bold;'>⚠️ ATENÇÃO: ESTE VEÍCULO JÁ POSSUI UM SINISTRO EM ANDAMENTO. USE O PAINEL TÁTICO ABAIXO.</div>", unsafe_allow_html=True)
-                                
-                                st.markdown(f"<h3 style='color: #8b0000; font-size: 20px; margin-top: 15px;'>Painel Tático - Sinistro #{inc_ativo['id']}</h3>", unsafe_allow_html=True)
-                                
-                                # Renderiza a Timeline existente
-                                timeline_res = fetch_data("SELECT * FROM historico_timeline WHERE historico_id=%s ORDER BY id ASC", (inc_ativo['id'],))
-                                
-                                html_tl = "<div style='background: #fafafa; border-left: 4px solid #8b0000; padding: 15px; border-radius: 6px; margin-bottom: 20px;'>"
-                                html_tl += "<span style='font-weight: bold; color: #8b0000; font-size: 14px;'>⏱️ LINHA DO TEMPO (AÇÕES TÁTICAS)</span><ul style='font-size: 13.5px; color: #444; padding-left: 20px; margin-top: 10px;'>"
-                                if timeline_res:
-                                    for t in timeline_res:
-                                        html_tl += f"<li style='margin-bottom: 5px;'><b>{t['data_hora']}</b> - {t['acao']} <i>(Op: {t['operador']})</i></li>"
-                                else:
-                                    html_tl += "<li><i>Nenhuma ação registrada ainda. O cronômetro está rodando.</i></li>"
-                                html_tl += "</ul></div>"
-                                st.markdown(html_tl, unsafe_allow_html=True)
-                                
-                                # Botões de Ação de 1-Clique
-                                st.write("⚡ **Ações Rápidas (1-Clique):**")
-                                c_tl1, c_tl2 = st.columns(2)
-                                c_tl3, c_tl4 = st.columns(2)
-                                
-                                def inserir_timeline(texto_acao):
-                                    execute_query("INSERT INTO historico_timeline (historico_id, data_hora, acao, operador) VALUES (%s,%s,%s,%s)", 
-                                                  (inc_ativo['id'], get_horario_brasil_str(), texto_acao, st.session_state.nome_usuario))
-                                    st.rerun()
-
-                                if c_tl1.button("🔒 Bloqueio Efetuado no Rastreador", use_container_width=True):
-                                    inserir_timeline("Comando de bloqueio executado na plataforma de telemetria.")
-                                if c_tl2.button("🏍️ Pronta Resposta Acionada / Deslocando", use_container_width=True):
-                                    inserir_timeline("Equipe de Pronta Resposta (Apoio Terrestre) acionada.")
-                                if c_tl3.button("📍 Chegada da Pronta Resposta no Local", use_container_width=True):
-                                    inserir_timeline("Apoio terrestre confirmou chegada na última coordenada/área.")
-                                if c_tl4.button("👁️ Veículo Visualizado / Abandonado", use_container_width=True):
-                                    inserir_timeline("Veículo visualizado. Preservando local para os trâmites legais.")
-                                    
-                                with st.form("form_nota_timeline", clear_on_submit=True):
-                                    nova_nota = st.text_input("📝 Nota Rápida (Ex: Passou no viaduto da Zona Norte):")
-                                    if st.form_submit_button("Inserir Nota na Timeline"):
-                                        if nova_nota.strip():
-                                            inserir_timeline(f"Nota Operacional: {nova_nota}")
-                                
-                                st.markdown("---")
-                                st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>Desfecho Forense (Encerrar Ocorrência)</h3>", unsafe_allow_html=True)
-                                
-                                res_recup = st.selectbox("Resultado Principal", ["", "Veículo Recuperado", "Veículo Não Localizado"])
-                                res_estado = st.selectbox("Estado do Veículo", ["Íntegro / Sem Danos", "Avariado / Colidido", "Depenado / Faltando Peças", "Perda Total", "Não se aplica"])
-                                res_destino = st.selectbox("Destino do Bem", ["Entregue ao Proprietário no Local", "Conduzido à Delegacia", "Removido por Guincho", "Não se aplica"])
-                                desc_final = st.text_area("Descreva o desfecho final da operação:")
-                                
-                                if st.button("✅ Concluir e Finalizar Ocorrência", type="primary", use_container_width=True):
-                                    if not res_recup or not desc_final.strip():
-                                        st.error("Selecione o Resultado Principal e preencha a descrição final.")
-                                    else:
-                                        agora = get_horario_brasil()
-                                        try:
-                                            dt_abertura = datetime.strptime(inc_ativo['data_hora'], "%d/%m/%Y %H:%M:%S")
-                                            dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
-                                            tempo_decorrido = agora - dt_abertura
-                                            horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
-                                            minutos, _ = divmod(resto, 60)
-                                            sla_str = f"{int(horas)}h e {int(minutos)}m"
-                                        except Exception:
-                                            sla_str = "Não calculado"
-
-                                        protocolo = f"AD-{inc_ativo['id']}-{agora.strftime('%Y%m%d%H%M')}"
-                                        
-                                        texto_desfecho = f"| RESULTADO: {res_recup} | ESTADO: {res_estado} | DESTINO: {res_destino} | NOTA FINAL: {desc_final} | SLA TOTA: {sla_str} | PROTOCOLO: {protocolo}"
-                                        novo_detalhe = inc_ativo['detalhes'] + " " + texto_desfecho
-                                        
-                                        execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, inc_ativo['id']))
-                                        registrar_auditoria("Finalização", "Operação Tática", f"Ocorrência ID {inc_ativo['id']} finalizada. Res: {res_recup}", info_veic['empresa'])
-                                        st.session_state.flash_msg = "Ocorrência Tática finalizada e protocolada com sucesso!"
-                                        limpar_tela()
-                                        st.rerun()
-                                        
+                            if esta_ativo:
+                                st.warning("⚠️ Este veículo já possui um sinistro em andamento! Role a página para cima e utilize o Painel de Alerta Máximo para inserir registros e finalizar.")
                             else:
-                                # ========== ABERTURA DE NOVO SINISTRO ==========
                                 txt_gestor = pop_g if pop_g else "Não informado"
                                 txt_pr = pop_pr if pop_pr else "Não informado"
                                 txt_dir = pop_db if pop_db else "Nenhuma diretriz de bloqueio cadastrada pelo parceiro."
@@ -1204,22 +1230,20 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 tipo_oc = col_oc1.selectbox("Natureza", ["Roubo (Com Abordagem)", "Furto (Sem Abordagem)"], key=f"nat_{st.session_state.rk}")
                                 local_oc = col_oc2.text_input("Local do Fato (Ponto de Perda)", key=f"loc_{st.session_state.rk}")
                                 
-                                col_chip1, col_chip2 = st.columns(2)
-                                status_chip = col_chip1.text_input("📡 Posição Atual / Status do Chip", key=f"chip_{st.session_state.rk}")
-                                link_rastreio = col_chip2.text_input("🔗 Link Espelho (Rastreio Tático)", key=f"link_{st.session_state.rk}")
-                                
+                                link_rastreio = st.text_input("🔗 Link Espelho (Rastreio Tático)", key=f"link_{st.session_state.rk}")
                                 desc_oc = st.text_area("Descrição Breve / Dinâmica Inicial", key=f"desc_{st.session_state.rk}")
                                 
                                 # --- CHECKLIST TÁTICO ---
                                 st.markdown("<div style='background-color: #fef8f8; border-left: 4px solid #d32f2f; padding: 15px; border-radius: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
-                                st.markdown("**☑️ Checklist Operacional Anti-Pânico** (Validação Obrigatória)")
+                                st.markdown("**☑️ Checklist Operacional Anti-Pânico** (Obrigatório para iniciar o chamado)")
+                                st.markdown("<span style='font-size: 11px; color: #777;'>Marque as opções para destravar o botão de abertura. Toda confirmação ficará salva na Linha do Tempo oficial.</span>", unsafe_allow_html=True)
                                 chk1 = st.checkbox("🔑 Contra-senha solicitada e confirmada (Ou senha de coação validada).", key="chk1")
                                 chk2 = st.checkbox("🔗 Link espelho / rastreio temporário gerado e disponível.", key="chk2")
-                                chk3 = st.checkbox("📲 Preparado para disparar alerta via WhatsApp (botão abaixo).", key="chk3")
+                                chk3 = st.checkbox("📲 Preparado para disparar alerta via WhatsApp.", key="chk3")
                                 st.markdown("</div>", unsafe_allow_html=True)
                                 
                                 # --- DISPARO RÁPIDO DE CERCO ---
-                                st.markdown("**📲 Disparo Rápido de Cerco (Copie e cole no grupo tático/polícia)**")
+                                st.markdown("**📲 Disparo Rápido de Cerco (Copie e cole no grupo tático)**")
                                 txt_copiar = f"""🚨 ALERTA DE SINISTRO - AD RASTREAMENTO 🚨
 • Tipo: {tipo_oc}
 • Veículo: {info_veic['modelo']} - PLACA: {placa_sel}
@@ -1236,16 +1260,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                         agora = get_horario_brasil_str()
                                         detalhes_completos = f"Local do Fato: {local_oc} | Dinâmica: {desc_oc} | Link Rastreio: {link_rastreio}"
                                         
-                                        # Inserir no histórico principal
                                         conn = get_conn_fast()
                                         cur = conn.cursor()
                                         cur.execute("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id", 
                                                     (agora, info_veic['nome'], placa_sel, tipo_oc.split(" ")[0], "EM ANDAMENTO", detalhes_completos, info_veic['empresa']))
                                         novo_id_hist = cur.fetchone()[0]
                                         
-                                        # Inserir abertura na timeline
                                         cur.execute("INSERT INTO historico_timeline (historico_id, data_hora, acao, operador) VALUES (%s,%s,%s,%s)", 
-                                                    (novo_id_hist, agora, "Abertura de Chamado Tático de Emergência", st.session_state.nome_usuario))
+                                                    (novo_id_hist, agora, "Abertura de Chamado Tático de Emergência e Checklist validado", st.session_state.nome_usuario))
                                         conn.commit()
                                         st.cache_data.clear()
                                         
@@ -1283,7 +1305,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             """, unsafe_allow_html=True)
                             
                             st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>Monitoramento Técnico / Transferência</h3>", unsafe_allow_html=True)
-                            col_m1, col_m2 = st.columns(2)
                             
                             lista_eventos = [
                                 "Registro - Desconexão de Bateria", 
@@ -1293,8 +1314,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 "Transferência - Setor Financeiro", 
                                 "Transferência - Setor Técnico"
                             ]
-                            
-                            evento_mon = col_m1.selectbox("Evento", lista_eventos, key=f"eve_{st.session_state.rk}")
+                            evento_mon = st.selectbox("Evento", lista_eventos, key=f"eve_{st.session_state.rk}")
                             
                             motivo_tec = ""
                             if evento_mon == "Transferência - Setor Técnico":
@@ -1305,8 +1325,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     "Suporte ao Aplicativo Mobile do Cliente", 
                                     "Outro Defeito Físico"
                                 ], key=f"mot_{st.session_state.rk}")
-                            
-                            status_chip = col_m2.text_input("📡 Status do Rastreador / Chip", key=f"chip_m_{st.session_state.rk}")
                             
                             acao_mon = st.text_area("Ação da Central / Detalhes da Solicitação", key=f"aca_{st.session_state.rk}")
                             
@@ -1319,11 +1337,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
                             if st.button(texto_botao, type="primary"):
                                 agora = get_horario_brasil_str()
-                                
                                 detalhes_completos = f"Evento: {evento_mon} "
                                 if motivo_tec:
                                     detalhes_completos += f"| Diagnóstico: {motivo_tec} "
-                                detalhes_completos += f"| Status Equipamento: {status_chip} | Ação/Motivo: {acao_mon}"
+                                detalhes_completos += f"| Ação/Motivo: {acao_mon}"
                                 
                                 tipo_hist = "Transferência" if eh_transferencia else "Monitoramento"
                                 status_hist = "PENDENTE" if eh_transferencia else "FINALIZADO"
@@ -1336,7 +1353,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 
                                 if eh_transferencia:
                                     res_empresa = fetch_data("SELECT telefone, pop_wpp_financeiro, pop_wpp_tecnico FROM empresas WHERE nome=%s", (info_veic['empresa'],))
-                                    
                                     tel_bruto = ""
                                     if res_empresa:
                                         emp_dados_tel = res_empresa[0]
@@ -1346,7 +1362,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                             tel_bruto = emp_dados_tel.get('pop_wpp_tecnico') or emp_dados_tel.get('telefone') or ""
                                     
                                     tel_limpo = re.sub(r'\D', '', str(tel_bruto))
-                                    
                                     if tel_limpo:
                                         if not tel_limpo.startswith('55'):
                                             tel_limpo = f"55{tel_limpo}"
@@ -1368,7 +1383,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                         st.session_state.empresa_transferencia = info_veic["empresa"]
                                         st.rerun()
                                     else:
-                                        st.error(f"❌ Falha no roteamento: A empresa **{info_veic['empresa']}** não possui um telefone ou WhatsApp válido cadastrado para este setor. Vá na aba Empresas e atualize o cadastro.")
+                                        st.error(f"❌ Falha no roteamento: A empresa **{info_veic['empresa']}** não possui um telefone ou WhatsApp válido cadastrado.")
                                 else:
                                     st.session_state.flash_msg = "Salvo com sucesso!"
                                     limpar_tela()
@@ -1523,8 +1538,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 """, unsafe_allow_html=True)
                             
                             if veiculos_cli_ficha:
-                                df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor', 'chassi', 'renavam', 'caracteristicas']]
-                                df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor', 'Chassi', 'Renavam', 'Características']
+                                df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor', 'chassi', 'renavam']]
+                                df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor', 'Chassi', 'Renavam']
                                 st.dataframe(df_veics, use_container_width=True)
                             else:
                                 st.info("Nenhum veículo vinculado a este cliente.")
@@ -1534,7 +1549,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 <hr style="border: 0; border-top: 1px solid #e0e0e0; margin: 15px 0 10px 0;">
 <span style="font-size: 13px; font-weight: bold; color: #4a0e4e; display: block; margin-bottom: 8px;">🕒 Último Atendimento Registrado</span>
 """, unsafe_allow_html=True)
-                                
                                 df_ult = pd.DataFrame(ultimos_atendimentos)[['placa', 'data_hora', 'tipo', 'status', 'detalhes']]
                                 df_ult.columns = ['Placa', 'Data/Hora', 'Último Evento', 'Status', 'Detalhes / Ação da Central']
                                 st.dataframe(df_ult, use_container_width=True)
@@ -1546,7 +1560,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 st.error("Nenhuma empresa parceira cadastrada! Cadastre a empresa primeiro.")
             else:
                 st.subheader("📝 Cadastro de Novo Cliente e Seus Veículos")
-                
                 rk = st.session_state.rk
                 
                 st.markdown("""<div class='ficha-box'>""", unsafe_allow_html=True)
@@ -1568,7 +1581,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         break
                 
                 precisa_palavra_chave = "Furto" in servico_da_empresa or "Ambos" in servico_da_empresa
-                
                 f_palavra = ""
                 if precisa_palavra_chave:
                     st.markdown("""
@@ -1598,25 +1610,22 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 veiculos_dados = []
                 for i in range(st.session_state.num_veiculos_state):
                     st.markdown(f"**Veículo {i+1}**")
-                    vc1, vc2, vc3, vc4, vc5 = st.columns([2, 2, 2, 2, 3])
+                    vc1, vc2, vc3, vc4 = st.columns(4)
                     t_veic = vc1.selectbox(f"Tipo {i+1}", ["Carro", "Moto", "Caminhão", "Outro"], key=f"in_t_{i}_{rk}")
                     p_veic = vc2.text_input(f"Placa * {i+1}", key=f"in_p_{i}_{rk}")
                     m_veic = vc3.text_input(f"Modelo {i+1}", key=f"in_m_{i}_{rk}")
                     c_veic = vc4.text_input(f"Cor {i+1}", key=f"in_c_{i}_{rk}")
-                    chip_veic = vc5.text_input(f"Chip/Equip. (Opcional)", key=f"in_chip_{i}_{rk}")
                     
-                    vx1, vx2, vx3 = st.columns([2, 2, 4])
-                    chas_veic = vx1.text_input(f"Chassi (Dossiê Policial)", key=f"in_chas_{i}_{rk}")
+                    vx1, vx2 = st.columns(2)
+                    chas_veic = vx1.text_input(f"Chassi", key=f"in_chas_{i}_{rk}")
                     ren_veic = vx2.text_input(f"Renavam", key=f"in_ren_{i}_{rk}")
-                    carac_veic = vx3.text_input(f"Características Visuais (Adesivos, Baú, Insulfilm, etc)", key=f"in_carac_{i}_{rk}")
                     
-                    veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic, "info_chip": chip_veic, "chassi": chas_veic, "renavam": ren_veic, "caracteristicas": carac_veic})
+                    veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic, "chassi": chas_veic, "renavam": ren_veic})
                     st.markdown("---")
 
                 if st.button("💾 Salvar Cadastro Completo", type="primary"):
                     if f_nome and f_doc and any(v['placa'].strip() for v in veiculos_dados):
                         agora_cadastro = get_horario_brasil_str()
-                        
                         conn = get_conn_fast()
                         cur = conn.cursor(cursor_factory=RealDictCursor)
                         cur.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status, palavra_chave, data_cadastro) VALUES (%s,%s,%s,%s,%s,'Ativo',%s,%s) RETURNING id", 
@@ -1625,8 +1634,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         
                         validos = [v for v in veiculos_dados if v['placa'].strip()]
                         for v in validos:
-                            cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, info_chip, chassi, renavam, caracteristicas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
-                                           (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor'], v['info_chip'], v['chassi'], v['renavam'], v['caracteristicas']))
+                            cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
+                                           (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor'], v['chassi'], v['renavam']))
                         conn.commit()
                         st.cache_data.clear()
                         
@@ -1634,11 +1643,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         msg_veic = f"1 veículo" if total_cad == 1 else f"{total_cad} veículos"
 
                         registrar_auditoria("Cadastro", "Clientes", f"Cliente {f_nome} cadastrado com {msg_veic}.", f_emp)
-                        
-                        agora_notif = get_horario_brasil_str()
-                        execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
-                                      (agora_notif, f_emp, f"Novo cliente '{f_nome}' cadastrado com {msg_veic}."))
-
                         st.session_state.flash_msg = "Cliente e veículos cadastrados com sucesso!"
                         st.session_state.num_veiculos_state = 1
                         limpar_tela()
@@ -1664,8 +1668,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 "Modelo": ["Fiat Palio", "Honda CG"],
                 "Cor": ["Prata", "Vermelha"],
                 "Chassi": ["9BD12345...", "9C2..."],
-                "Renavam": ["1234567890", "0987654321"],
-                "Caracteristicas": ["Insulfilm escuro", "Baú da Loggi"]
+                "Renavam": ["1234567890", "0987654321"]
             })
             st.download_button(label="📄 Baixar Planilha Modelo (CSV)", data=df_exemplo.to_csv(index=False).encode('utf-8'), file_name="Modelo_Importacao_Frotas.csv", mime="text/csv")
             
@@ -1714,24 +1717,17 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 placa = str(row.get("Placa", "")).strip()
                                 modelo = str(row.get("Modelo", "")).strip()
                                 cor = str(row.get("Cor", "")).strip()
-                                
                                 chassi_col = row.get("Chassi", "")
                                 ren_col = row.get("Renavam", "")
-                                carac_col = row.get("Caracteristicas", "")
                                 
                                 if placa:
-                                    cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam, caracteristicas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", 
-                                                (cli_id, tipo, placa, modelo, cor, str(chassi_col), str(ren_col), str(carac_col)))
+                                    cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
+                                                (cli_id, tipo, placa, modelo, cor, str(chassi_col), str(ren_col)))
                                     importados_veiculos += 1
 
                         conn.commit()
                         st.cache_data.clear()        
                         registrar_auditoria("Importação Lote", "Clientes", f"Importação CSV: {importados_clientes} clientes e {importados_veiculos} veículos.", emp_lote)
-                        
-                        agora_notif = get_horario_brasil_str()
-                        execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
-                                      (agora_notif, emp_lote, f"Importação via planilha concluída: {importados_clientes} cliente(s) e {importados_veiculos} veículo(s)."))
-
                         st.session_state.flash_msg = f"Sucesso! {importados_clientes} clientes agrupados/criados e {importados_veiculos} veículos inseridos."
                         limpar_tela()
                         st.rerun()
@@ -1749,7 +1745,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 
             if st.session_state.termo_cli_ativo:
                 termo_c = f"%{st.session_state.termo_cli_ativo}%"
-                
                 q_cli_busca = """
                     SELECT DISTINCT c.id, c.nome, c.documento, c.data_cadastro, c.palavra_chave FROM clientes c 
                     WHERE (c.nome ILIKE %s OR c.documento ILIKE %s OR EXISTS (SELECT 1 FROM veiculos v WHERE v.cliente_id = c.id AND v.placa ILIKE %s))
@@ -1792,7 +1787,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     break
                                     
                             precisa_palavra_chave_edit = "Furto" in servico_da_empresa_edit or "Ambos" in servico_da_empresa_edit
-                            
                             en_palavra = dados_cliente_sel.get('palavra_chave', '')
                             
                             if precisa_palavra_chave_edit:
@@ -1809,7 +1803,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             if veiculos_cliente:
                                 for idx, v in enumerate(veiculos_cliente):
                                     st.write(f"**Veículo {idx+1} (Placa Atual: {v['placa']})**")
-                                    vc1, vc2, vc3, vc4, vc5 = st.columns([2, 2, 2, 2, 3])
+                                    vc1, vc2, vc3, vc4 = st.columns(4)
                                     tipos_v = ["Carro", "Moto", "Caminhão", "Outro"]
                                     t_idx = tipos_v.index(v['tipo_veic']) if v['tipo_veic'] in tipos_v else 0
                                     
@@ -1817,14 +1811,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     e_placa = vc2.text_input(f"Placa", value=v['placa'], key=f"e_p_{v['id']}")
                                     e_modelo = vc3.text_input(f"Modelo", value=v['modelo'], key=f"e_m_{v['id']}")
                                     e_cor = vc4.text_input(f"Cor", value=v['cor'], key=f"e_c_{v['id']}")
-                                    e_chip = vc5.text_input(f"Chip/Equip.", value=v.get('info_chip', ''), key=f"e_ch_{v['id']}")
                                     
-                                    vx1, vx2, vx3 = st.columns([2, 2, 4])
+                                    vx1, vx2 = st.columns(2)
                                     e_chas = vx1.text_input(f"Chassi", value=v.get('chassi', ''), key=f"e_chas_{v['id']}")
                                     e_ren = vx2.text_input(f"Renavam", value=v.get('renavam', ''), key=f"e_ren_{v['id']}")
-                                    e_carac = vx3.text_input(f"Características Visuais", value=v.get('caracteristicas', ''), key=f"e_car_{v['id']}")
                                     
-                                    veiculos_editados.append({"id": v['id'], "tipo": e_tipo, "placa": e_placa, "modelo": e_modelo, "cor": e_cor, "info_chip": e_chip, "chassi": e_chas, "renavam": e_ren, "caracteristicas": e_carac})
+                                    veiculos_editados.append({"id": v['id'], "tipo": e_tipo, "placa": e_placa, "modelo": e_modelo, "cor": e_cor, "chassi": e_chas, "renavam": e_ren})
                             else:
                                 st.info("Este cliente ainda não possui nenhum veículo cadastrado.")
 
@@ -1848,19 +1840,17 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             novos_veiculos_dados = []
                             for i in range(st.session_state[f"novos_v_{id_c_sel}"]):
                                 st.markdown(f"**Novo Veículo {i+1}**")
-                                vc1, vc2, vc3, vc4, vc5 = st.columns([2, 2, 2, 2, 3])
+                                vc1, vc2, vc3, vc4 = st.columns(4)
                                 n_tipo = vc1.selectbox(f"Tipo ", ["Carro", "Moto", "Caminhão", "Outro"], key=f"n_t_{i}_{id_c_sel}")
                                 n_placa = vc2.text_input(f"Placa * ", key=f"n_p_{i}_{id_c_sel}")
                                 n_modelo = vc3.text_input(f"Modelo ", key=f"n_m_{i}_{id_c_sel}")
                                 n_cor = vc4.text_input(f"Cor ", key=f"n_c_{i}_{id_c_sel}")
-                                n_chip = vc5.text_input(f"Chip/Equip. ", key=f"n_ch_{i}_{id_c_sel}")
                                 
-                                vx1, vx2, vx3 = st.columns([2, 2, 4])
+                                vx1, vx2 = st.columns(2)
                                 n_chas = vx1.text_input(f"Chassi", key=f"n_chas_{i}_{id_c_sel}")
                                 n_ren = vx2.text_input(f"Renavam", key=f"n_ren_{i}_{id_c_sel}")
-                                n_carac = vx3.text_input(f"Características", key=f"n_car_{i}_{id_c_sel}")
                                 
-                                novos_veiculos_dados.append({"tipo": n_tipo, "placa": n_placa, "modelo": n_modelo, "cor": n_cor, "info_chip": n_chip, "chassi": n_chas, "renavam": n_ren, "caracteristicas": n_carac})
+                                novos_veiculos_dados.append({"tipo": n_tipo, "placa": n_placa, "modelo": n_modelo, "cor": n_cor, "chassi": n_chas, "renavam": n_ren})
 
                             st.markdown("<br>", unsafe_allow_html=True)
                             
@@ -1869,17 +1859,13 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 execute_query("UPDATE clientes SET nome=%s, documento=%s, endereco=%s, telefone=%s, palavra_chave=%s WHERE id=%s", (en_nome, en_doc, en_end, en_tel, en_palavra, id_c_sel))
                                 
                                 for v_ed in veiculos_editados:
-                                    execute_query("UPDATE veiculos SET tipo_veic=%s, placa=%s, modelo=%s, cor=%s, info_chip=%s, chassi=%s, renavam=%s, caracteristicas=%s WHERE id=%s", (v_ed['tipo'], v_ed['placa'], v_ed['modelo'], v_ed['cor'], v_ed['info_chip'], v_ed['chassi'], v_ed['renavam'], v_ed['caracteristicas'], v_ed['id']))
+                                    execute_query("UPDATE veiculos SET tipo_veic=%s, placa=%s, modelo=%s, cor=%s, chassi=%s, renavam=%s WHERE id=%s", (v_ed['tipo'], v_ed['placa'], v_ed['modelo'], v_ed['cor'], v_ed['chassi'], v_ed['renavam'], v_ed['id']))
                                 
                                 validos_novos = [nv for nv in novos_veiculos_dados if nv['placa'].strip()]
                                 for nv in validos_novos:
-                                    execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, info_chip, chassi, renavam, caracteristicas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
-                                                    (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor'], nv['info_chip'], nv['chassi'], nv['renavam'], nv['caracteristicas']))
-                                    
-                                    agora_notif = get_horario_brasil_str()
-                                    execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
-                                                  (agora_notif, dados_cliente_sel['empresa'], f"Adicionou um veículo extra ({nv['placa']}) para o cliente {en_nome}."))
-
+                                    execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
+                                                    (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor'], nv['chassi'], nv['renavam']))
+                                
                                 registrar_auditoria("Edição", "Clientes", f"Dados e veículos do cliente {en_nome} atualizados.", dados_cliente_sel['empresa'])
                                 st.session_state.flash_msg = "Cliente e veículos atualizados com sucesso!"
                                 st.session_state[f"novos_v_{id_c_sel}"] = 0
@@ -1892,14 +1878,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
                     elif acao_clientes == "Excluir":
                         clientes_selecionados = st.multiselect("Selecione um ou mais Clientes para Excluir:", opcoes_cli, key=f"ms_excluir_cli_{k_edit_cli}")
-                        
                         if clientes_selecionados:
                             st.warning("⚠️ **Atenção:** Excluir estes clientes removerá os cadastros e TODOS os veículos vinculados a eles!")
                             if st.button("🗑️ Confirmar Exclusão Múltipla", type="primary"):
                                 ids_para_excluir = [int(c.split(" - ")[0]) for c in clientes_selecionados]
                                 if ids_para_excluir:
                                     ids_tuple = tuple(ids_para_excluir)
-                                    
                                     empresas_afetadas = fetch_data("SELECT DISTINCT empresa FROM clientes WHERE id IN %s", (ids_tuple,))
                                     nomes_empresas = ", ".join([e['empresa'] for e in empresas_afetadas]) if empresas_afetadas else ""
 
@@ -1989,7 +1973,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     limpar_tela()
                                     st.rerun()
                             
-                            # Busca Timeline do banco
                             timeline_res = fetch_data("SELECT * FROM historico_timeline WHERE historico_id=%s ORDER BY id ASC", (id_r,))
                             html_tl = "<hr><p><b>⏱️ Linha do Tempo (Ações Táticas):</b></p><ul>"
                             if timeline_res:
@@ -2038,7 +2021,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                             sla_str = "Não calculado"
 
                                         protocolo = f"AD-{id_r}-{agora.strftime('%Y%m%d%H%M')}"
-                                        
                                         texto_desfecho = f"| RESULTADO: {res_recup} | ESTADO: {res_estado} | DESTINO: {res_destino} | NOTA FINAL: {desc_final} | SLA TOTAL: {sla_str} | PROTOCOLO: {protocolo}"
                                         novo_detalhe = dados_fr['detalhes'] + " " + texto_desfecho
                                         
@@ -2081,7 +2063,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.dataframe(df_mon[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha de Relatório")
-                        
                         lista_sel_mon = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_mon]
                         
                         k_rel_mon = st.session_state.reset_keys['rel_mon']
@@ -2358,7 +2339,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     id_reset = int(usu_reset.split(" - ")[0])
                                     hash_nova = hash_senha(nova_senha_op)
                                     execute_query("UPDATE usuarios_secundarios SET senha=%s WHERE id=%s", (hash_nova, id_reset))
-                                    st.success("Senha atualizada com sucesso!")
+                                    st.session_state.flash_msg = "Senha atualizada com sucesso!"
                                     limpar_tela()
                                     st.rerun()
                                 else:
@@ -2376,7 +2357,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 if usu_del:
                                     id_del = int(usu_del.split(" - ")[0])
                                     execute_query("DELETE FROM usuarios_secundarios WHERE id=%s", (id_del,))
-                                    st.success("Operador removido com sucesso!")
+                                    st.session_state.flash_msg = "Operador removido com sucesso!"
                                     limpar_tela()
                                     st.rerun()
                                 else:
@@ -2405,7 +2386,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 else:
                                     hash_s = hash_senha(n_senha)
                                     execute_query("INSERT INTO usuarios_secundarios (empresa, nome, login, senha) VALUES (%s,%s,%s,%s)", (st.session_state.nome_empresa, n_nome, n_login, hash_s))
-                                    st.success("Operador cadastrado com sucesso!")
+                                    st.session_state.flash_msg = "Operador cadastrado com sucesso!"
                                     limpar_tela()
                                     st.rerun()
                             else:
@@ -2843,7 +2824,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 SELECT c.empresa as "Empresa", c.nome as "Cliente", c.documento as "CPF / CNPJ", 
                        c.telefone as "Telefone", c.endereco as "Endereço", c.status as "Status Cliente",
                        v.tipo_veic as "Tipo Veículo", v.placa as "Placa", v.modelo as "Modelo", 
-                       v.cor as "Cor", v.chassi as "Chassi", v.renavam as "Renavam", v.caracteristicas as "Características", v.info_chip as "Chip / Equipamento"
+                       v.cor as "Cor", v.chassi as "Chassi", v.renavam as "Renavam"
                 FROM clientes c
                 LEFT JOIN veiculos v ON c.id = v.cliente_id
                 WHERE 1=1
