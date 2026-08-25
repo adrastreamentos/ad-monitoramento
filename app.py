@@ -6,7 +6,6 @@ import base64
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import io
-import os
 import hashlib
 import uuid
 import re
@@ -39,7 +38,6 @@ st.markdown("""
         transform: translateY(0px);
     }
 
-    /* Botões Primários (Ação Principal, Salvar, Pesquisar) */
     button[kind="primary"] {
         background-color: #8b0000 !important;
         color: #ffffff !important;
@@ -50,7 +48,6 @@ st.markdown("""
         color: #ffffff !important;
     }
 
-    /* Botões Secundários (Fechar, Cancelar, Limpar, Voltar) */
     button[kind="secondary"] {
         background-color: #ffffff !important;
         color: #444444 !important;
@@ -65,7 +62,6 @@ st.markdown("""
     div[data-testid="stSidebar"] { background-color: #4a0e4e; }
     div[data-testid="stSidebar"] * { color: white; }
     
-    /* --- MENU DE NAVEGAÇÃO VISUALMENTE SEPARADO --- */
     div[role="radiogroup"] { 
         justify-content: center; 
         gap: 12px; 
@@ -107,20 +103,19 @@ st.markdown("""
         box-shadow: 0 2px 8px rgba(0,0,0,0.04);
     }
     
-    /* Títulos refinados para o Dashboard */
     .dash-title { color: #4a0e4e; font-size: 18px; font-weight: 600; text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
     .dash-legend { font-size: 13.5px; color: #555; display: flex; justify-content: space-between; padding: 5px 10px; border-bottom: 1px solid #f0f0f0; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- CRIPTOGRAFIA DE SENHAS (HASH) E SESSÃO ---
+# --- CRIPTOGRAFIA DE SENHAS E SESSÃO ---
 def hash_senha(senha):
     return hashlib.sha256(senha.encode('utf-8')).hexdigest()
 
 if 'session_uuid' not in st.session_state:
     st.session_state.session_uuid = str(uuid.uuid4()).split('-')[0].upper()
 
-# --- CONEXÃO COM SUPABASE (POSTGRESQL) OTIMIZADA PARA VELOCIDADE ---
+# --- CONEXÃO COM SUPABASE ---
 @st.cache_resource(ttl=3600)
 def get_db_connection():
     try:
@@ -144,16 +139,10 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico_faturas (id SERIAL PRIMARY KEY, mes_ref TEXT, empresa TEXT, total_veiculos INTEGER, valor_unitario REAL, valor_fatura_calculada REAL, valor_pago REAL, status TEXT, data_pagamento TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS notificacoes (id SERIAL PRIMARY KEY, data_hora TEXT, empresa TEXT, mensagem TEXT, lida BOOLEAN DEFAULT FALSE)''')
     c.execute('''CREATE TABLE IF NOT EXISTS aceites_lgpd (id SERIAL PRIMARY KEY, empresa TEXT, data_hora TEXT, ip_aceite TEXT DEFAULT 'Sistema Web', hash_assinatura TEXT)''')
-    
-    # Nova tabela para sub-usuários (Operadores)
     c.execute('''CREATE TABLE IF NOT EXISTS usuarios_secundarios (id SERIAL PRIMARY KEY, empresa TEXT, nome TEXT, login TEXT UNIQUE, senha TEXT, nivel TEXT DEFAULT 'Operador')''')
 
     try:
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS senha TEXT;")
-        c.execute("ALTER TABLE aceites_lgpd ADD COLUMN IF NOT EXISTS hash_assinatura TEXT;")
-        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS valor_pago REAL DEFAULT 0.00;")
-        c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS logo_binario BYTEA;")
-        c.execute("ALTER TABLE historico_faturas ADD COLUMN IF NOT EXISTS valor_fatura_calculada REAL DEFAULT 0.00;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS email TEXT;")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_gestor TEXT DEFAULT '';")
         c.execute("ALTER TABLE empresas ADD COLUMN IF NOT EXISTS pop_pronta_resposta TEXT DEFAULT '';")
@@ -166,7 +155,6 @@ def init_db():
         conn.rollback()
 
     c.execute('''CREATE TABLE IF NOT EXISTS clientes (id SERIAL PRIMARY KEY, nome TEXT, documento TEXT, endereco TEXT, telefone TEXT, empresa TEXT, status TEXT DEFAULT 'Ativo')''')
-    
     try:
         c.execute("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS palavra_chave TEXT DEFAULT '';")
         c.execute("ALTER TABLE clientes ADD COLUMN IF NOT EXISTS data_cadastro TEXT DEFAULT '';")
@@ -175,9 +163,12 @@ def init_db():
         conn.rollback()
 
     c.execute('''CREATE TABLE IF NOT EXISTS veiculos (id SERIAL PRIMARY KEY, cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE, tipo_veic TEXT, placa TEXT, modelo TEXT, cor TEXT)''')
-    
     try:
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS info_chip TEXT DEFAULT '';")
+        # --- NOVOS CAMPOS PARA O DOSSIÊ TÁTICO ---
+        c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS chassi TEXT DEFAULT '';")
+        c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS renavam TEXT DEFAULT '';")
+        c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS caracteristicas TEXT DEFAULT '';")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -185,11 +176,12 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id SERIAL PRIMARY KEY, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
     
+    # --- NOVA TABELA PARA A LINHA DO TEMPO (TIMELINE DE FURTO E ROUBO) ---
+    c.execute('''CREATE TABLE IF NOT EXISTS historico_timeline (id SERIAL PRIMARY KEY, historico_id INTEGER, data_hora TEXT, acao TEXT, operador TEXT)''')
+    
     c.execute('''CREATE INDEX IF NOT EXISTS idx_veiculos_placa ON veiculos(placa)''')
     c.execute('''CREATE INDEX IF NOT EXISTS idx_clientes_doc ON clientes(documento)''')
-    c.execute('''CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes(nome)''')
     c.execute('''CREATE INDEX IF NOT EXISTS idx_historico_placa ON historico(placa)''')
-    
     conn.commit()
 
 @st.cache_data(ttl=2, show_spinner=False)
@@ -265,11 +257,25 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     detalhes_texto = dados_relatorio['detalhes']
     assinatura_bloco = ""
     
+    # Busca a timeline caso exista (Módulo Furto/Roubo)
+    timeline_html = ""
+    if dados_relatorio.get('tipo') in ['Furto', 'Roubo']:
+        res_timeline = fetch_data("SELECT data_hora, acao, operador FROM historico_timeline WHERE historico_id = %s ORDER BY id ASC", (dados_relatorio['id'],))
+        if res_timeline:
+            timeline_html = """
+            <div style="margin-top: 20px; padding: 15px; background-color: #fff8f8; border-left: 4px solid #8b0000; border-radius: 5px;">
+                <h4 style="color: #8b0000; margin-top: 0; margin-bottom: 10px;">⏱️ Linha do Tempo (Ações Táticas)</h4>
+                <ul style="font-size: 13px; color: #444; padding-left: 20px;">
+            """
+            for t in res_timeline:
+                timeline_html += f"<li style='margin-bottom: 5px;'><b>{t['data_hora']}</b> - {t['acao']} <i>(Op: {t['operador']})</i></li>"
+            timeline_html += "</ul></div>"
+
     if "PROTOCOLO" in detalhes_texto or "RESOLUÇÃO" in detalhes_texto:
         assinatura_bloco = f"""
-        <div style="margin-top: 30px; padding: 15px; background-color: #e8f5e9; border-left: 5px solid #2e7d32; border-radius: 5px;">
-            <h4 style="color: #2e7d32; margin-top: 0;">🔐 Assinatura Digital e Validação</h4>
-            <p style="margin: 0; font-size: 14px;">Este documento foi encerrado e validado de forma inalterável. Os registros de resolução e protocolos estão fixados na base de dados oficial (PostgreSQL).</p>
+        <div style="margin-top: 20px; padding: 15px; background-color: #e8f5e9; border-left: 5px solid #2e7d32; border-radius: 5px;">
+            <h4 style="color: #2e7d32; margin-top: 0; margin-bottom: 5px;">🔐 Assinatura Digital e Validação</h4>
+            <p style="margin: 0; font-size: 13px;">Este documento foi encerrado e validado de forma inalterável. Os registros de resolução e protocolos estão fixados na base de dados oficial (PostgreSQL).</p>
         </div>
         """
 
@@ -279,14 +285,14 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
         <meta charset="utf-8">
         <title>Relatório de Ocorrência</title>
         <style>
-            body {{ font-family: Arial, sans-serif; color: #333; margin: 40px; }}
-            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 15px; margin-bottom: 30px; }}
-            .header h1 {{ color: #4a0e4e; margin: 0; }}
-            .header h3 {{ color: #8b0000; margin: 5px 0 0 0; }}
+            body {{ font-family: Arial, sans-serif; color: #333; margin: 40px; line-height: 1.4; }}
+            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 15px; margin-bottom: 25px; }}
+            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 24px; }}
+            .header h3 {{ color: #8b0000; margin: 5px 0 0 0; font-size: 16px; }}
             .content {{ background: #f9f9f9; border: 1px solid #ddd; padding: 25px; border-radius: 8px; }}
-            .field {{ margin-bottom: 15px; }}
+            .field {{ margin-bottom: 12px; font-size: 14px; }}
             .label {{ font-weight: bold; color: #4a0e4e; }}
-            .footer {{ margin-top: 40px; text-align: center; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }}
+            .footer {{ margin-top: 40px; text-align: center; font-size: 11px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }}
         </style>
     </head>
     <body>
@@ -303,7 +309,8 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
             <div class="field"><span class="label">Tipo de Ocorrência:</span> {dados_relatorio['tipo']}</div>
             <div class="field"><span class="label">Status Atual:</span> {dados_relatorio['status']}</div>
             <hr style="border: 0; border-top: 1px solid #ccc; margin: 20px 0;">
-            <div class="field"><span class="label">Detalhes / Dinâmica / Desfecho:</span><br><p>{detalhes_texto}</p></div>
+            <div class="field"><span class="label">Detalhes / Desfecho Forense:</span><br><p style="margin-top: 5px;">{detalhes_texto.replace('|', '<br>')}</p></div>
+            {timeline_html}
             {assinatura_bloco}
         </div>
         <div class="footer">
@@ -313,7 +320,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     </html>
     """
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
-    return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
+    return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; width:100%; margin-top:10px;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
 def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
     hash_exibicao = dados_aceite.get('hash_assinatura')
@@ -345,33 +352,25 @@ def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
             <h1>AD RASTREAMENTO VEICULAR</h1>
             <h3>Certificado Oficial de Aceite Eletrônico - LGPD</h3>
         </div>
-        
         <div class="content">
             <p><strong>TERMO DE RESPONSABILIDADE, CONFIDENCIALIDADE E ADEQUAÇÃO À LGPD</strong></p>
-            
             <p>A <strong>AD Rastreamento Veicular</strong>, sediada em São Gonçalo do Amarante, na qualidade de provedora do software de gestão e telemetria, estabelece as seguintes diretrizes obrigatórias aceitas pela CONTRATANTE/PARCEIRA para o uso da plataforma:</p>
-            
             <div class="clausula"><strong>1. Sigilo e Confidencialidade:</strong> O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.</div>
-            
             <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
-            
             <div class="clausula"><strong>3. Penalidades Legais:</strong> O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).</div>
         </div>
-        
         <div class="assinatura-box">
             <div class="assinatura-title">📜 DADOS DA ASSINATURA ELETRÔNICA</div>
             <div class="ass-row"><span class="ass-label">Empresa Signatária (Parceiro):</span> {dados_aceite['empresa']}</div>
             <div class="ass-row"><span class="ass-label">CNPJ Registrado:</span> {cnpj_parceiro}</div>
             <div class="ass-row"><span class="ass-label">Data e Hora do Aceite:</span> {dados_aceite['data_hora']}</div>
             <div class="ass-row"><span class="ass-label">Método de Autenticação / Dispositivo:</span> {dados_aceite['ip_aceite']}</div>
-            
             <div class="hash-box">
                 <strong>Chave de Autenticação Digital (Hash SHA-256):</strong><br>
                 {hash_exibicao}
             </div>
             <p style="font-size: 12px; color: #666; margin-top: 10px;">* Este código garante a integridade e a validade jurídica deste aceite no banco de dados da Central de Operações.</p>
         </div>
-        
         <div class="footer">
             Documento gerado automaticamente pelo Sistema de Auditoria Interna da AD Rastreamento Veicular.<br>
             A autenticidade deste documento pode ser verificada mediante cruzamento com o banco de dados oficial (PostgreSQL).
@@ -425,13 +424,11 @@ def gerar_laudo_mensal_html(empresa, mes, total, campeao, pct_campeao, diag, dad
             <h1>📊 RELATÓRIO OPERACIONAL CONSOLIDADO</h1>
             <h3>Mês de Referência: {mes} | Frota: {empresa}</h3>
         </div>
-        
         <h2 class="section-title">1. RESUMO EXECUTIVO E DISTRIBUIÇÃO</h2>
         <div class="summary-box">
             <p style="margin:0 0 10px 0;"><b>Total de Ocorrências Registradas:</b> {total}</p>
             <p style="margin:0; font-size:13px; color:#555;"><b>Detalhamento de Eventos:</b><br>{detalhamento_op.replace(chr(10), '<br>')}</p>
         </div>
-        
         <h2 class="section-title">2. DIAGNÓSTICO TÉCNICO E PLANO DE AÇÃO</h2>
         <div class="diag-box">
             <p style="margin-top:0;"><strong>🚨 Principal Gargalo do Mês:</strong> {campeao} ({pct_campeao:.1f}% dos chamados)</p>
@@ -439,7 +436,6 @@ def gerar_laudo_mensal_html(empresa, mes, total, campeao, pct_campeao, diag, dad
             <p><strong>⚠️ Causa Raiz Identificada:</strong> {diag['causa']}</p>
             <p style="margin-bottom:0;"><strong>✅ Sugestão / Plano de Ação:</strong> {diag['acao']}</p>
         </div>
-        
         <h2 class="section-title">3. EXTRATO DETALHADO DE ATENDIMENTOS (LOG OFICIAL)</h2>
         <table>
             <tr>
@@ -451,7 +447,6 @@ def gerar_laudo_mensal_html(empresa, mes, total, campeao, pct_campeao, diag, dad
             </tr>
             {linhas_tabela}
         </table>
-        
         <div class="footer">
             Documento gerado automaticamente pelo Sistema de Inteligência da AD Rastreamento Veicular.<br>
             Este relatório serve como extrato de prestação de serviços de monitoramento e telemetria.
@@ -529,6 +524,7 @@ if 'empresa_transferencia' not in st.session_state: st.session_state.empresa_tra
 if 'mostrar_laudo' not in st.session_state: st.session_state.mostrar_laudo = False
 if 'editando_meu_cadastro' not in st.session_state: st.session_state.editando_meu_cadastro = False
 if 'menu_navegacao' not in st.session_state: st.session_state.menu_navegacao = "dashboard"
+if 'timer_ocorrencia' not in st.session_state: st.session_state.timer_ocorrencia = None
 
 chaves_necessarias = {
     'edit_cli': 0, 'rel_fr': 0, 'rel_mon': 0, 'edit_emp': 0, 'aud_del': 0, 'fin_pgto': 0, 'ficha_cli': 0, 'lgpd_cert': 0, 'dash_mes': 0
@@ -582,7 +578,6 @@ if not st.session_state.logged_in:
                     st.rerun()
                 else:
                     senha_criptografada = hash_senha(senha)
-                    # Primeiro, tenta logar como Empresa Parceira Principal
                     res = fetch_data("SELECT nome, cnpj, senha FROM empresas WHERE nome=%s", (user,))
                     
                     if res:
@@ -615,7 +610,6 @@ if not st.session_state.logged_in:
                         else:
                             st.error("Acesso Negado: Senha incorreta.")
                     else:
-                        # Se não achou empresa, tenta logar como Operador (Sub-usuário)
                         res_sub = fetch_data("SELECT empresa, nome, senha FROM usuarios_secundarios WHERE login=%s", (user,))
                         if res_sub:
                             sub_dados = res_sub[0]
@@ -625,7 +619,7 @@ if not st.session_state.logged_in:
                                 st.session_state.is_subuser = True
                                 st.session_state.nome_usuario = sub_dados['nome']
                                 st.session_state.nome_empresa = sub_dados['empresa']
-                                st.session_state.lgpd_aceito = False # O Muro LGPD vai validar se a empresa pai já aceitou
+                                st.session_state.lgpd_aceito = False
                                 
                                 registrar_auditoria("Acesso", "Login", f"Acessou o sistema de forma segura (Operador: {sub_dados['nome']}).", sub_dados['empresa'])
                                 st.rerun()
@@ -642,7 +636,6 @@ if not st.session_state.logged_in:
 # ==========================================
 else:
     if not st.session_state.is_admin and not st.session_state.lgpd_aceito:
-        # A trava da LGPD olha para a empresa principal. Se o chefe já aceitou, o operador passa livre.
         res_lgpd = fetch_data("SELECT id FROM aceites_lgpd WHERE empresa=%s", (st.session_state.nome_empresa,))
         if res_lgpd:
             st.session_state.lgpd_aceito = True
@@ -693,7 +686,6 @@ else:
             st.write(f"👤 **Conectado como:** {st.session_state.get('nome_empresa', '')}")
             st.write("🛡️ Nível: Gestor/Titular")
         
-        # Oculta a alteração de logo para o sub-usuário
         if not st.session_state.is_admin and not st.session_state.get('is_subuser'):
             with st.expander("🖼️ Enviar / Alterar Minha Logo"):
                 up_logo = st.file_uploader("Escolha a imagem (PNG/JPG)", type=["png", "jpg", "jpeg"], key="up_logo_parceiro")
@@ -723,7 +715,6 @@ else:
         nome_zap = st.session_state.get('nome_usuario', st.session_state.get('nome_empresa', 'Visitante'))
         st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Usuário Logado: {nome_zap}"), unsafe_allow_html=True)
 
-    # --- BARRA DE NOTIFICAÇÕES MODERNA E DISCRETA (SÓ ADMIN) ---
     if st.session_state.is_admin:
         alertas = fetch_data("SELECT * FROM notificacoes WHERE lida = FALSE ORDER BY id DESC")
         if alertas:
@@ -768,7 +759,6 @@ else:
         }
         return mapa.get(aba_id, aba_id)
 
-    # --- TRAVA DE ACESSO AO MENU (SUB-USUÁRIO PERDE ACESSO A FATURAMENTO E CADASTRO) ---
     if st.session_state.is_admin:
         lista_abas = ["dashboard", "central", "pendencias", "clientes", "relatorios", "empresas", "financeiro", "auditoria"]
     elif st.session_state.get('is_subuser', False):
@@ -783,10 +773,9 @@ else:
     st.markdown("---")
 
     # =======================================================================
-    # RENDERIZAÇÃO CONDICIONAL 
+    # RENDERIZAÇÃO CONDICIONAL - PARTE 1 (DASHBOARD)
     # =======================================================================
 
-    # --- TELA: DASHBOARD EXECUTIVO ---
     if aba_ativa == "dashboard":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📊 Painel Executivo (Dashboard)</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 14px; color: #666; margin-bottom: 30px;'>Visão executiva e laudos técnicos da operação de telemetria.</p>", unsafe_allow_html=True)
@@ -985,12 +974,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 
                 st.success("Relatório analisado e montado com sucesso!")
                 
-                # Renderiza o Preview do Laudo
                 st.markdown(f"""
 <div style="background-color: #f0f4f8; padding: 20px; border-left: 5px solid #8b0000; border-radius: 5px; font-family: monospace; white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: #333; margin-bottom: 15px;">{texto_laudo_markdown}</div>
 """, unsafe_allow_html=True)
                 
-                # Gera o arquivo HTML do Super Relatório Mensal
                 html_btn = gerar_laudo_mensal_html(emp_alvo_rel, mes_filtro_dash, total_geral_chamados, evento_campeao, porcentagem_campeao, dict_diag, dados_h, detalhamento_operacional)
                 
                 st.markdown(html_btn, unsafe_allow_html=True)
@@ -999,8 +986,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 if st.button("❌ Fechar Painel de Relatório", use_container_width=True, type="secondary"):
                     st.session_state.mostrar_laudo = False
                     st.rerun()
-
-    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - CARDS MODERNIZADOS E ROTEAMENTO SMART ---
+                    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - CARDS MODERNIZADOS E ROTEAMENTO SMART ---
     elif aba_ativa == "central" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🚨 Central de Operações e Ocorrências 24h</h2>", unsafe_allow_html=True)
         
@@ -1030,7 +1016,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             if st.session_state.termo_busca_ativo:
                 termo = f"%{st.session_state.termo_busca_ativo}%"
                 q_busca = """
-                    SELECT c.nome, c.documento, c.telefone, c.empresa, c.palavra_chave, v.placa, v.modelo, v.cor, v.tipo_veic 
+                    SELECT c.nome, c.documento, c.telefone, c.empresa, c.palavra_chave, 
+                           v.placa, v.modelo, v.cor, v.tipo_veic, v.info_chip, v.chassi, v.renavam, v.caracteristicas 
                     FROM clientes c JOIN veiculos v ON c.id = v.cliente_id 
                     WHERE c.status='Ativo' AND (c.nome ILIKE %s OR v.placa ILIKE %s OR c.documento ILIKE %s)
                 """
@@ -1046,7 +1033,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         placa_sel = placa_sel_texto.split(" - ")[0]
                         info_veic = next(item for item in resultados if item["placa"] == placa_sel)
                         
-                        # --- BUSCA O POP E OS NÚMEROS DO PARCEIRO ---
                         pop_dados = fetch_data("SELECT servicos, pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento, pop_wpp_financeiro, pop_wpp_tecnico FROM empresas WHERE nome=%s", (info_veic['empresa'],))
                         servico_emp_central = pop_dados[0].get('servicos', 'Ambos') if pop_dados else 'Ambos'
                         
@@ -1057,10 +1043,26 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         pop_wpp_fin = pop_dados[0].get('pop_wpp_financeiro', '') if pop_dados else ''
                         pop_wpp_tec = pop_dados[0].get('pop_wpp_tecnico', '') if pop_dados else ''
 
-                        # --- IMPLEMENTAÇÃO DO DOSSIÊ / HISTÓRICO RECENTE DA PLACA ---
+                        # --- DOSSIÊ RÁPIDO DO VEÍCULO ---
+                        chassi_disp = info_veic.get('chassi', '') or "Não inf."
+                        renavam_disp = info_veic.get('renavam', '') or "Não inf."
+                        carac_disp = info_veic.get('caracteristicas', '') or "Nenhuma característica registrada."
+                        
+                        st.markdown(f"""
+                        <div style="background: #f4f6f9; border-left: 5px solid #2980b9; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
+                            <span style="font-weight: bold; color: #2c3e50; font-size: 14px;">📋 DOSSIÊ DE IDENTIFICAÇÃO DO VEÍCULO</span>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; font-size: 13px; color: #34495e;">
+                                <div><b>Chassi:</b> {chassi_disp}</div>
+                                <div><b>Renavam:</b> {renavam_disp}</div>
+                                <div><b>Cor:</b> {info_veic['cor']}</div>
+                                <div style="grid-column: span 3;"><b>Características Marcantes:</b> {carac_disp}</div>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+
                         historico_placa = fetch_data("SELECT data_hora, tipo, status, detalhes FROM historico WHERE placa=%s ORDER BY id DESC LIMIT 5", (placa_sel,))
                         if historico_placa:
-                            with st.expander(f"📜 Histórico Recente de Atendimentos desta Placa ({len(historico_placa)} registros encontrados)", expanded=False):
+                            with st.expander(f"📜 Histórico Recente de Atendimentos desta Placa ({len(historico_placa)} registros)", expanded=False):
                                 for hp in historico_placa:
                                     st.markdown(f"**Data:** {hp['data_hora']} | **Tipo/Ação:** {hp['tipo']} | **Status:** {hp['status']}")
                                     st.text(f"Detalhes: {hp['detalhes']}")
@@ -1068,7 +1070,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
                         st.markdown("---")
                         
-                        # --- FILTRA AS OPÇÕES DE AÇÃO NA CENTRAL BASEADO NO SERVIÇO CONTRATADO ---
                         opcoes_acao = []
                         if "Furto" in servico_emp_central or "Ambos" in servico_emp_central:
                             opcoes_acao.append("Abertura de Furto/Roubo")
@@ -1080,61 +1081,179 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
                         tipo_servico = st.radio("📋 **Ação na Central:**", opcoes_acao, horizontal=True, key=f"radio_serv_{st.session_state.rk}")
                         
-                        # --- CARD MODERNO DE EMERGÊNCIA ---
+                        # --- MÓDULO: FURTO E ROUBO ---
                         if tipo_servico == "Abertura de Furto/Roubo":
-                            txt_gestor = pop_g if pop_g else "Não informado"
-                            txt_pr = pop_pr if pop_pr else "Não informado"
-                            txt_dir = pop_db if pop_db else "Nenhuma diretriz de bloqueio cadastrada pelo parceiro."
-                            palavra_chave_cliente = info_veic.get('palavra_chave') or "NÃO CADASTRADA"
+                            # Verifica se já existe um sinistro em andamento para esta placa
+                            q_ativo = "SELECT * FROM historico WHERE placa=%s AND tipo IN ('Furto', 'Roubo') AND status='EM ANDAMENTO' ORDER BY id DESC LIMIT 1"
+                            ativo_res = fetch_data(q_ativo, (placa_sel,))
+                            
+                            if ativo_res:
+                                # ========== PAINEL TÁTICO ATIVO (TIMELINE) ==========
+                                inc_ativo = ativo_res[0]
+                                st.markdown("<div style='background: #fff0f0; border: 1px solid #ffcdd2; padding: 10px; border-radius: 6px; text-align: center; color: #c62828; font-weight: bold;'>⚠️ ATENÇÃO: ESTE VEÍCULO JÁ POSSUI UM SINISTRO EM ANDAMENTO. USE O PAINEL TÁTICO ABAIXO.</div>", unsafe_allow_html=True)
+                                
+                                st.markdown(f"<h3 style='color: #8b0000; font-size: 20px; margin-top: 15px;'>Painel Tático - Sinistro #{inc_ativo['id']}</h3>", unsafe_allow_html=True)
+                                
+                                # Renderiza a Timeline existente
+                                timeline_res = fetch_data("SELECT * FROM historico_timeline WHERE historico_id=%s ORDER BY id ASC", (inc_ativo['id'],))
+                                
+                                html_tl = "<div style='background: #fafafa; border-left: 4px solid #8b0000; padding: 15px; border-radius: 6px; margin-bottom: 20px;'>"
+                                html_tl += "<span style='font-weight: bold; color: #8b0000; font-size: 14px;'>⏱️ LINHA DO TEMPO (AÇÕES TÁTICAS)</span><ul style='font-size: 13.5px; color: #444; padding-left: 20px; margin-top: 10px;'>"
+                                if timeline_res:
+                                    for t in timeline_res:
+                                        html_tl += f"<li style='margin-bottom: 5px;'><b>{t['data_hora']}</b> - {t['acao']} <i>(Op: {t['operador']})</i></li>"
+                                else:
+                                    html_tl += "<li><i>Nenhuma ação registrada ainda. O cronômetro está rodando.</i></li>"
+                                html_tl += "</ul></div>"
+                                st.markdown(html_tl, unsafe_allow_html=True)
+                                
+                                # Botões de Ação de 1-Clique
+                                st.write("⚡ **Ações Rápidas (1-Clique):**")
+                                c_tl1, c_tl2 = st.columns(2)
+                                c_tl3, c_tl4 = st.columns(2)
+                                
+                                def inserir_timeline(texto_acao):
+                                    execute_query("INSERT INTO historico_timeline (historico_id, data_hora, acao, operador) VALUES (%s,%s,%s,%s)", 
+                                                  (inc_ativo['id'], get_horario_brasil_str(), texto_acao, st.session_state.nome_usuario))
+                                    st.rerun()
 
-                            st.markdown(f"""
-<div style="background: #ffffff; border-left: 5px solid #8b0000; border-radius: 8px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(139,0,0,0.08); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-        <span style="font-weight: bold; color: #8b0000; font-size: 14px;">🚨 PROTOCOLO TÁTICO DE EMERGÊNCIA — {info_veic['empresa']}</span>
-        <span style="background: #ffebee; color: #b71c1c; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">URGÊNCIA</span>
-    </div>
-    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
-        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">📞 GESTOR 24H / PLANTÃO</span>
-            <strong style="color: #222; font-size: 13px;">{txt_gestor}</strong>
-        </div>
-        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛡️ PRONTA RESPOSTA</span>
-            <strong style="color: #222; font-size: 13px;">{txt_pr}</strong>
-        </div>
-    </div>
-    <div style="background: #fff8f8; border: 1px dashed #ef9a9a; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333; margin-bottom: 8px;">
-        <strong style="color: #8b0000;">🛑 Diretriz Tática:</strong> {txt_dir}
-    </div>
-    <div style="background: #fff3e0; border: 1px dashed #ffb74d; border-left: 5px solid #e65100; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
-        <strong style="color: #e65100;">🔑 Palavra-Chave (Contra-senha):</strong> <span style="font-weight: 900; font-size: 15px;">{palavra_chave_cliente}</span>
-    </div>
-</div>
-""", unsafe_allow_html=True)
-                            
-                            st.markdown("<h3 style='color: #8b0000; font-size: 18px;'>Abertura de Furto/Roubo (Início Automático)</h3>", unsafe_allow_html=True)
-                            
-                            col_oc1, col_oc2 = st.columns(2)
-                            tipo_oc = col_oc1.selectbox("Natureza", ["Furto", "Roubo"], key=f"nat_{st.session_state.rk}")
-                            local_oc = col_oc2.text_input("Localização do Fato", key=f"loc_{st.session_state.rk}")
-                            
-                            col_chip1, col_chip2 = st.columns(2)
-                            status_chip = col_chip1.text_input("📡 Última Posição / Status do Chip", key=f"chip_{st.session_state.rk}")
-                            link_rastreio = col_chip2.text_input("🔗 Link de Rastreio (Para Polícia/Cliente)", key=f"link_{st.session_state.rk}")
-                            
-                            desc_oc = st.text_area("Descrição / Dinâmica", key=f"desc_{st.session_state.rk}")
-                            st.markdown("<p style='font-size: 13px; color: #555;'>ℹ️ Status inicial configurado automaticamente como: EM ANDAMENTO. O cronômetro de resposta foi iniciado.</p>", unsafe_allow_html=True)
-                            
-                            if st.button("🚨 Salvar Ocorrência", type="primary"):
-                                agora = get_horario_brasil_str()
-                                detalhes_completos = f"Local: {local_oc} | Desc: {desc_oc} | Chip/Posição: {status_chip} | Link Rastreio: {link_rastreio}"
-                                execute_query("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                              (agora, info_veic['nome'], placa_sel, tipo_oc, "EM ANDAMENTO", detalhes_completos, info_veic['empresa']))
-                                registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}", info_veic['empresa'])
-                                st.session_state.flash_msg = "Salvo e enviado para relatórios como EM ANDAMENTO!"
-                                limpar_tela()
-                                st.rerun()
-                        
+                                if c_tl1.button("🔒 Bloqueio Efetuado no Rastreador", use_container_width=True):
+                                    inserir_timeline("Comando de bloqueio executado na plataforma de telemetria.")
+                                if c_tl2.button("🏍️ Pronta Resposta Acionada / Deslocando", use_container_width=True):
+                                    inserir_timeline("Equipe de Pronta Resposta (Apoio Terrestre) acionada.")
+                                if c_tl3.button("📍 Chegada da Pronta Resposta no Local", use_container_width=True):
+                                    inserir_timeline("Apoio terrestre confirmou chegada na última coordenada/área.")
+                                if c_tl4.button("👁️ Veículo Visualizado / Abandonado", use_container_width=True):
+                                    inserir_timeline("Veículo visualizado. Preservando local para os trâmites legais.")
+                                    
+                                with st.form("form_nota_timeline", clear_on_submit=True):
+                                    nova_nota = st.text_input("📝 Nota Rápida (Ex: Passou no viaduto da Zona Norte):")
+                                    if st.form_submit_button("Inserir Nota na Timeline"):
+                                        if nova_nota.strip():
+                                            inserir_timeline(f"Nota Operacional: {nova_nota}")
+                                
+                                st.markdown("---")
+                                st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>Desfecho Forense (Encerrar Ocorrência)</h3>", unsafe_allow_html=True)
+                                
+                                res_recup = st.selectbox("Resultado Principal", ["", "Veículo Recuperado", "Veículo Não Localizado"])
+                                res_estado = st.selectbox("Estado do Veículo", ["Íntegro / Sem Danos", "Avariado / Colidido", "Depenado / Faltando Peças", "Perda Total", "Não se aplica"])
+                                res_destino = st.selectbox("Destino do Bem", ["Entregue ao Proprietário no Local", "Conduzido à Delegacia", "Removido por Guincho", "Não se aplica"])
+                                desc_final = st.text_area("Descreva o desfecho final da operação:")
+                                
+                                if st.button("✅ Concluir e Finalizar Ocorrência", type="primary", use_container_width=True):
+                                    if not res_recup or not desc_final.strip():
+                                        st.error("Selecione o Resultado Principal e preencha a descrição final.")
+                                    else:
+                                        agora = get_horario_brasil()
+                                        try:
+                                            dt_abertura = datetime.strptime(inc_ativo['data_hora'], "%d/%m/%Y %H:%M:%S")
+                                            dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
+                                            tempo_decorrido = agora - dt_abertura
+                                            horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
+                                            minutos, _ = divmod(resto, 60)
+                                            sla_str = f"{int(horas)}h e {int(minutos)}m"
+                                        except Exception:
+                                            sla_str = "Não calculado"
+
+                                        protocolo = f"AD-{inc_ativo['id']}-{agora.strftime('%Y%m%d%H%M')}"
+                                        
+                                        texto_desfecho = f"| RESULTADO: {res_recup} | ESTADO: {res_estado} | DESTINO: {res_destino} | NOTA FINAL: {desc_final} | SLA TOTA: {sla_str} | PROTOCOLO: {protocolo}"
+                                        novo_detalhe = inc_ativo['detalhes'] + " " + texto_desfecho
+                                        
+                                        execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, inc_ativo['id']))
+                                        registrar_auditoria("Finalização", "Operação Tática", f"Ocorrência ID {inc_ativo['id']} finalizada. Res: {res_recup}", info_veic['empresa'])
+                                        st.session_state.flash_msg = "Ocorrência Tática finalizada e protocolada com sucesso!"
+                                        limpar_tela()
+                                        st.rerun()
+                                        
+                            else:
+                                # ========== ABERTURA DE NOVO SINISTRO ==========
+                                txt_gestor = pop_g if pop_g else "Não informado"
+                                txt_pr = pop_pr if pop_pr else "Não informado"
+                                txt_dir = pop_db if pop_db else "Nenhuma diretriz de bloqueio cadastrada pelo parceiro."
+                                palavra_chave_cliente = info_veic.get('palavra_chave') or "NÃO CADASTRADA"
+
+                                st.markdown(f"""
+                                <div style="background: #ffffff; border-left: 5px solid #8b0000; border-radius: 8px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(139,0,0,0.08); margin-bottom: 20px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                        <span style="font-weight: bold; color: #8b0000; font-size: 14px;">🚨 PROTOCOLO TÁTICO DE EMERGÊNCIA — {info_veic['empresa']}</span>
+                                        <span style="background: #ffebee; color: #b71c1c; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">URGÊNCIA</span>
+                                    </div>
+                                    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
+                                        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                                            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">📞 GESTOR 24H / PLANTÃO</span>
+                                            <strong style="color: #222; font-size: 13px;">{txt_gestor}</strong>
+                                        </div>
+                                        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                                            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛡️ PRONTA RESPOSTA</span>
+                                            <strong style="color: #222; font-size: 13px;">{txt_pr}</strong>
+                                        </div>
+                                    </div>
+                                    <div style="background: #fff8f8; border: 1px dashed #ef9a9a; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333; margin-bottom: 8px;">
+                                        <strong style="color: #8b0000;">🛑 Diretriz Tática:</strong> {txt_dir}
+                                    </div>
+                                    <div style="background: #fff3e0; border: 1px dashed #ffb74d; border-left: 5px solid #e65100; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
+                                        <strong style="color: #e65100;">🔑 Palavra-Chave (Contra-senha):</strong> <span style="font-weight: 900; font-size: 15px;">{palavra_chave_cliente}</span>
+                                    </div>
+                                </div>
+                                """, unsafe_allow_html=True)
+                                
+                                st.markdown("<h3 style='color: #8b0000; font-size: 18px;'>Abertura de Furto/Roubo (Triagem Inicial)</h3>", unsafe_allow_html=True)
+                                
+                                col_oc1, col_oc2 = st.columns(2)
+                                tipo_oc = col_oc1.selectbox("Natureza", ["Roubo (Com Abordagem)", "Furto (Sem Abordagem)"], key=f"nat_{st.session_state.rk}")
+                                local_oc = col_oc2.text_input("Local do Fato (Ponto de Perda)", key=f"loc_{st.session_state.rk}")
+                                
+                                col_chip1, col_chip2 = st.columns(2)
+                                status_chip = col_chip1.text_input("📡 Posição Atual / Status do Chip", key=f"chip_{st.session_state.rk}")
+                                link_rastreio = col_chip2.text_input("🔗 Link Espelho (Rastreio Tático)", key=f"link_{st.session_state.rk}")
+                                
+                                desc_oc = st.text_area("Descrição Breve / Dinâmica Inicial", key=f"desc_{st.session_state.rk}")
+                                
+                                # --- CHECKLIST TÁTICO ---
+                                st.markdown("<div style='background-color: #fef8f8; border-left: 4px solid #d32f2f; padding: 15px; border-radius: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
+                                st.markdown("**☑️ Checklist Operacional Anti-Pânico** (Validação Obrigatória)")
+                                chk1 = st.checkbox("🔑 Contra-senha solicitada e confirmada (Ou senha de coação validada).", key="chk1")
+                                chk2 = st.checkbox("🔗 Link espelho / rastreio temporário gerado e disponível.", key="chk2")
+                                chk3 = st.checkbox("📲 Preparado para disparar alerta via WhatsApp (botão abaixo).", key="chk3")
+                                st.markdown("</div>", unsafe_allow_html=True)
+                                
+                                # --- DISPARO RÁPIDO DE CERCO ---
+                                st.markdown("**📲 Disparo Rápido de Cerco (Copie e cole no grupo tático/polícia)**")
+                                txt_copiar = f"""🚨 ALERTA DE SINISTRO - AD RASTREAMENTO 🚨
+• Tipo: {tipo_oc}
+• Veículo: {info_veic['modelo']} - PLACA: {placa_sel}
+• Chassi: {chassi_disp} | Cor: {info_veic['cor']}
+• Condutor/Cliente: {info_veic['nome']}
+• Ponto do Fato: {local_oc}
+• Link Tático Espelho: {link_rastreio}"""
+                                st.code(txt_copiar, language="text")
+
+                                if st.button("🚨 Iniciar Sinistro e Abrir Painel Tático", type="primary"):
+                                    if not (chk1 and chk2 and chk3):
+                                        st.error("⚠️ Você deve confirmar todos os passos do Checklist Tático antes de prosseguir!")
+                                    else:
+                                        agora = get_horario_brasil_str()
+                                        detalhes_completos = f"Local do Fato: {local_oc} | Dinâmica: {desc_oc} | Link Rastreio: {link_rastreio}"
+                                        
+                                        # Inserir no histórico principal
+                                        conn = get_conn_fast()
+                                        cur = conn.cursor()
+                                        cur.execute("INSERT INTO historico (data_hora, cliente, placa, tipo, status, detalhes, empresa) VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING id", 
+                                                    (agora, info_veic['nome'], placa_sel, tipo_oc.split(" ")[0], "EM ANDAMENTO", detalhes_completos, info_veic['empresa']))
+                                        novo_id_hist = cur.fetchone()[0]
+                                        
+                                        # Inserir abertura na timeline
+                                        cur.execute("INSERT INTO historico_timeline (historico_id, data_hora, acao, operador) VALUES (%s,%s,%s,%s)", 
+                                                    (novo_id_hist, agora, "Abertura de Chamado Tático de Emergência", st.session_state.nome_usuario))
+                                        conn.commit()
+                                        st.cache_data.clear()
+                                        
+                                        registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}", info_veic['empresa'])
+                                        st.session_state.flash_msg = "Sinistro aberto com sucesso! Redirecionando para o Painel Tático..."
+                                        limpar_tela()
+                                        st.rerun()
+
                         # --- CARD MODERNO DE MONITORAMENTO & ROTINA ---
                         elif tipo_servico == "Monitoramento Técnico":
                             txt_mon = pop_mon if pop_mon else "Nenhuma regra de triagem cadastrada pelo parceiro."
@@ -1142,26 +1261,26 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             txt_w_tec = pop_wpp_tec if pop_wpp_tec else "Usar telefone geral da empresa"
 
                             st.markdown(f"""
-<div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(74,14,78,0.08); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
-    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-        <span style="font-weight: bold; color: #4a0e4e; font-size: 14px;">📡 DIRETRIZES DE MONITORAMENTO — {info_veic['empresa']}</span>
-        <span style="background: #f3e5f5; color: #4a0e4e; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">TRIAGEM</span>
-    </div>
-    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
-        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">💰 WPP FINANCEIRO</span>
-            <strong style="color: #222; font-size: 13px;">{txt_w_fin}</strong>
-        </div>
-        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛠️ WPP SUPORTE TÉCNICO</span>
-            <strong style="color: #222; font-size: 13px;">{txt_w_tec}</strong>
-        </div>
-    </div>
-    <div style="background: #fdfaff; border: 1px dashed #ce93d8; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
-        <strong style="color: #4a0e4e;">📋 Regra de Triagem / Contato:</strong> {txt_mon}
-    </div>
-</div>
-""", unsafe_allow_html=True)
+                            <div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(74,14,78,0.08); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                    <span style="font-weight: bold; color: #4a0e4e; font-size: 14px;">📡 DIRETRIZES DE MONITORAMENTO — {info_veic['empresa']}</span>
+                                    <span style="background: #f3e5f5; color: #4a0e4e; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">TRIAGEM</span>
+                                </div>
+                                <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
+                                    <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                                        <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">💰 WPP FINANCEIRO</span>
+                                        <strong style="color: #222; font-size: 13px;">{txt_w_fin}</strong>
+                                    </div>
+                                    <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
+                                        <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛠️ WPP SUPORTE TÉCNICO</span>
+                                        <strong style="color: #222; font-size: 13px;">{txt_w_tec}</strong>
+                                    </div>
+                                </div>
+                                <div style="background: #fdfaff; border: 1px dashed #ce93d8; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
+                                    <strong style="color: #4a0e4e;">📋 Regra de Triagem / Contato:</strong> {txt_mon}
+                                </div>
+                            </div>
+                            """, unsafe_allow_html=True)
                             
                             st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>Monitoramento Técnico / Transferência</h3>", unsafe_allow_html=True)
                             col_m1, col_m2 = st.columns(2)
@@ -1294,7 +1413,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         else:
             st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
 
-    # --- TELA: CLIENTES E FROTAS (ABERTURA AUTOMÁTICA NA BUSCA) ---
+    # --- TELA: CLIENTES E FROTAS ---
     elif aba_ativa == "clientes":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</h2>", unsafe_allow_html=True)
         
@@ -1307,14 +1426,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         acao_clientes = st.radio("Ação Clientes:", opcoes_acao, horizontal=True)
         st.markdown("---")
         
-        # Agora buscamos também a coluna 'servicos' para aplicar a regra da palavra-chave
         empresas_disp = fetch_data("SELECT nome, servicos FROM empresas ORDER BY nome")
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
 
         if acao_clientes == "Listar":
             busca_cli = st.text_input("🔍 Busca Inteligente (Nome, Placa ou CPF):", key=f"lista_busca_{st.session_state.rk}")
             
-            # Detecta se há uma busca ativa de pelo menos 3 caracteres
             tem_busca_ativa = bool(busca_cli and len(busca_cli.strip()) >= 3)
             
             q_tela = """
@@ -1345,7 +1462,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     df_emp = df_tela[df_tela['empresa'] == emp_ativa]
                     total_encontrados_emp = len(df_emp)
                     
-                    # Se tiver pesquisa ativa, abre a pasta direto e mostra a quantidade encontrada
                     titulo_pasta = f"📁 Clientes da Empresa: {emp_ativa}"
                     if tem_busca_ativa:
                         titulo_pasta += f" ({total_encontrados_emp} encontrado{'s' if total_encontrados_emp > 1 else ''})"
@@ -1366,7 +1482,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             dados_cli_ficha = fetch_data("SELECT * FROM clientes WHERE id=%s", (id_cli_ficha,))[0]
                             veiculos_cli_ficha = fetch_data("SELECT * FROM veiculos WHERE cliente_id=%s", (id_cli_ficha,))
                             
-                            # --- BUSCA O ÚLTIMO ATENDIMENTO POR PLACA DESTE CLIENTE ---
                             placas_cli = [str(v['placa']).strip() for v in veiculos_cli_ficha if v.get('placa') and str(v['placa']).strip()]
                             ultimos_atendimentos = []
                             if placas_cli:
@@ -1408,13 +1523,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 """, unsafe_allow_html=True)
                             
                             if veiculos_cli_ficha:
-                                df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor', 'info_chip']]
-                                df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor', 'Chip/Equipamento']
+                                df_veics = pd.DataFrame(veiculos_cli_ficha)[['tipo_veic', 'placa', 'modelo', 'cor', 'chassi', 'renavam', 'caracteristicas']]
+                                df_veics.columns = ['Tipo', 'Placa', 'Modelo', 'Cor', 'Chassi', 'Renavam', 'Características']
                                 st.dataframe(df_veics, use_container_width=True)
                             else:
                                 st.info("Nenhum veículo vinculado a este cliente.")
 
-                            # --- SEÇÃO DO ÚLTIMO ATENDIMENTO (SÓ RENDERIZA SE HOUVER ATENDIMENTOS) ---
                             if ultimos_atendimentos:
                                 st.markdown("""
 <hr style="border: 0; border-top: 1px solid #e0e0e0; margin: 15px 0 10px 0;">
@@ -1447,7 +1561,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 else:
                     f_emp = st.session_state.nome_empresa
                 
-                # --- LÓGICA INTELIGENTE: VERIFICA O PLANO DA EMPRESA ---
                 servico_da_empresa = "Ambos"
                 for emp_data in empresas_disp:
                     if emp_data['nome'] == f_emp:
@@ -1466,7 +1579,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
     """, unsafe_allow_html=True)
                     f_palavra = st.text_input("Digite a Palavra-Chave:", key=f"in_palavra_{rk}")
                 else:
-                    st.info("ℹ️ O plano desta empresa é exclusivo para Monitoramento. A Palavra-Chave (Contra-senha) não é necessária.")
+                    st.info("ℹ️ O plano desta empresa é exclusivo para Monitoramento. A Palavra-Chave não é necessária.")
                 
                 st.markdown("---")
                 st.write("🚗 **Frota / Veículos do Cliente:**")
@@ -1490,9 +1603,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     p_veic = vc2.text_input(f"Placa * {i+1}", key=f"in_p_{i}_{rk}")
                     m_veic = vc3.text_input(f"Modelo {i+1}", key=f"in_m_{i}_{rk}")
                     c_veic = vc4.text_input(f"Cor {i+1}", key=f"in_c_{i}_{rk}")
-                    chip_veic = vc5.text_input(f"Chip/Equipamento (Opcional)", key=f"in_chip_{i}_{rk}")
+                    chip_veic = vc5.text_input(f"Chip/Equip. (Opcional)", key=f"in_chip_{i}_{rk}")
                     
-                    veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic, "info_chip": chip_veic})
+                    vx1, vx2, vx3 = st.columns([2, 2, 4])
+                    chas_veic = vx1.text_input(f"Chassi (Dossiê Policial)", key=f"in_chas_{i}_{rk}")
+                    ren_veic = vx2.text_input(f"Renavam", key=f"in_ren_{i}_{rk}")
+                    carac_veic = vx3.text_input(f"Características Visuais (Adesivos, Baú, Insulfilm, etc)", key=f"in_carac_{i}_{rk}")
+                    
+                    veiculos_dados.append({"tipo": t_veic, "placa": p_veic, "modelo": m_veic, "cor": c_veic, "info_chip": chip_veic, "chassi": chas_veic, "renavam": ren_veic, "caracteristicas": carac_veic})
                     st.markdown("---")
 
                 if st.button("💾 Salvar Cadastro Completo", type="primary"):
@@ -1507,8 +1625,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         
                         validos = [v for v in veiculos_dados if v['placa'].strip()]
                         for v in validos:
-                            cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, info_chip) VALUES (%s,%s,%s,%s,%s,%s)", 
-                                           (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor'], v['info_chip']))
+                            cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, info_chip, chassi, renavam, caracteristicas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
+                                           (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor'], v['info_chip'], v['chassi'], v['renavam'], v['caracteristicas']))
                         conn.commit()
                         st.cache_data.clear()
                         
@@ -1531,7 +1649,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
         elif acao_clientes == "Importação em Lote":
             st.subheader("📥 Importação Inteligente via CSV")
-            st.markdown("<p style='font-size: 13px; color: #666;'>O sistema agrupará todos os veículos vinculados ao mesmo documento automaticamente.</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size: 13px; color: #666;'>O sistema agrupará todos os veículos vinculados ao mesmo documento automaticamente e ignorará colunas extras não mapeadas.</p>", unsafe_allow_html=True)
             
             emp_lote = st.selectbox("Selecione a Empresa de destino para a importação:", opcoes_emp, key=f"emp_lote_sel_{st.session_state.rk}")
             
@@ -1544,7 +1662,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 "Tipo": ["Carro", "Moto"],
                 "Placa": ["ABC-1234", "XYZ-5678"],
                 "Modelo": ["Fiat Palio", "Honda CG"],
-                "Cor": ["Prata", "Vermelha"]
+                "Cor": ["Prata", "Vermelha"],
+                "Chassi": ["9BD12345...", "9C2..."],
+                "Renavam": ["1234567890", "0987654321"],
+                "Caracteristicas": ["Insulfilm escuro", "Baú da Loggi"]
             })
             st.download_button(label="📄 Baixar Planilha Modelo (CSV)", data=df_exemplo.to_csv(index=False).encode('utf-8'), file_name="Modelo_Importacao_Frotas.csv", mime="text/csv")
             
@@ -1594,9 +1715,13 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 modelo = str(row.get("Modelo", "")).strip()
                                 cor = str(row.get("Cor", "")).strip()
                                 
+                                chassi_col = row.get("Chassi", "")
+                                ren_col = row.get("Renavam", "")
+                                carac_col = row.get("Caracteristicas", "")
+                                
                                 if placa:
-                                    cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor) VALUES (%s,%s,%s,%s,%s)", 
-                                                (cli_id, tipo, placa, modelo, cor))
+                                    cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam, caracteristicas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)", 
+                                                (cli_id, tipo, placa, modelo, cor, str(chassi_col), str(ren_col), str(carac_col)))
                                     importados_veiculos += 1
 
                         conn.commit()
@@ -1659,7 +1784,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             en_end = c_ed1.text_input("Endereço", value=dados_cliente_sel.get('endereco', ''), key=f"e_end_{id_c_sel}")
                             en_tel = c_ed2.text_input("Telefone", value=dados_cliente_sel['telefone'], key=f"e_tel_{id_c_sel}")
                             
-                            # --- LÓGICA INTELIGENTE NA EDIÇÃO ---
                             empresa_do_cliente = dados_cliente_sel['empresa']
                             servico_da_empresa_edit = "Ambos"
                             for emp_data in empresas_disp:
@@ -1693,9 +1817,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     e_placa = vc2.text_input(f"Placa", value=v['placa'], key=f"e_p_{v['id']}")
                                     e_modelo = vc3.text_input(f"Modelo", value=v['modelo'], key=f"e_m_{v['id']}")
                                     e_cor = vc4.text_input(f"Cor", value=v['cor'], key=f"e_c_{v['id']}")
-                                    e_chip = vc5.text_input(f"Chip/Equipamento", value=v.get('info_chip', ''), key=f"e_ch_{v['id']}")
+                                    e_chip = vc5.text_input(f"Chip/Equip.", value=v.get('info_chip', ''), key=f"e_ch_{v['id']}")
                                     
-                                    veiculos_editados.append({"id": v['id'], "tipo": e_tipo, "placa": e_placa, "modelo": e_modelo, "cor": e_cor, "info_chip": e_chip})
+                                    vx1, vx2, vx3 = st.columns([2, 2, 4])
+                                    e_chas = vx1.text_input(f"Chassi", value=v.get('chassi', ''), key=f"e_chas_{v['id']}")
+                                    e_ren = vx2.text_input(f"Renavam", value=v.get('renavam', ''), key=f"e_ren_{v['id']}")
+                                    e_carac = vx3.text_input(f"Características Visuais", value=v.get('caracteristicas', ''), key=f"e_car_{v['id']}")
+                                    
+                                    veiculos_editados.append({"id": v['id'], "tipo": e_tipo, "placa": e_placa, "modelo": e_modelo, "cor": e_cor, "info_chip": e_chip, "chassi": e_chas, "renavam": e_ren, "caracteristicas": e_carac})
                             else:
                                 st.info("Este cliente ainda não possui nenhum veículo cadastrado.")
 
@@ -1724,8 +1853,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 n_placa = vc2.text_input(f"Placa * ", key=f"n_p_{i}_{id_c_sel}")
                                 n_modelo = vc3.text_input(f"Modelo ", key=f"n_m_{i}_{id_c_sel}")
                                 n_cor = vc4.text_input(f"Cor ", key=f"n_c_{i}_{id_c_sel}")
-                                n_chip = vc5.text_input(f"Chip/Equipamento ", key=f"n_ch_{i}_{id_c_sel}")
-                                novos_veiculos_dados.append({"tipo": n_tipo, "placa": n_placa, "modelo": n_modelo, "cor": n_cor, "info_chip": n_chip})
+                                n_chip = vc5.text_input(f"Chip/Equip. ", key=f"n_ch_{i}_{id_c_sel}")
+                                
+                                vx1, vx2, vx3 = st.columns([2, 2, 4])
+                                n_chas = vx1.text_input(f"Chassi", key=f"n_chas_{i}_{id_c_sel}")
+                                n_ren = vx2.text_input(f"Renavam", key=f"n_ren_{i}_{id_c_sel}")
+                                n_carac = vx3.text_input(f"Características", key=f"n_car_{i}_{id_c_sel}")
+                                
+                                novos_veiculos_dados.append({"tipo": n_tipo, "placa": n_placa, "modelo": n_modelo, "cor": n_cor, "info_chip": n_chip, "chassi": n_chas, "renavam": n_ren, "caracteristicas": n_carac})
 
                             st.markdown("<br>", unsafe_allow_html=True)
                             
@@ -1734,12 +1869,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 execute_query("UPDATE clientes SET nome=%s, documento=%s, endereco=%s, telefone=%s, palavra_chave=%s WHERE id=%s", (en_nome, en_doc, en_end, en_tel, en_palavra, id_c_sel))
                                 
                                 for v_ed in veiculos_editados:
-                                    execute_query("UPDATE veiculos SET tipo_veic=%s, placa=%s, modelo=%s, cor=%s, info_chip=%s WHERE id=%s", (v_ed['tipo'], v_ed['placa'], v_ed['modelo'], v_ed['cor'], v_ed['info_chip'], v_ed['id']))
+                                    execute_query("UPDATE veiculos SET tipo_veic=%s, placa=%s, modelo=%s, cor=%s, info_chip=%s, chassi=%s, renavam=%s, caracteristicas=%s WHERE id=%s", (v_ed['tipo'], v_ed['placa'], v_ed['modelo'], v_ed['cor'], v_ed['info_chip'], v_ed['chassi'], v_ed['renavam'], v_ed['caracteristicas'], v_ed['id']))
                                 
                                 validos_novos = [nv for nv in novos_veiculos_dados if nv['placa'].strip()]
                                 for nv in validos_novos:
-                                    execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, info_chip) VALUES (%s,%s,%s,%s,%s,%s)", 
-                                                    (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor'], nv['info_chip']))
+                                    execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, info_chip, chassi, renavam, caracteristicas) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)", 
+                                                    (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor'], nv['info_chip'], nv['chassi'], nv['renavam'], nv['caracteristicas']))
                                     
                                     agora_notif = get_horario_brasil_str()
                                     execute_query("INSERT INTO notificacoes (data_hora, empresa, mensagem) VALUES (%s, %s, %s)", 
@@ -1838,7 +1973,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         df_fr = pd.DataFrame(res_fr)
                         st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
                         
-                        st.markdown("### 🔎 Ficha e Finalização de Ocorrência")
+                        st.markdown("### 🔎 Ficha de Ocorrência Tática")
                         lista_sel_fr = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_fr]
                         
                         k_rel_fr = st.session_state.reset_keys['rel_fr']
@@ -1854,6 +1989,16 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     limpar_tela()
                                     st.rerun()
                             
+                            # Busca Timeline do banco
+                            timeline_res = fetch_data("SELECT * FROM historico_timeline WHERE historico_id=%s ORDER BY id ASC", (id_r,))
+                            html_tl = "<hr><p><b>⏱️ Linha do Tempo (Ações Táticas):</b></p><ul>"
+                            if timeline_res:
+                                for t in timeline_res:
+                                    html_tl += f"<li><b>{t['data_hora']}</b> - {t['acao']} <i>(Op: {t['operador']})</i></li>"
+                            else:
+                                html_tl += "<li><i>Sem histórico tático gravado.</i></li>"
+                            html_tl += "</ul>"
+                            
                             st.markdown(f'''
 <div class="ficha-box">
     <h4 style="color:#8b0000; text-align:center;">Ficha de Ocorrência nº {dados_fr['id']} ({dados_fr['tipo']})</h4>
@@ -1863,35 +2008,45 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
     <p><b>Placa:</b> {dados_fr['placa']}</p>
     <p><b>Status Atual:</b> <b>{dados_fr['status']}</b></p>
     <hr>
-    <p><b>Detalhes / Dinâmica:</b></p>
+    <p><b>Detalhes Iniciais:</b></p>
     <p>{dados_fr['detalhes']}</p>
+    {html_tl}
 </div>
 ''', unsafe_allow_html=True)
                             
                             if dados_fr['status'] == 'EM ANDAMENTO':
                                 st.markdown("---")
-                                st.write("🟢 **Finalizar Atendimento:**")
-                                desfecho = st.text_area("Informe o desfecho do caso (ex: Veículo recuperado com sucesso)", key=f"desfecho_{id_r}")
+                                st.write("🟢 **Finalizar Atendimento (Desfecho Forense):**")
+                                res_recup = st.selectbox("Resultado Principal", ["", "Veículo Recuperado", "Veículo Não Localizado"])
+                                res_estado = st.selectbox("Estado do Veículo", ["Íntegro / Sem Danos", "Avariado / Colidido", "Depenado / Faltando Peças", "Perda Total", "Não se aplica"])
+                                res_destino = st.selectbox("Destino do Bem", ["Entregue ao Proprietário no Local", "Conduzido à Delegacia", "Removido por Guincho", "Não se aplica"])
+                                desc_final = st.text_area("Nota Final / Dinâmica do Desfecho:")
+                                
                                 if st.button("✅ Concluir e Finalizar Ocorrência", key=f"btn_concluir_fr_{id_r}", type="primary"):
-                                    agora = get_horario_brasil()
-                                    try:
-                                        dt_abertura = datetime.strptime(dados_fr['data_hora'], "%d/%m/%Y %H:%M:%S")
-                                        dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
-                                        tempo_decorrido = agora - dt_abertura
-                                        horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
-                                        minutos, _ = divmod(resto, 60)
-                                        sla_str = f"{int(horas)}h e {int(minutos)}m"
-                                    except Exception:
-                                        sla_str = "Não calculado"
+                                    if not res_recup or not desc_final.strip():
+                                        st.error("Preencha o Resultado Principal e a Nota Final para encerrar.")
+                                    else:
+                                        agora = get_horario_brasil()
+                                        try:
+                                            dt_abertura = datetime.strptime(dados_fr['data_hora'], "%d/%m/%Y %H:%M:%S")
+                                            dt_abertura = dt_abertura.replace(tzinfo=timezone(timedelta(hours=-3)))
+                                            tempo_decorrido = agora - dt_abertura
+                                            horas, resto = divmod(tempo_decorrido.total_seconds(), 3600)
+                                            minutos, _ = divmod(resto, 60)
+                                            sla_str = f"{int(horas)}h e {int(minutos)}m"
+                                        except Exception:
+                                            sla_str = "Não calculado"
 
-                                    protocolo = f"AD-{id_r}-{agora.strftime('%Y%m%d%H%M')}"
-                                    novo_detalhe = dados_fr['detalhes'] + f" | DESFECHO: {desfecho} | SLA DE RESPOSTA: {sla_str} | PROTOCOLO: {protocolo}"
-                                    
-                                    execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, id_r))
-                                    registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada. Protocolo: {protocolo}", dados_fr['empresa'])
-                                    st.session_state.flash_msg = "Ocorrência finalizada e protocolada com sucesso!"
-                                    limpar_tela()
-                                    st.rerun()
+                                        protocolo = f"AD-{id_r}-{agora.strftime('%Y%m%d%H%M')}"
+                                        
+                                        texto_desfecho = f"| RESULTADO: {res_recup} | ESTADO: {res_estado} | DESTINO: {res_destino} | NOTA FINAL: {desc_final} | SLA TOTAL: {sla_str} | PROTOCOLO: {protocolo}"
+                                        novo_detalhe = dados_fr['detalhes'] + " " + texto_desfecho
+                                        
+                                        execute_query("UPDATE historico SET status='FINALIZADO', detalhes=%s WHERE id=%s", (novo_detalhe, id_r))
+                                        registrar_auditoria("Finalização", "Operação", f"Ocorrência ID {id_r} finalizada. Protocolo: {protocolo}", dados_fr['empresa'])
+                                        st.session_state.flash_msg = "Ocorrência finalizada e protocolada com sucesso!"
+                                        limpar_tela()
+                                        st.rerun()
                             
                             st.markdown("<br>", unsafe_allow_html=True)
                             st.markdown(gerar_relatorio_html(dados_fr, st.session_state.nome_empresa), unsafe_allow_html=True)
@@ -1962,7 +2117,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.info("Nenhum registro encontrado.")
                 idx_sub += 1
 
-    # --- TELA: MEU FATURAMENTO (SÓ PARCEIROS E BLOQUEADO PARA OPERADOR) ---
+    # --- TELA: MEU FATURAMENTO ---
     elif aba_ativa == "faturamento" and not st.session_state.is_admin and not st.session_state.get('is_subuser'):
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>💰 Meu Faturamento e Frotas Ativas</h2>", unsafe_allow_html=True)
         
@@ -2046,7 +2201,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             else:
                 st.info(f"Nenhum registro encontrado para o mês {mes_alvo_p}.")
 
-    # --- TELA: MEU CADASTRO (MODO LEITURA TRAVADO COM BOTÃO DE EDITAR) ---
+    # --- TELA: MEU CADASTRO ---
     elif aba_ativa == "cadastro" and not st.session_state.is_admin and not st.session_state.get('is_subuser'):
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>⚙️ Meu Cadastro Profissional</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
@@ -2091,7 +2246,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 """
             st.markdown(html_readonly, unsafe_allow_html=True)
             
-            # --- SE ESTIVER NO MODO VISUALIZAÇÃO (TRAVADO / PADRÃO) ---
             if not st.session_state.editando_meu_cadastro:
                 txt_resp = dados_emp.get('responsavel') or 'Não informado'
                 txt_tel = dados_emp.get('telefone') or 'Não informado'
@@ -2170,7 +2324,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     st.session_state.editando_meu_cadastro = True
                     st.rerun()
 
-                # --- NOVO BLOCO: GESTÃO DE OPERADORES (SUB-USUÁRIO) ---
                 st.markdown("---")
                 st.markdown("""
 <div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
@@ -2194,7 +2347,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.markdown("""
 <div style="background-color: #fff3e0; border-left: 5px solid #e65100; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
     <span style="color: #e65100; font-size: 13px; font-weight: bold; text-transform: uppercase;">🔑 Nova Senha</span>
-    <p style="font-size: 11px; color: #777; margin: 5px 0 0 0;">Senhas são criptografadas. Caso o operador esqueça, crie uma nova abaixo.</p>
 </div>
 """, unsafe_allow_html=True)
                         with st.form("form_reset_senha_usu", clear_on_submit=True):
@@ -2216,7 +2368,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         st.markdown("""
 <div style="background-color: #ffebee; border-left: 5px solid #c62828; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
     <span style="color: #c62828; font-size: 13px; font-weight: bold; text-transform: uppercase;">🗑️ Excluir Acesso</span>
-    <p style="font-size: 11px; color: #777; margin: 5px 0 0 0;">Esta ação revoga imediatamente o acesso do operador ao sistema.</p>
 </div>
 """, unsafe_allow_html=True)
                         with st.form("form_del_usu_2", clear_on_submit=True):
@@ -2237,7 +2388,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     st.markdown("""
 <div style="background-color: #e8f5e9; border-left: 5px solid #2e7d32; padding: 10px; border-radius: 5px; margin-bottom: 15px;">
     <span style="color: #2e7d32; font-size: 13px; font-weight: bold; text-transform: uppercase;">📝 Cadastrar Novo Acesso</span>
-    <p style="font-size: 11px; color: #777; margin: 5px 0 0 0;">Crie uma credencial exclusiva para seu funcionário usar o painel tático.</p>
 </div>
 """, unsafe_allow_html=True)
                     with st.form("form_novo_usu", clear_on_submit=True):
@@ -2261,9 +2411,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             else:
                                 st.error("Preencha todos os campos obrigatórios.")
 
-            # --- SE ESTIVER NO MODO EDIÇÃO ---
             else:
-                st.markdown("### 📝 Atualização de Dados e POP (Procedimentos)")
+                st.markdown("### 📝 Atualização de Dados e POP")
                 
                 with st.form("form_atualizacao_cadastral"):
                     st.markdown("<h4 style='color: #4a0e4e;'>Contatos Administrativos Gerais</h4>", unsafe_allow_html=True)
@@ -2276,7 +2425,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     if tem_fr_cad:
                         st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
                         st.markdown("<h4 style='color: #8b0000;'>🚨 POP - Emergência (Furto e Roubo)</h4>", unsafe_allow_html=True)
-                        st.markdown("<p style='font-size: 12px; color: #555;'>Configure os contatos e a regra imediata para a Central agir em caso de <b>Furto ou Roubo</b>.</p>", unsafe_allow_html=True)
                         c_pop1, c_pop2 = st.columns(2)
                         c_pop_g = c_pop1.text_input("Contato do Gestor 24h / Plantão", value=dados_emp.get('pop_gestor', ''))
                         c_pop_pr = c_pop2.text_input("Contato da Equipe de Pronta Resposta", value=dados_emp.get('pop_pronta_resposta', ''))
@@ -2289,7 +2437,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     if tem_mon_cad:
                         st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
                         st.markdown("<h4 style='color: #4a0e4e;'>📡 POP - Monitoramento & Roteamento de Setores</h4>", unsafe_allow_html=True)
-                        st.markdown("<p style='font-size: 12px; color: #555;'>Defina os números de WhatsApp dos seus setores para a Central transferir os chamados direto para a pessoa certa.</p>", unsafe_allow_html=True)
                         c_wpp1, c_wpp2 = st.columns(2)
                         c_wpp_fin = c_wpp1.text_input("WhatsApp do Setor Financeiro (Faturas/Cobranças)", value=dados_emp.get('pop_wpp_financeiro', ''))
                         c_wpp_tec = c_wpp2.text_input("WhatsApp do Setor Técnico (Suporte/Manutenção)", value=dados_emp.get('pop_wpp_tecnico', ''))
@@ -2318,7 +2465,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         else:
             st.error("Erro ao localizar cadastro da empresa.")
 
-    # --- TELA: GERENCIAMENTO DE EMPRESAS (ADMIN - COM DOSSIÊ COMPLETO NA LISTAGEM) ---
+    # --- TELA: GERENCIAMENTO DE EMPRESAS (ADMIN) ---
     elif aba_ativa == "empresas" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🏢 Gerenciamento de Empresas Parceiras e Precificação</h2>", unsafe_allow_html=True)
         
@@ -2355,7 +2502,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         tem_fr_list = "Furto" in servico_vinculado or "Ambos" in servico_vinculado
                         tem_mon_list = "Monitoramento" in servico_vinculado or "Ambos" in servico_vinculado
 
-                        # 1. BLOCO DADOS CADASTRAIS & CONTRATO
                         st.markdown(f"""
 <div style="background: #fafafa; border-left: 4px solid #4a0e4e; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
     <span style="font-weight: bold; color: #4a0e4e; font-size: 14px; display: block; margin-bottom: 8px;">🏢 IDENTIFICAÇÃO & CONTRATO</span>
@@ -2374,7 +2520,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 </div>
 """, unsafe_allow_html=True)
                         
-                        # 2. BLOCO POP EMERGÊNCIA
                         if tem_fr_list:
                             st.markdown(f"""
 <div style="background: #fff8f8; border-left: 4px solid #8b0000; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
@@ -2387,7 +2532,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 </div>
 """, unsafe_allow_html=True)
                         
-                        # 3. BLOCO POP MONITORAMENTO
                         if tem_mon_list:
                             st.markdown(f"""
 <div style="background: #fdfaff; border-left: 4px solid #6a1b9a; padding: 12px 16px; border-radius: 6px; font-size: 13px;">
@@ -2496,6 +2640,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             else:
                 st.warning("Nenhuma empresa encontrada.")
 
+    # --- TELA: FINANCEIRO GLOBAL ---
     elif aba_ativa == "financeiro" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>💰 Controle Financeiro Global</h2>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.</p>", unsafe_allow_html=True)
@@ -2527,8 +2672,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 
                 total_faturamento_previsto += valor_calc
                 
-                if "Pago" in status_calculado:
-                    pass
                 if "Vencida" in status_calculado or "Vence Hoje" in status_calculado:
                     total_atrasado += valor_calc
                     
@@ -2661,7 +2804,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         p_aud = []
         
         if not st.session_state.is_admin:
-            # Sub-usuário e Parceiro só veem auditoria da própria empresa
             q_aud += " AND (usuario = %s OR detalhes ILIKE %s)"
             p_aud.extend([st.session_state.nome_empresa, f"%Alvo: {st.session_state.nome_empresa}%"])
             
@@ -2685,7 +2827,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         else:
             st.info(f"Nenhum registro de auditoria para os termos buscados.")
             
-        # --- PAINEL DE BACKUP E EXPORTAÇÃO DE BASE DE DADOS ---
         st.markdown("---")
         with st.expander("📦 Backup e Exportação de Base de Dados", expanded=False):
             st.markdown("<p style='font-size: 13px; color: #666;'>Exporte os dados cadastrais completos (Clientes, Documentos e Veículos) estruturados por empresa parceira.</p>", unsafe_allow_html=True)
@@ -2702,7 +2843,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 SELECT c.empresa as "Empresa", c.nome as "Cliente", c.documento as "CPF / CNPJ", 
                        c.telefone as "Telefone", c.endereco as "Endereço", c.status as "Status Cliente",
                        v.tipo_veic as "Tipo Veículo", v.placa as "Placa", v.modelo as "Modelo", 
-                       v.cor as "Cor", v.info_chip as "Chip / Equipamento"
+                       v.cor as "Cor", v.chassi as "Chassi", v.renavam as "Renavam", v.caracteristicas as "Características", v.info_chip as "Chip / Equipamento"
                 FROM clientes c
                 LEFT JOIN veiculos v ON c.id = v.cliente_id
                 WHERE 1=1
@@ -2736,7 +2877,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             else:
                 st.info("Nenhum dado cadastrado encontrado para exportar desta empresa.")
 
-        # --- PAINEL EXCLUSIVO DO ADMIN PARA VER ACEITES DA LGPD ---
         if st.session_state.is_admin:
             st.markdown("---")
             st.subheader("📄 Assinaturas Eletrônicas - Aceites LGPD")
