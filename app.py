@@ -166,6 +166,9 @@ def init_db():
     try:
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS chassi TEXT DEFAULT '';")
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS renavam TEXT DEFAULT '';")
+        # Mantendo colunas legadas no banco apenas para não quebrar cadastros antigos
+        c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS info_chip TEXT DEFAULT '';")
+        c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS caracteristicas TEXT DEFAULT '';")
         conn.commit()
     except Exception:
         conn.rollback()
@@ -352,7 +355,7 @@ def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
             <p><strong>TERMO DE RESPONSABILIDADE, CONFIDENCIALIDADE E ADEQUAÇÃO À LGPD</strong></p>
             <p>A <strong>AD Rastreamento Veicular</strong>, sediada em São Gonçalo do Amarante, na qualidade de provedora do software de gestão e telemetria, estabelece as seguintes diretrizes obrigatórias aceitas pela CONTRATANTE/PARCEIRA para o uso da plataforma:</p>
             <div class="clausula"><strong>1. Sigilo e Confidencialidade:</strong> O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.</div>
-            <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsibility por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
+            <div class="clausula"><strong>2. Responsabilidade Exclusiva:</strong> O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá <strong>exclusivamente sobre a empresa PARCEIRA</strong>, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.</div>
             <div class="clausula"><strong>3. Penalidades Legais:</strong> O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).</div>
         </div>
         <div class="assinatura-box">
@@ -1696,7 +1699,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
         elif acao_clientes == "Importação em Lote":
             st.subheader("📥 Importação Inteligente via CSV")
-            st.markdown("<p style='font-size: 13px; color: #666;'>O sistema agrupará todos os veículos vinculados ao mesmo documento automaticamente e ignorará colunas extras não mapeadas.</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size: 13px; color: #666;'>O sistema agrupará todos os veículos vinculados ao mesmo documento automaticamente. Não se preocupe com letras maiúsculas ou espaços nos cabeçalhos.</p>", unsafe_allow_html=True)
             
             emp_lote = st.selectbox("Selecione a Empresa de destino para a importação:", opcoes_emp, key=f"emp_lote_sel_{st.session_state.rk}")
             
@@ -1719,18 +1722,20 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             if arquivo_csv is not None:
                 try:
                     df_import = pd.read_csv(arquivo_csv, sep=None, engine='python', on_bad_lines='skip').fillna("")
+                    df_import.columns = [str(c).strip().upper() for c in df_import.columns]
+                    
                     if st.button("🚀 Processar Importação Inteligente", type="primary"):
                         importados_clientes = 0
                         importados_veiculos = 0
                         
                         col_doc = None
                         for c in df_import.columns:
-                            if c.strip().upper() in ["CPF / CNPJ", "DOCUMENTO", "CPF", "CNPJ", "CPF/CNPJ"]:
+                            if c in ["CPF / CNPJ", "DOCUMENTO", "CPF", "CNPJ", "CPF/CNPJ", "DOC"]:
                                 col_doc = c
                                 break
                                 
                         if not col_doc:
-                            st.error("ERRO: A coluna 'CPF / CNPJ' não foi encontrada na sua planilha. Por favor, baixe o modelo acima.")
+                            st.error("ERRO: A coluna 'CPF / CNPJ' ou 'Documento' não foi encontrada na sua planilha. Verifique o cabeçalho.")
                             st.stop()
 
                         conn = get_conn_fast()
@@ -1741,10 +1746,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             if not doc_str: continue
                             
                             primeira_linha = group.iloc[0]
-                            nome = str(primeira_linha.get("Nome", "")).strip()
-                            end = str(primeira_linha.get("Endereço", "")).strip()
-                            tel = str(primeira_linha.get("Telefone", "")).strip()
-                            pal_chave_lote = str(primeira_linha.get("Palavra-Chave", "")).strip()
+                            nome = str(primeira_linha.get("NOME", primeira_linha.get("CLIENTE", ""))).strip()
+                            end = str(primeira_linha.get("ENDEREÇO", primeira_linha.get("ENDERECO", ""))).strip()
+                            tel = str(primeira_linha.get("TELEFONE", primeira_linha.get("CONTATO", ""))).strip()
+                            pal_chave_lote = str(primeira_linha.get("PALAVRA-CHAVE", primeira_linha.get("SENHA", ""))).strip()
                             
                             if not nome: continue
 
@@ -1761,12 +1766,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 importados_clientes += 1
                                 
                             for _, row in group.iterrows():
-                                tipo = str(row.get("Tipo", "Carro")).strip()
-                                placa = str(row.get("Placa", "")).strip()
-                                modelo = str(row.get("Modelo", "")).strip()
-                                cor = str(row.get("Cor", "")).strip()
-                                chassi_col = row.get("Chassi", "")
-                                ren_col = row.get("Renavam", "")
+                                tipo = str(row.get("TIPO", "Carro")).strip()
+                                placa = str(row.get("PLACA", "")).strip()
+                                modelo = str(row.get("MODELO", "")).strip()
+                                cor = str(row.get("COR", "")).strip()
+                                chassi_col = row.get("CHASSI", "")
+                                ren_col = row.get("RENAVAM", "")
                                 
                                 if placa:
                                     cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
@@ -1776,7 +1781,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         conn.commit()
                         st.cache_data.clear()        
                         registrar_auditoria("Importação Lote", "Clientes", f"Importação CSV: {importados_clientes} clientes e {importados_veiculos} veículos.", emp_lote)
-                        st.session_state.flash_msg = f"Sucesso! {importados_clientes} clientes agrupados/criados e {importados_veiculos} veículos inseridos."
+                        
+                        if importados_veiculos == 0:
+                            st.session_state.flash_msg = "⚠️ Planilha lida, mas nenhuma PLACA válida foi encontrada. Verifique a coluna 'Placa' no arquivo."
+                        else:
+                            st.session_state.flash_msg = f"Sucesso! {importados_clientes} clientes criados e {importados_veiculos} veículos inseridos."
+                            
                         limpar_tela()
                         st.rerun()
                 except Exception as e:
