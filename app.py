@@ -984,7 +984,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 if st.button("❌ Fechar Painel de Relatório", use_container_width=True, type="secondary"):
                     st.session_state.mostrar_laudo = False
                     st.rerun()
-                   # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - CARDS MODERNIZADOS E ROTEAMENTO SMART ---
+                    # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - CARDS MODERNIZADOS E ROTEAMENTO SMART ---
     elif aba_ativa == "central" and st.session_state.is_admin:
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🚨 Central de Operações e Ocorrências 24h</h2>", unsafe_allow_html=True)
         
@@ -1062,6 +1062,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     c_tl1, c_tl2 = st.columns(2)
                     c_tl3, c_tl4 = st.columns(2)
                     
+                    # Função para gravar com clique no botão e notificar sucesso
                     def build_inserir(historico_id, acao_texto):
                         def callback():
                             execute_query("INSERT INTO historico_timeline (historico_id, data_hora, acao, operador) VALUES (%s,%s,%s,%s)", 
@@ -1173,6 +1174,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         pop_wpp_fin = pop_dados[0].get('pop_wpp_financeiro', '') if pop_dados else ''
                         pop_wpp_tec = pop_dados[0].get('pop_wpp_tecnico', '') if pop_dados else ''
 
+                        # --- DOSSIÊ RÁPIDO DO VEÍCULO ---
                         chassi_disp = info_veic.get('chassi', '') or "Não inf."
                         renavam_disp = info_veic.get('renavam', '') or "Não inf."
                         
@@ -1313,7 +1315,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                         st.cache_data.clear()
                                         
                                         registrar_auditoria("Registro", "Operação", f"Ocorrência de {tipo_oc} INICIADA para {placa_sel}", info_veic['empresa'])
-                                        st.session_state.flash_msg = "Sinistro aberto com sucesso! Redirecionando para o Painel Tático..."
+                                        st.session_state.flash_msg = "Sinistro aberto com sucesso! O Painel Tático foi ativado no topo da tela."
                                         limpar_tela()
                                         st.rerun()
 
@@ -1716,12 +1718,17 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             arquivo_csv = st.file_uploader("Escolha a sua planilha CSV preenchida", type=["csv"], key=f"up_csv_{st.session_state.rk}")
             if arquivo_csv is not None:
                 try:
-                    df_import = pd.read_csv(arquivo_csv).fillna("")
+                    df_import = pd.read_csv(arquivo_csv, sep=None, engine='python', on_bad_lines='skip').fillna("")
                     if st.button("🚀 Processar Importação Inteligente", type="primary"):
                         importados_clientes = 0
                         importados_veiculos = 0
                         
-                        col_doc = "CPF / CNPJ" if "CPF / CNPJ" in df_import.columns else ("Documento" if "Documento" in df_import.columns else None)
+                        col_doc = None
+                        for c in df_import.columns:
+                            if c.strip().upper() in ["CPF / CNPJ", "DOCUMENTO", "CPF", "CNPJ", "CPF/CNPJ"]:
+                                col_doc = c
+                                break
+                                
                         if not col_doc:
                             st.error("ERRO: A coluna 'CPF / CNPJ' não foi encontrada na sua planilha. Por favor, baixe o modelo acima.")
                             st.stop()
