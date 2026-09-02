@@ -1043,13 +1043,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         link_extraido = "Não informado"
                         if "Link Rastreio: " in detalhes_ativos:
                             link_extraido = detalhes_ativos.split("Link Rastreio: ")[1].split(" |")[0]
-                            
-                        # Puxa o nome da empresa parceira do banco e deixa tudo em maiúsculo
-nome_empresa = inc.get('empresa', 'EMPRESA NÃO INFORMADA').upper()
-
-txt_ativo_copiar = f"🚨 ALERTA DE SINISTRO - {nome_empresa} 🚨\n• Tipo: {inc['tipo'].upper()}\n• Veículo: {inc.get('modelo','')} - PLACA: {inc['placa']}\n• Chassi: {inc.get('chassi','')}\n• Cliente: {inc['cliente']}\n• Link Tático: {link_extraido}"
-
-link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_ativo_copiar)}"st.markdown(f'<a href="{link_ativo_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:8px 12px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; font-size: 13.5px; margin-bottom: 15px; width: 100%; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📲 Reenviar Dossiê para Pronta Resposta (WhatsApp)</button></a>', unsafe_allow_html=True)
+                        
+                        nome_empresa_ativo = str(inc.get('empresa', 'EMPRESA')).upper()
+                        txt_ativo_copiar = f"🚨 ALERTA DE SINISTRO - {nome_empresa_ativo} 🚨\n• Tipo: {inc['tipo'].upper()}\n• Veículo: {inc.get('modelo','')} - PLACA: {inc['placa']}\n• Chassi: {inc.get('chassi','')}\n• Cliente: {inc['cliente']}\n• Link Tático: {link_extraido}"
+                        link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_ativo_copiar)}"
+                        
+                        st.markdown(f'<a href="{link_ativo_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:8px 12px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; font-size: 13.5px; margin-bottom: 15px; width: 100%; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📲 Reenviar Dossiê para Pronta Resposta (WhatsApp)</button></a>', unsafe_allow_html=True)
                     
                     # LINHA DO TEMPO (TIMELINE)
                     timeline_res = fetch_data("SELECT * FROM historico_timeline WHERE historico_id=%s ORDER BY id ASC", (inc['id'],))
@@ -1262,7 +1261,8 @@ link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_a
                                 desc_oc = st.text_area("Descrição Breve / Dinâmica Inicial", key=f"desc_{st.session_state.rk}")
                                 
                                 st.markdown("**📲 Disparo Rápido de Cerco (Envio Integrado ao WhatsApp)**")
-                                txt_copiar = f"""🚨 ALERTA DE SINISTRO - AD RASTREAMENTO 🚨
+                                nome_empresa_alerta = str(info_veic.get('empresa', 'EMPRESA')).upper()
+                                txt_copiar = f"""🚨 ALERTA DE SINISTRO - {nome_empresa_alerta} 🚨
 • Tipo: {tipo_oc}
 • Veículo: {info_veic['modelo']} - PLACA: {placa_sel}
 • Chassi: {chassi_disp} | Cor: {info_veic['cor']}
@@ -1385,7 +1385,8 @@ link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_a
                                 detalhes_completos = f"Evento: {evento_mon} "
                                 if motivo_tec:
                                     detalhes_completos += f"| Diagnóstico: {motivo_tec} "
-                                detalhes_completos += f"| Ação/Motivo: {acao_mon}"
+                                chip_acao = f"| Ação/Motivo: {acao_mon}"
+                                detalhes_completos += chip_acao
                                 
                                 tipo_hist = "Transferência" if eh_transferencia else "Monitoramento"
                                 status_hist = "PENDENTE" if eh_transferencia else "FINALIZADO"
@@ -1674,13 +1675,13 @@ link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_a
                         conn = get_conn_fast()
                         cur = conn.cursor(cursor_factory=RealDictCursor)
                         cur.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status, palavra_chave, data_cadastro) VALUES (%s,%s,%s,%s,%s,'Ativo',%s,%s) RETURNING id", 
-                                       (f_nome, f_doc, f_end, f_tel, f_emp, f_palavra, agora_cadastro))
+                                    (f_nome, f_doc, f_end, f_tel, f_emp, f_palavra, agora_cadastro))
                         cliente_id = cur.fetchone()['id']
                         
                         validos = [v for v in veiculos_dados if v['placa'].strip()]
                         for v in validos:
                             cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                           (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor'], v['chassi'], v['renavam']))
+                                        (cliente_id, v['tipo'], v['placa'], v['modelo'], v['cor'], v['chassi'], v['renavam']))
                         conn.commit()
                         st.cache_data.clear()
                         
@@ -1942,7 +1943,7 @@ link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_a
                                 validos_novos = [nv for nv in novos_veiculos_dados if nv['placa'].strip()]
                                 for nv in validos_novos:
                                     execute_query("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                                    (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor'], nv['chassi'], nv['renavam']))
+                                                  (id_c_sel, nv['tipo'], nv['placa'], nv['modelo'], nv['cor'], nv['chassi'], nv['renavam']))
                                 
                                 registrar_auditoria("Edição", "Clientes", f"Dados e veículos do cliente {en_nome} atualizados.", dados_cliente_sel['empresa'])
                                 st.session_state.flash_msg = "Cliente e veículos atualizados com sucesso!"
