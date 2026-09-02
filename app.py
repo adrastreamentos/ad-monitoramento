@@ -1044,8 +1044,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         if "Link Rastreio: " in detalhes_ativos:
                             link_extraido = detalhes_ativos.split("Link Rastreio: ")[1].split(" |")[0]
                             
-                        txt_ativo_copiar = f"🚨 ALERTA DE SINISTRO - AD RASTREAMENTO 🚨\n• Tipo: {inc['tipo'].upper()}\n• Veículo: {inc.get('modelo','')} - PLACA: {inc['placa']}\n• Chassi: {inc.get('chassi','')}\n• Cliente: {inc['cliente']}\n• Link Tático: {link_extraido}"
-                        link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_ativo_copiar)}"
+                        # Puxa o nome da empresa parceira do banco e deixa tudo em maiúsculo
+nome_empresa = inc.get('empresa', 'EMPRESA NÃO INFORMADA').upper()
+
+txt_ativo_copiar = f"🚨 ALERTA DE SINISTRO - {nome_empresa} 🚨\n• Tipo: {inc['tipo'].upper()}\n• Veículo: {inc.get('modelo','')} - PLACA: {inc['placa']}\n• Chassi: {inc.get('chassi','')}\n• Cliente: {inc['cliente']}\n• Link Tático: {link_extraido}"
+
+link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_ativo_copiar)}"
                         
                         st.markdown(f'<a href="{link_ativo_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:8px 12px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; font-size: 13.5px; margin-bottom: 15px; width: 100%; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📲 Reenviar Dossiê para Pronta Resposta (WhatsApp)</button></a>', unsafe_allow_html=True)
                     
