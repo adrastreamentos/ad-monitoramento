@@ -166,7 +166,7 @@ def init_db():
     try:
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS chassi TEXT DEFAULT '';")
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS renavam TEXT DEFAULT '';")
-        # Mantendo colunas legadas no banco apenas para não quebrar cadastros antigos
+        # Colunas mantidas apenas para não quebrar tabelas antigas (não exibidas mais)
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS info_chip TEXT DEFAULT '';")
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS caracteristicas TEXT DEFAULT '';")
         conn.commit()
@@ -1065,7 +1065,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     c_tl1, c_tl2 = st.columns(2)
                     c_tl3, c_tl4 = st.columns(2)
                     
-                    # Função para gravar com clique no botão e notificar sucesso
                     def build_inserir(historico_id, acao_texto):
                         def callback():
                             execute_query("INSERT INTO historico_timeline (historico_id, data_hora, acao, operador) VALUES (%s,%s,%s,%s)", 
@@ -1177,7 +1176,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         pop_wpp_fin = pop_dados[0].get('pop_wpp_financeiro', '') if pop_dados else ''
                         pop_wpp_tec = pop_dados[0].get('pop_wpp_tecnico', '') if pop_dados else ''
 
-                        # --- DOSSIÊ RÁPIDO DO VEÍCULO ---
                         chassi_disp = info_veic.get('chassi', '') or "Não inf."
                         renavam_disp = info_veic.get('renavam', '') or "Não inf."
                         
@@ -1261,7 +1259,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 link_rastreio = st.text_input("🔗 Link Espelho (Rastreio Tático)", key=f"link_{st.session_state.rk}")
                                 desc_oc = st.text_area("Descrição Breve / Dinâmica Inicial", key=f"desc_{st.session_state.rk}")
                                 
-                                # --- DISPARO RÁPIDO DE CERCO ---
                                 st.markdown("**📲 Disparo Rápido de Cerco (Envio Integrado ao WhatsApp)**")
                                 txt_copiar = f"""🚨 ALERTA DE SINISTRO - AD RASTREAMENTO 🚨
 • Tipo: {tipo_oc}
@@ -1698,8 +1695,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 st.markdown("""</div>""", unsafe_allow_html=True)
                             
         elif acao_clientes == "Importação em Lote":
-            st.subheader("📥 Importação Inteligente via CSV")
-            st.markdown("<p style='font-size: 13px; color: #666;'>O sistema agrupará todos os veículos vinculados ao mesmo documento automaticamente. Não se preocupe com letras maiúsculas ou espaços nos cabeçalhos.</p>", unsafe_allow_html=True)
+            st.subheader("📥 Importação Inteligente via CSV (Modo Atualização Ativa)")
+            st.markdown("<p style='font-size: 13px; color: #666;'>O sistema identificará clientes e placas já existentes para <b>evitar duplicações</b>, inserindo apenas o que for novo e preenchendo telefones em branco. Não se preocupe com letras maiúsculas ou espaços nos cabeçalhos.</p>", unsafe_allow_html=True)
             
             emp_lote = st.selectbox("Selecione a Empresa de destino para a importação:", opcoes_emp, key=f"emp_lote_sel_{st.session_state.rk}")
             
@@ -1726,7 +1723,9 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     
                     if st.button("🚀 Processar Importação Inteligente", type="primary"):
                         importados_clientes = 0
+                        atualizados_clientes = 0
                         importados_veiculos = 0
+                        ignorados_veiculos = 0
                         
                         col_doc = None
                         for c in df_import.columns:
@@ -1747,17 +1746,28 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
                             primeira_linha = group.iloc[0]
                             nome = str(primeira_linha.get("NOME", primeira_linha.get("CLIENTE", ""))).strip()
-                            end = str(primeira_linha.get("ENDEREÇO", primeira_linha.get("ENDERECO", ""))).strip()
-                            tel = str(primeira_linha.get("TELEFONE", primeira_linha.get("CONTATO", ""))).strip()
+                            
+                            end_cols = [c for c in df_import.columns if "ENDERE" in c or "END" == c]
+                            end = str(primeira_linha.get(end_cols[0], "")) if end_cols else ""
+                            
+                            tel_cols = [c for c in df_import.columns if "TEL" in c or "CEL" in c or "FONE" in c or "CONTATO" in c or "WHATS" in c]
+                            tel = str(primeira_linha.get(tel_cols[0], "")) if tel_cols else ""
+                            
                             pal_chave_lote = str(primeira_linha.get("PALAVRA-CHAVE", primeira_linha.get("SENHA", ""))).strip()
                             
                             if not nome: continue
 
-                            cur.execute("SELECT id FROM clientes WHERE documento=%s AND empresa=%s", (doc_str, emp_lote))
+                            cur.execute("SELECT id, telefone FROM clientes WHERE documento=%s AND empresa=%s", (doc_str, emp_lote))
                             cli_res = cur.fetchone()
                             
                             if cli_res:
                                 cli_id = cli_res['id']
+                                tel_db = str(cli_res.get('telefone', '')).strip()
+                                
+                                # Atualiza apenas se o telefone no banco estiver vazio e a planilha tiver telefone
+                                if not tel_db and tel:
+                                    cur.execute("UPDATE clientes SET telefone=%s WHERE id=%s", (tel, cli_id))
+                                    atualizados_clientes += 1
                             else:
                                 agora_importacao = get_horario_brasil_str()
                                 cur.execute("INSERT INTO clientes (nome, documento, endereco, telefone, empresa, status, data_cadastro, palavra_chave) VALUES (%s,%s,%s,%s,%s,'Ativo',%s,%s) RETURNING id", 
@@ -1770,23 +1780,31 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 placa = str(row.get("PLACA", "")).strip()
                                 modelo = str(row.get("MODELO", "")).strip()
                                 cor = str(row.get("COR", "")).strip()
-                                chassi_col = row.get("CHASSI", "")
-                                ren_col = row.get("RENAVAM", "")
+                                chassi_col = str(row.get("CHASSI", "")).strip()
+                                ren_col = str(row.get("RENAVAM", "")).strip()
                                 
                                 if placa:
-                                    cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
-                                                (cli_id, tipo, placa, modelo, cor, str(chassi_col), str(ren_col)))
-                                    importados_veiculos += 1
+                                    cur.execute("SELECT id FROM veiculos WHERE cliente_id=%s AND placa=%s", (cli_id, placa))
+                                    veic_existe = cur.fetchone()
+                                    
+                                    if not veic_existe:
+                                        cur.execute("INSERT INTO veiculos (cliente_id, tipo_veic, placa, modelo, cor, chassi, renavam) VALUES (%s,%s,%s,%s,%s,%s,%s)", 
+                                                    (cli_id, tipo, placa, modelo, cor, chassi_col, ren_col))
+                                        importados_veiculos += 1
+                                    else:
+                                        ignorados_veiculos += 1
 
                         conn.commit()
                         st.cache_data.clear()        
-                        registrar_auditoria("Importação Lote", "Clientes", f"Importação CSV: {importados_clientes} clientes e {importados_veiculos} veículos.", emp_lote)
+                        registrar_auditoria("Importação Lote", "Clientes", f"Importação CSV Concluída. {importados_clientes} novos clientes, {importados_veiculos} novos veículos. {atualizados_clientes} atualizados.", emp_lote)
                         
-                        if importados_veiculos == 0:
-                            st.session_state.flash_msg = "⚠️ Planilha lida, mas nenhuma PLACA válida foi encontrada. Verifique a coluna 'Placa' no arquivo."
-                        else:
-                            st.session_state.flash_msg = f"Sucesso! {importados_clientes} clientes criados e {importados_veiculos} veículos inseridos."
+                        msg_resultado = f"Sucesso! Foram criados {importados_clientes} clientes novos e inseridos {importados_veiculos} veículos novos. "
+                        if atualizados_clientes > 0:
+                            msg_resultado += f"Também preenchemos o telefone de {atualizados_clientes} clientes antigos. "
+                        if ignorados_veiculos > 0:
+                            msg_resultado += f"({ignorados_veiculos} veículos já existiam e foram ignorados para evitar duplicidade)."
                             
+                        st.session_state.flash_msg = msg_resultado
                         limpar_tela()
                         st.rerun()
                 except Exception as e:
