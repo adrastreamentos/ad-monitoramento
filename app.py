@@ -645,7 +645,7 @@ else:
             
             **1. Sigilo e Confidencialidade:** O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.
             
-            **2. Responsabilidade Exclusiva:** O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá **exclusivamente sobre a empresa PARCEIRA**, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.
+            **2. Responsabilidade Exclusiva:** O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsibility por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá **exclusivamente sobre a empresa PARCEIRA**, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.
             
             **3. Penalidades Legais:** O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).
             
@@ -750,6 +750,7 @@ else:
             "pendencias": f"🛠️ Pendências ({qtd_pend})",
             "clientes": "👤 Clientes",
             "relatorios": "📖 Relatórios",
+            "fechamento": "📆 Fechamento do Mês",
             "empresas": "🏢 Empresas",
             "financeiro": "💰 Financeiro",
             "faturamento": "💰 Meu Faturamento",
@@ -759,11 +760,11 @@ else:
         return mapa.get(aba_id, aba_id)
 
     if st.session_state.is_admin:
-        lista_abas = ["dashboard", "central", "pendencias", "clientes", "relatorios", "empresas", "financeiro", "auditoria"]
+        lista_abas = ["dashboard", "central", "pendencias", "clientes", "relatorios", "fechamento", "empresas", "financeiro", "auditoria"]
     elif st.session_state.get('is_subuser', False):
         lista_abas = ["dashboard", "pendencias", "clientes", "relatorios", "auditoria"]
     else:
-        lista_abas = ["dashboard", "pendencias", "clientes", "relatorios", "faturamento", "cadastro", "auditoria"]
+        lista_abas = ["dashboard", "pendencias", "clientes", "relatorios", "fechamento", "faturamento", "cadastro", "auditoria"]
         
     if st.session_state.menu_navegacao not in lista_abas:
         st.session_state.menu_navegacao = lista_abas[0]
@@ -1484,7 +1485,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         acao_clientes = st.radio("Ação Clientes:", opcoes_acao, horizontal=True)
         st.markdown("---")
         
-        # ATUALIZAÇÃO: Buscando também o valor do veículo para calcular o faturamento projetado na listagem
         empresas_disp = fetch_data("SELECT nome, servicos, valor_veiculo FROM empresas ORDER BY nome")
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
 
@@ -1527,7 +1527,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     
                     with st.expander(titulo_pasta, expanded=tem_busca_ativa):
                         
-                        # --- NOVA ÁREA: CARDS DE MÉTRICAS (BASE APURADA) ---
+                        # --- CARDS DE MÉTRICAS COM TRAVA DE SEGURANÇA ---
                         total_veiculos_emp = int(df_emp['qtd_veiculos'].sum())
                         
                         if st.session_state.get('is_subuser'):
@@ -1541,7 +1541,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             </div>
                             """, unsafe_allow_html=True)
                         else:
-                            # Se for ADMIN ou GESTOR TITULAR, calcula e mostra o faturamento
+                            # Se for ADMIN ou GESTOR TITULAR, calcula e mostra o faturamento projetado
                             valor_unitario = 3.00
                             for e in empresas_disp:
                                 if e['nome'] == emp_ativa:
@@ -2217,6 +2217,142 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     else:
                         st.info("Nenhum registro encontrado.")
                 idx_sub += 1
+
+    # --- TELA: FECHAMENTO DO MÊS (DISPARO DE RELATÓRIOS B2B) ---
+    elif aba_ativa == "fechamento" and not st.session_state.get('is_subuser'):
+        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📆 Fechamento do Mês (Relatórios B2B)</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='font-size: 13px; color: #666;'>Gere os resumos executivos mensais estruturados e dispare via WhatsApp para os gestores das frotas parceiras com um único clique.</p>", unsafe_allow_html=True)
+        
+        mes_atual = get_horario_brasil().strftime("%m/%Y")
+        mes_filtro_fech = st.text_input("Filtrar Período de Fechamento (Mês/Ano):", value=mes_atual, key=f"fech_m_{st.session_state.rk}")
+        
+        if st.session_state.is_admin:
+            empresas_fech = fetch_data("SELECT nome, servicos, telefone, pop_gestor, pop_wpp_financeiro FROM empresas ORDER BY nome")
+        else:
+            empresas_fech = fetch_data("SELECT nome, servicos, telefone, pop_gestor, pop_wpp_financeiro FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
+            
+        if empresas_fech:
+            for emp_f in empresas_fech:
+                nome_emp_f = emp_f['nome']
+                servico_emp_f = emp_f.get('servicos', 'Ambos (Furto/Roubo + Monitoramento)')
+                tel_alvo_f = emp_f.get('pop_gestor') or emp_f.get('telefone') or ""
+                
+                with st.expander(f"📊 Disparo de Fechamento: {nome_emp_f} - {mes_filtro_fech}", expanded=False):
+                    
+                    q_v_f = "SELECT count(v.id) as c FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa=%s AND c.status='Ativo'"
+                    res_v_f = fetch_data(q_v_f, (nome_emp_f,))
+                    qtd_v_f = res_v_f[0]['c'] if res_v_f else 0
+                    
+                    q_h_f = "SELECT * FROM historico WHERE empresa=%s AND data_hora ILIKE %s ORDER BY id DESC"
+                    dados_h_f = fetch_data(q_h_f, (nome_emp_f, f"%{mes_filtro_fech}%"))
+                    
+                    eventos_fr = [h for h in dados_h_f if h['tipo'] in ['Furto', 'Roubo']]
+                    eventos_mon = [h for h in dados_h_f if h['tipo'] not in ['Furto', 'Roubo']]
+                    
+                    total_chamados = len(dados_h_f)
+                    
+                    qtd_fr = len(eventos_fr)
+                    qtd_recup = sum(1 for h in eventos_fr if "Veículo Recuperado" in str(h.get('detalhes','')))
+                    taxa_recup = (qtd_recup / qtd_fr * 100) if qtd_fr > 0 else 0
+                    
+                    qtd_mon = len(eventos_mon)
+                    eventos_parse = []
+                    for row in eventos_mon:
+                        detalhe = str(row.get('detalhes', ''))
+                        if "Evento: " in detalhe:
+                            evt_extraido = detalhe.split("Evento: ")[1].split(" |")[0]
+                            eventos_parse.append(evt_extraido)
+                        else:
+                            eventos_parse.append(row['tipo'])
+                            
+                    df_ev = pd.DataFrame(eventos_parse, columns=['Evento'])
+                    campeao = "Nenhum"
+                    pct_campeao = 0.0
+                    detalhamento_mon = ""
+                    
+                    if not df_ev.empty:
+                        contagem = df_ev['Evento'].value_counts().reset_index()
+                        contagem.columns = ['Evento', 'count']
+                        campeao = contagem.iloc[0]['Evento']
+                        total_campeao = contagem.iloc[0]['count']
+                        pct_campeao = (total_campeao / qtd_mon) * 100
+                        for _, row in contagem.iterrows():
+                            detalhamento_mon += f"• {row['Evento']}: {row['count']} ocorrência(s)\n"
+                            
+                    diag_obj = DIAGNOSTICOS_TECNICOS.get(campeao, {
+                        "diagnostico": "Eventos de rotina operados pela central.",
+                        "causa": "Necessidades padrão de atendimento ou dúvidas rotineiras de clientes.",
+                        "acao": "Manter os veículos em observação e prestar suporte quando acionados."
+                    })
+                            
+                    if "Apenas Furto e Roubo" in servico_emp_f:
+                        msg_wpp = f"🚨 *RELATÓRIO DE PRONTA RESPOSTA E SINISTROS — CENTRAL AD*\n"
+                        msg_wpp += f"*Empresa Parceira:* {nome_emp_f}\n*Mês de Referência:* {mes_filtro_fech}\n\n"
+                        msg_wpp += f"Olá, equipe! Segue o extrato executivo de segurança tática da sua frota:\n\n"
+                        msg_wpp += f"🚗 *Frota Coberta:* {qtd_v_f} veículos ativos\n"
+                        msg_wpp += f"🚨 *Sinistros Ocorridos no Mês:* {qtd_fr} ocorrência(s)\n\n"
+                        if qtd_fr > 0:
+                            msg_wpp += f"🛡️ *Eficiência Operacional:*\n"
+                            msg_wpp += f"• Taxa de Recuperação: {taxa_recup:.0f}% ({qtd_recup} de {qtd_fr} recuperados)\n\n"
+                        msg_wpp += f"📄 Baixe o relatório completo no sistema e o anexe nesta conversa logo abaixo desta mensagem para mantermos o registro formal.\n\n*AD Rastreamento Veicular*"
+                        
+                    elif "Apenas Monitoramento" in servico_emp_f:
+                        msg_wpp = f"📡 *RELATÓRIO DE MONITORAMENTO E TELEMETRIA — CENTRAL AD*\n"
+                        msg_wpp += f"*Empresa Parceira:* {nome_emp_f}\n*Mês de Referência:* {mes_filtro_fech}\n\n"
+                        msg_wpp += f"Olá! Apresentamos o balanço de telemetria e chamados operacionais da sua frota:\n\n"
+                        msg_wpp += f"🚗 *Frota Monitorada:* {qtd_v_f} veículos ativos\n"
+                        msg_wpp += f"🛠️ *Total de Registros Tratados:* {qtd_mon} ocorrências\n\n"
+                        if detalhamento_mon:
+                            msg_wpp += f"📊 *Distribuição dos Eventos:*\n{detalhamento_mon}\n"
+                            msg_wpp += f"🔎 *Principal Demanda:* {campeao} ({pct_campeao:.1f}% dos chamados)\n\n"
+                        msg_wpp += f"📄 Baixe o relatório completo no sistema e o anexe nesta conversa logo abaixo desta mensagem para mantermos o registro formal.\n\n*AD Rastreamento Veicular*"
+                        
+                    else: 
+                        msg_wpp = f"🛡️ *RELATÓRIO INTEGRADO DE OPERAÇÕES — CENTRAL AD*\n"
+                        msg_wpp += f"*Empresa Parceira:* {nome_emp_f}\n*Mês de Referência:* {mes_filtro_fech}\n\n"
+                        msg_wpp += f"Olá! Segue o relatório mensal consolidado (Suporte Tático + Telemetria):\n\n"
+                        msg_wpp += f"🚗 *Frota Total Coberta:* {qtd_v_f} veículos ativos\n"
+                        msg_wpp += f"📞 *Total Geral de Demandas:* {total_chamados} atendimentos\n\n"
+                        msg_wpp += f"🔴 *BLOCO 1: PRONTA RESPOSTA & SINISTROS*\n"
+                        msg_wpp += f"• Ocorrências de Furto/Roubo: {qtd_fr} sinistro(s)\n"
+                        if qtd_fr > 0:
+                            msg_wpp += f"• Taxa de Recuperação: {taxa_recup:.0f}%\n"
+                        msg_wpp += f"\n🔵 *BLOCO 2: TELEMETRIA & MONITORAMENTO TÉCNICO*\n"
+                        msg_wpp += f"• Total de Eventos Tratados: {qtd_mon}\n"
+                        if campeao != "Nenhum":
+                            msg_wpp += f"• Maior Incidência: {campeao} ({pct_campeao:.1f}%)\n\n"
+                        else:
+                            msg_wpp += "\n"
+                        msg_wpp += f"📄 Baixe o relatório completo no sistema e o anexe nesta conversa logo abaixo desta mensagem para mantermos o registro formal.\n\n*AD Rastreamento Veicular*"
+                    
+                    tel_limpo = re.sub(r'\D', '', str(tel_alvo_f))
+                    if tel_limpo and len(tel_limpo) >= 10:
+                        if not tel_limpo.startswith('55'):
+                            tel_limpo = f"55{tel_limpo}"
+                        link_wpp_fech = f"https://wa.me/{tel_limpo}?text={urllib.parse.quote(msg_wpp)}"
+                        html_wpp_btn = f'<a href="{link_wpp_fech}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:12px 20px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">📲 Passo 2: Disparar Resumo Tático no WhatsApp</button></a>'
+                    else:
+                        html_wpp_btn = "<div style='color:#c62828; font-weight:bold; font-size:13px; margin-bottom:10px; background:#ffebee; padding:10px; border-radius:5px;'>⚠️ O Telefone ou número de WhatsApp do Gestor desta empresa está vazio ou inválido no cadastro.</div>"
+
+                    st.markdown("<p style='font-size: 13px; color: #444;'><b>Instruções:</b> Primeiro baixe o Laudo Analítico Oficial em seu computador. Em seguida, clique em disparar no WhatsApp e anexe o arquivo baixado na conversa para o cliente.</p>", unsafe_allow_html=True)
+                    
+                    # Gerador do PDF / HTML no botão
+                    detalhamento_operacional = ""
+                    for _, row in df_ev['Evento'].value_counts().reset_index().iterrows():
+                        evt = row['Evento']
+                        qtd = row['count']
+                        pct = (qtd / total_chamados) * 100 if total_chamados > 0 else 0
+                        detalhamento_operacional += f"   • {evt}: {qtd} chamado(s) ({pct:.1f}%)\n"
+                        
+                    html_pdf_btn = gerar_laudo_mensal_html(nome_emp_f, mes_filtro_fech, total_chamados, campeao, pct_campeao, diag_obj, dados_h_f, detalhamento_operacional)
+                    
+                    st.markdown(html_pdf_btn.replace("📥 Baixar Super Relatório Detalhado (HTML/PDF)", "📄 Passo 1: Baixar Laudo Analítico Oficial (PDF/HTML)"), unsafe_allow_html=True)
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    st.markdown(html_wpp_btn, unsafe_allow_html=True)
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    
+                    st.write("📝 **Pré-visualização da Mensagem que será enviada:**")
+                    st.info(msg_wpp)
 
     # --- TELA: MEU FATURAMENTO ---
     elif aba_ativa == "faturamento" and not st.session_state.is_admin and not st.session_state.get('is_subuser'):
