@@ -1529,31 +1529,44 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         
                         # --- NOVA ÁREA: CARDS DE MÉTRICAS (BASE APURADA) ---
                         total_veiculos_emp = int(df_emp['qtd_veiculos'].sum())
-                        valor_unitario = 3.00
-                        for e in empresas_disp:
-                            if e['nome'] == emp_ativa:
-                                val_banco = e.get('valor_veiculo')
-                                valor_unitario = val_banco if val_banco is not None else 3.00
-                                break
-                                
-                        faturamento_projetado = total_veiculos_emp * valor_unitario
                         
-                        st.markdown(f"""
-                        <div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;'>
-                            <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
-                                <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>🚗 Base Apurada (Veículos)</p>
-                                <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>{total_veiculos_emp}</h3>
+                        if st.session_state.get('is_subuser'):
+                            # Se for OPERADOR (funcionário), vê apenas a quantidade de veículos
+                            st.markdown(f"""
+                            <div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;'>
+                                <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                                    <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>🚗 Base Apurada (Veículos)</p>
+                                    <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>{total_veiculos_emp}</h3>
+                                </div>
                             </div>
-                            <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
-                                <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>💵 Valor Unitário (Contrato)</p>
-                                <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>R$ {valor_unitario:.2f}</h3>
+                            """, unsafe_allow_html=True)
+                        else:
+                            # Se for ADMIN ou GESTOR TITULAR, calcula e mostra o faturamento
+                            valor_unitario = 3.00
+                            for e in empresas_disp:
+                                if e['nome'] == emp_ativa:
+                                    val_banco = e.get('valor_veiculo')
+                                    valor_unitario = val_banco if val_banco is not None else 3.00
+                                    break
+                                    
+                            faturamento_projetado = total_veiculos_emp * valor_unitario
+                            
+                            st.markdown(f"""
+                            <div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;'>
+                                <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                                    <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>🚗 Base Apurada (Veículos)</p>
+                                    <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>{total_veiculos_emp}</h3>
+                                </div>
+                                <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                                    <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>💵 Valor Unitário (Contrato)</p>
+                                    <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>R$ {valor_unitario:.2f}</h3>
+                                </div>
+                                <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #8b0000; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                                    <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>💳 Faturamento Projetado</p>
+                                    <h3 style='margin: 5px 0 0 0; color: #8b0000; font-size: 20px;'>R$ {faturamento_projetado:.2f}</h3>
+                                </div>
                             </div>
-                            <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #8b0000; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
-                                <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>💳 Faturamento Projetado</p>
-                                <h3 style='margin: 5px 0 0 0; color: #8b0000; font-size: 20px;'>R$ {faturamento_projetado:.2f}</h3>
-                            </div>
-                        </div>
-                        """, unsafe_allow_html=True)
+                            """, unsafe_allow_html=True)
                         # --------------------------------------------------
 
                         df_display = df_emp[['nome', 'documento', 'telefone', 'data_cadastro', 'qtd_veiculos', 'status']].copy()
