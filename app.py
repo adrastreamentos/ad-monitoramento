@@ -166,7 +166,6 @@ def init_db():
     try:
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS chassi TEXT DEFAULT '';")
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS renavam TEXT DEFAULT '';")
-        # Colunas mantidas apenas para não quebrar tabelas antigas (não exibidas mais)
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS info_chip TEXT DEFAULT '';")
         c.execute("ALTER TABLE veiculos ADD COLUMN IF NOT EXISTS caracteristicas TEXT DEFAULT '';")
         conn.commit()
@@ -176,7 +175,6 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS historico (id SERIAL PRIMARY KEY, data_hora TEXT, cliente TEXT, placa TEXT, tipo TEXT, status TEXT, detalhes TEXT, empresa TEXT)''')
     c.execute('''CREATE TABLE IF NOT EXISTS auditoria (id SERIAL PRIMARY KEY, data_hora TEXT, acao TEXT, modulo TEXT, detalhes TEXT, usuario TEXT)''')
     
-    # --- NOVA TABELA PARA A LINHA DO TEMPO (TIMELINE DE FURTO E ROUBO) ---
     c.execute('''CREATE TABLE IF NOT EXISTS historico_timeline (id SERIAL PRIMARY KEY, historico_id INTEGER, data_hora TEXT, acao TEXT, operador TEXT)''')
     
     c.execute('''CREATE INDEX IF NOT EXISTS idx_veiculos_placa ON veiculos(placa)''')
@@ -1434,8 +1432,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     st.session_state.flash_msg = "Salvo com sucesso!"
                                     limpar_tela()
                                     st.rerun()
-                else:
-                    st.warning("Nenhum veículo encontrado com este termo.")
+            else:
+                st.warning("Nenhum veículo encontrado com este termo.")
 
     # --- TELA: GESTÃO DE PENDÊNCIAS ---
     elif aba_ativa == "pendencias":
@@ -1473,8 +1471,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             st.rerun()
         else:
             st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
-
-    # --- TELA: CLIENTES E FROTAS ---
+            # --- TELA: CLIENTES E FROTAS ---
     elif aba_ativa == "clientes":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</h2>", unsafe_allow_html=True)
         
@@ -1487,7 +1484,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         acao_clientes = st.radio("Ação Clientes:", opcoes_acao, horizontal=True)
         st.markdown("---")
         
-        empresas_disp = fetch_data("SELECT nome, servicos FROM empresas ORDER BY nome")
+        # ATUALIZAÇÃO: Buscando também o valor do veículo para calcular o faturamento projetado na listagem
+        empresas_disp = fetch_data("SELECT nome, servicos, valor_veiculo FROM empresas ORDER BY nome")
         opcoes_emp = [e['nome'] for e in empresas_disp] if st.session_state.is_admin else [st.session_state.nome_empresa]
 
         if acao_clientes == "Listar":
@@ -1528,6 +1526,36 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         titulo_pasta += f" ({total_encontrados_emp} encontrado{'s' if total_encontrados_emp > 1 else ''})"
                     
                     with st.expander(titulo_pasta, expanded=tem_busca_ativa):
+                        
+                        # --- NOVA ÁREA: CARDS DE MÉTRICAS (BASE APURADA) ---
+                        total_veiculos_emp = int(df_emp['qtd_veiculos'].sum())
+                        valor_unitario = 3.00
+                        for e in empresas_disp:
+                            if e['nome'] == emp_ativa:
+                                val_banco = e.get('valor_veiculo')
+                                valor_unitario = val_banco if val_banco is not None else 3.00
+                                break
+                                
+                        faturamento_projetado = total_veiculos_emp * valor_unitario
+                        
+                        st.markdown(f"""
+                        <div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;'>
+                            <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                                <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>🚗 Base Apurada (Veículos)</p>
+                                <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>{total_veiculos_emp}</h3>
+                            </div>
+                            <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                                <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>💵 Valor Unitário (Contrato)</p>
+                                <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>R$ {valor_unitario:.2f}</h3>
+                            </div>
+                            <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #8b0000; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
+                                <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>💳 Faturamento Projetado</p>
+                                <h3 style='margin: 5px 0 0 0; color: #8b0000; font-size: 20px;'>R$ {faturamento_projetado:.2f}</h3>
+                            </div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        # --------------------------------------------------
+
                         df_display = df_emp[['nome', 'documento', 'telefone', 'data_cadastro', 'qtd_veiculos', 'status']].copy()
                         df_display.columns = ['Cliente', 'CPF/CNPJ', 'Telefone', 'Data de Cadastro', 'Qtd. Veículos', 'Status']
                         st.dataframe(df_display, use_container_width=True)
@@ -2967,7 +2995,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             cnpj_parceiro = "Migração (O CNPJ precisa ser corrigido na aba Empresas)"
                         else:
                             cnpj_parceiro = cnpj_res[0]['cnpj']
-                        
+                    
                     st.markdown("<br>", unsafe_allow_html=True)
                     st.markdown(gerar_certificado_lgpd_html(dados_a, cnpj_parceiro), unsafe_allow_html=True)
                     
