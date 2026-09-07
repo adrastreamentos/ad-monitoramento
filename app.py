@@ -1472,7 +1472,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             st.rerun()
         else:
             st.success("✅ Nenhuma pendência em aberto no momento. Todos os chamados financeiros e técnicos foram resolvidos e finalizados!")
-            # --- TELA: CLIENTES E FROTAS ---
+            
+    # --- TELA: CLIENTES E FROTAS ---
     elif aba_ativa == "clientes":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</h2>", unsafe_allow_html=True)
         
@@ -2024,8 +2025,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         elif acao_clientes == "Solicitar Exclusão":
             st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao suporte oficial informando a placa e o motivo.")
             st.markdown(gerar_link_whatsapp(f"Solicitação de Exclusão de Cadastro - Parceiro: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
-
-    # --- TELA: RELATÓRIOS ---
+            # --- TELA: RELATÓRIOS ---
     elif aba_ativa == "relatorios":
         st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📖 Relatórios Operacionais</h2>", unsafe_allow_html=True)
         
@@ -2117,6 +2117,34 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 </div>
 ''', unsafe_allow_html=True)
                             
+                            # --- BLOCO DE EDIÇÃO (EXCLUSIVO ADMIN) ---
+                            if st.session_state.is_admin:
+                                st.markdown("---")
+                                with st.expander("🛠️ Editar Ocorrência (Acesso Exclusivo Admin)", expanded=False):
+                                    with st.form(f"form_edit_fr_{id_r}"):
+                                        st.markdown("<p style='font-size:13px; color:#666;'>Atenção: A edição altera o registro original no banco de dados.</p>", unsafe_allow_html=True)
+                                        c_ed1, c_ed2, c_ed3 = st.columns(3)
+                                        ed_dh = c_ed1.text_input("Data/Hora", value=dados_fr['data_hora'], key=f"ed_dh_fr_{id_r}")
+                                        ed_placa = c_ed2.text_input("Placa", value=dados_fr['placa'], key=f"ed_pl_fr_{id_r}")
+                                        ed_cli = c_ed3.text_input("Cliente", value=dados_fr['cliente'], key=f"ed_cli_fr_{id_r}")
+                                        
+                                        c_ed4, c_ed5 = st.columns(2)
+                                        ed_tipo = c_ed4.text_input("Tipo de Ocorrência", value=dados_fr['tipo'], key=f"ed_tp_fr_{id_r}")
+                                        
+                                        opcoes_status = ["EM ANDAMENTO", "FINALIZADO", "PENDENTE"]
+                                        idx_status = opcoes_status.index(dados_fr['status']) if dados_fr['status'] in opcoes_status else 0
+                                        ed_status = c_ed5.selectbox("Status", opcoes_status, index=idx_status, key=f"ed_st_fr_{id_r}")
+                                        
+                                        ed_detalhes = st.text_area("Detalhes / Desfecho / Notas", value=dados_fr['detalhes'], height=180, key=f"ed_det_fr_{id_r}")
+                                        
+                                        if st.form_submit_button("💾 Salvar Correção no Banco", type="primary"):
+                                            execute_query("UPDATE historico SET data_hora=%s, placa=%s, cliente=%s, tipo=%s, status=%s, detalhes=%s WHERE id=%s", 
+                                                          (ed_dh, ed_placa, ed_cli, ed_tipo, ed_status, ed_detalhes, id_r))
+                                            registrar_auditoria("Edição (Admin)", "Relatórios", f"Ocorrência de Furto/Roubo ID {id_r} corrigida pelo Admin.", dados_fr['empresa'])
+                                            st.session_state.flash_msg = "Ocorrência atualizada com sucesso!"
+                                            limpar_tela()
+                                            st.rerun()
+
                             if dados_fr['status'] == 'EM ANDAMENTO':
                                 st.markdown("---")
                                 st.write("🟢 **Finalizar Atendimento (Desfecho Forense):**")
@@ -2212,6 +2240,34 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 </div>
 ''', unsafe_allow_html=True)
                             
+                            # --- BLOCO DE EDIÇÃO (EXCLUSIVO ADMIN) ---
+                            if st.session_state.is_admin:
+                                st.markdown("---")
+                                with st.expander("🛠️ Editar Registro (Acesso Exclusivo Admin)", expanded=False):
+                                    with st.form(f"form_edit_mon_{id_m}"):
+                                        st.markdown("<p style='font-size:13px; color:#666;'>Atenção: A edição altera o registro original no banco de dados.</p>", unsafe_allow_html=True)
+                                        c_ed1, c_ed2, c_ed3 = st.columns(3)
+                                        ed_dh = c_ed1.text_input("Data/Hora", value=dados_mon['data_hora'], key=f"ed_dh_mon_{id_m}")
+                                        ed_placa = c_ed2.text_input("Placa", value=dados_mon['placa'], key=f"ed_pl_mon_{id_m}")
+                                        ed_cli = c_ed3.text_input("Cliente", value=dados_mon['cliente'], key=f"ed_cli_mon_{id_m}")
+                                        
+                                        c_ed4, c_ed5 = st.columns(2)
+                                        ed_tipo = c_ed4.text_input("Tipo de Ocorrência", value=dados_mon['tipo'], key=f"ed_tp_mon_{id_m}")
+                                        
+                                        opcoes_status = ["EM ANDAMENTO", "FINALIZADO", "PENDENTE"]
+                                        idx_status = opcoes_status.index(dados_mon['status']) if dados_mon['status'] in opcoes_status else 0
+                                        ed_status = c_ed5.selectbox("Status", opcoes_status, index=idx_status, key=f"ed_st_mon_{id_m}")
+                                        
+                                        ed_detalhes = st.text_area("Detalhes / Resolução", value=dados_mon['detalhes'], height=180, key=f"ed_det_mon_{id_m}")
+                                        
+                                        if st.form_submit_button("💾 Salvar Correção no Banco", type="primary"):
+                                            execute_query("UPDATE historico SET data_hora=%s, placa=%s, cliente=%s, tipo=%s, status=%s, detalhes=%s WHERE id=%s", 
+                                                          (ed_dh, ed_placa, ed_cli, ed_tipo, ed_status, ed_detalhes, id_m))
+                                            registrar_auditoria("Edição (Admin)", "Relatórios", f"Registro de Monitoramento ID {id_m} corrigido pelo Admin.", dados_mon['empresa'])
+                                            st.session_state.flash_msg = "Registro atualizado com sucesso!"
+                                            limpar_tela()
+                                            st.rerun()
+
                             st.markdown("<br>", unsafe_allow_html=True)
                             st.markdown(gerar_relatorio_html(dados_mon, st.session_state.nome_empresa), unsafe_allow_html=True)
                     else:
@@ -2990,7 +3046,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     if st.button("❌ Cancelar Seleção", key="btn_close_fin", type="secondary", use_container_width=True):
                         limpar_tela()
                         st.rerun()
-                    
+                
                 dados_emp_fin = next(item for item in empresas_cad if item["nome"] == emp_escolhida_pagto)
                 val_atual = dados_emp_fin['valor_veiculo'] if dados_emp_fin['valor_veiculo'] is not None else 3.00
                 stat_atual = dados_emp_fin['status_pagamento'] if dados_emp_fin['status_pagamento'] is not None else "Pendente"
