@@ -1044,7 +1044,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             link_extraido = detalhes_ativos.split("Link Rastreio: ")[1].split(" |")[0]
                         
                         nome_empresa_ativo = str(inc.get('empresa', 'EMPRESA')).upper()
-                        txt_ativo_copiar = f"🚨 ALERTA DE SINISTRO - {nome_empresa_ativo} 🚨\n• Tipo: {inc['tipo'].upper()}\n• Veículo: {inc.get('modelo','')} - PLACA: {inc['placa']}\n• Chassi: {inc.get('chassi','')}\n• Cliente: {inc['cliente']}\n• Link Tático: {link_extraido}"
+                        txt_ativo_copiar = f"🚨 ALERTA DE SINISTRO - {nome_empresa_ativo} 🚨\n• Tipo: {inc['tipo'].upper()}\n• Veículo: {inc.get('modelo','')}\n• PLACA: {inc['placa']}\n• Chassi: {inc.get('chassi','')}\n• Cliente: {inc['cliente']}\n• Link Tático: {link_extraido}"
                         link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_ativo_copiar)}"
                         
                         st.markdown(f'<a href="{link_ativo_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:8px 12px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; font-size: 13.5px; margin-bottom: 15px; width: 100%; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📲 Reenviar Dossiê para Pronta Resposta (WhatsApp)</button></a>', unsafe_allow_html=True)
@@ -2075,10 +2075,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     
                     if res_fr:
                         df_fr = pd.DataFrame(res_fr)
-                        st.dataframe(df_fr[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
+                        # ATUALIZAÇÃO: Inclusão da coluna Empresa no DataFrame de exibição
+                        df_fr_visual = df_fr[['id', 'data_hora', 'empresa', 'cliente', 'placa', 'tipo', 'status']].copy()
+                        df_fr_visual.columns = ['ID', 'Data/Hora', 'Empresa', 'Cliente', 'Placa', 'Tipo', 'Status']
+                        st.dataframe(df_fr_visual, use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha de Ocorrência Tática")
-                        lista_sel_fr = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_fr]
+                        # ATUALIZAÇÃO: Inclusão do nome da empresa no seletor
+                        lista_sel_fr = [""] + [f"{h['id']} - {h['empresa']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_fr]
                         
                         k_rel_fr = st.session_state.reset_keys['rel_fr']
                         reg_sel_fr = st.selectbox("Selecione um atendimento para visualizar ou finalizar:", lista_sel_fr, key=f"sb_rel_fr_{k_rel_fr}")
@@ -2102,10 +2106,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 html_tl += "<li><i>Sem histórico tático gravado.</i></li>"
                             html_tl += "</ul>"
                             
+                            # ATUALIZAÇÃO: Inclusão do campo Empresa na Ficha
                             st.markdown(f'''
 <div class="ficha-box">
     <h4 style="color:#8b0000; text-align:center;">Ficha de Ocorrência nº {dados_fr['id']} ({dados_fr['tipo']})</h4>
     <hr>
+    <p><b>Empresa Parceira:</b> {dados_fr['empresa']}</p>
     <p><b>Data/Hora de Abertura:</b> {dados_fr['data_hora']}</p>
     <p><b>Cliente:</b> {dados_fr['cliente']}</p>
     <p><b>Placa:</b> {dados_fr['placa']}</p>
@@ -2179,7 +2185,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                         st.rerun()
                             
                             st.markdown("<br>", unsafe_allow_html=True)
-                            st.markdown(gerar_relatorio_html(dados_fr, st.session_state.nome_empresa), unsafe_allow_html=True)
+                            st.markdown(gerar_relatorio_html(dados_fr, dados_fr['empresa']), unsafe_allow_html=True)
                     else:
                         st.info("Nenhum registro de Furto ou Roubo encontrado.")
                 idx_sub += 1
@@ -2208,10 +2214,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     
                     if res_mon:
                         df_mon = pd.DataFrame(res_mon)
-                        st.dataframe(df_mon[['id', 'data_hora', 'cliente', 'placa', 'tipo', 'status']], use_container_width=True)
+                        # ATUALIZAÇÃO: Inclusão da coluna Empresa no DataFrame de exibição
+                        df_mon_visual = df_mon[['id', 'data_hora', 'empresa', 'cliente', 'placa', 'tipo', 'status']].copy()
+                        df_mon_visual.columns = ['ID', 'Data/Hora', 'Empresa', 'Cliente', 'Placa', 'Tipo', 'Status']
+                        st.dataframe(df_mon_visual, use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha de Relatório")
-                        lista_sel_mon = [""] + [f"{h['id']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_mon]
+                        # ATUALIZAÇÃO: Inclusão do nome da empresa no seletor
+                        lista_sel_mon = [""] + [f"{h['id']} - {h['empresa']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_mon]
                         
                         k_rel_mon = st.session_state.reset_keys['rel_mon']
                         reg_sel_mon = st.selectbox("Selecione um registro para visualizar:", lista_sel_mon, key=f"sb_rel_mon_{k_rel_mon}")
@@ -2226,10 +2236,12 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     limpar_tela()
                                     st.rerun()
 
+                            # ATUALIZAÇÃO: Inclusão do campo Empresa na Ficha
                             st.markdown(f'''
 <div class="ficha-box">
     <h4 style="color:#4a0e4e; text-align:center;">Ficha de Monitoramento / Transferência nº {dados_mon['id']}</h4>
     <hr>
+    <p><b>Empresa Parceira:</b> {dados_mon['empresa']}</p>
     <p><b>Data/Hora:</b> {dados_mon['data_hora']}</p>
     <p><b>Cliente:</b> {dados_mon['cliente']}</p>
     <p><b>Placa:</b> {dados_mon['placa']}</p>
@@ -2269,7 +2281,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                             st.rerun()
 
                             st.markdown("<br>", unsafe_allow_html=True)
-                            st.markdown(gerar_relatorio_html(dados_mon, st.session_state.nome_empresa), unsafe_allow_html=True)
+                            st.markdown(gerar_relatorio_html(dados_mon, dados_mon['empresa']), unsafe_allow_html=True)
                     else:
                         st.info("Nenhum registro encontrado.")
                 idx_sub += 1
