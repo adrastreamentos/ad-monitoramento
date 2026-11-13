@@ -12,99 +12,286 @@ import re
 import altair as alt
 
 # --- CONFIGURAÇÕES DA PÁGINA E IDENTIDADE VISUAL ---
-st.set_page_config(page_title="Central de Operações", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="Central de Operações - AD Rastreamento", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
-    .stApp { background-color: #fcfcfc; }
-    h1, h2, h3 { color: #4a0e4e; margin-top: 0px; margin-bottom: 10px; }
-    
-    /* --- PADRONIZAÇÃO MODERNA DE TODOS OS BOTÕES --- */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+
+    html, body, [class*="css"] {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    header {visibility: hidden;}
+
+    .stApp { background-color: #F4F6F9; }
+
+    .block-container {
+        padding-top: 1.2rem !important;
+        padding-bottom: 2rem !important;
+        max-width: 98% !important;
+    }
+
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #6A1B9A; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #D32F2F; }
+
+    h1, h2, h3 { color: #4A148C; margin-top: 0px; margin-bottom: 10px; font-weight: 800; }
+
+    /* Barra Executiva Superior (Unificada com a Assistência 24h) */
+    .ad-topbar {
+        background: linear-gradient(90deg, #4A148C 0%, #6A1B9A 65%, #D32F2F 100%);
+        color: #FFFFFF;
+        padding: 14px 22px;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        box-shadow: 0 4px 14px rgba(106, 27, 154, 0.18);
+        margin-bottom: 14px;
+    }
+    .ad-topbar-brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .ad-badge-logo {
+        background: #FFFFFF;
+        color: #6A1B9A;
+        font-weight: 900;
+        font-size: 16px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        letter-spacing: 0.5px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    }
+    .ad-badge-logo span { color: #D32F2F; }
+
+    /* Títulos de Seção */
+    .section-banner {
+        font-size: 18px !important;
+        font-weight: 800 !important;
+        color: #4A148C !important;
+        background: #FFFFFF;
+        padding: 12px 18px;
+        border-radius: 10px;
+        border-left: 5px solid #D32F2F;
+        box-shadow: 0 2px 6px rgba(106, 27, 154, 0.06);
+        margin-bottom: 16px !important;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    /* Cards de Indicadores Superiores (Estilo Imagem 2) */
+    .metric-card {
+        background-color: #FFFFFF;
+        border-radius: 12px;
+        padding: 16px 18px;
+        text-align: left;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.04);
+        margin-bottom: 14px;
+        border: 1px solid #E2E8F0;
+        border-top: 4px solid #6A1B9A;
+    }
+    .metric-card.red-accent { border-top: 4px solid #D32F2F; }
+    .metric-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 6px;
+    }
+    .metric-icon {
+        width: 38px;
+        height: 38px;
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        background: #F3E5F5;
+        color: #6A1B9A;
+    }
+    .metric-icon.red-bg { background: #FFEBEE; color: #D32F2F; }
+    .metric-title {
+        color: #64748B;
+        font-size: 11.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .metric-value {
+        font-size: 26px;
+        font-weight: 900;
+        color: #1E293B;
+    }
+
+    /* Linha do Tempo Visual (Estilo Imagem 4) */
+    .timeline-box {
+        background: #FFFFFF;
+        border: 1px solid #FFCDD2;
+        border-left: 5px solid #D32F2F;
+        padding: 14px 18px;
+        border-radius: 10px;
+        margin-bottom: 15px;
+        box-shadow: 0 2px 6px rgba(211, 47, 47, 0.06);
+    }
+    .timeline-list {
+        list-style: none;
+        padding-left: 12px;
+        border-left: 2px solid #6A1B9A;
+        margin-top: 10px;
+        margin-bottom: 0;
+    }
+    .timeline-list li {
+        position: relative;
+        padding-left: 14px;
+        margin-bottom: 8px;
+        font-size: 13px;
+        color: #334155;
+    }
+    .timeline-list li::before {
+        content: "";
+        position: absolute;
+        left: -17px;
+        top: 5px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #D32F2F;
+        border: 2px solid #FFFFFF;
+        box-shadow: 0 0 0 2px #D32F2F;
+    }
+
+    /* Padronização Moderna de Botões */
     .stButton>button {
         border-radius: 8px;
-        font-weight: 600;
+        font-weight: 700;
         font-size: 13.5px;
         padding: 8px 16px;
         transition: all 0.2s ease-in-out;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.06);
     }
-    
     .stButton>button:hover {
         transform: translateY(-1px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.12);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.12);
     }
-    
-    .stButton>button:active {
-        transform: translateY(0px);
-    }
+    .stButton>button:active { transform: translateY(0px); }
 
     button[kind="primary"] {
-        background-color: #8b0000 !important;
+        background: linear-gradient(135deg, #6A1B9A 0%, #4A148C 100%) !important;
         color: #ffffff !important;
         border: none !important;
     }
     button[kind="primary"]:hover {
-        background-color: #4a0e4e !important;
+        background: linear-gradient(135deg, #D32F2F 0%, #B71C1C 100%) !important;
         color: #ffffff !important;
     }
 
     button[kind="secondary"] {
         background-color: #ffffff !important;
-        color: #444444 !important;
-        border: 1.5px solid #e0e0e0 !important;
+        color: #4A148C !important;
+        border: 1.5px solid #D1C4E9 !important;
     }
     button[kind="secondary"]:hover {
-        background-color: #fef8f8 !important;
-        color: #8b0000 !important;
-        border-color: #8b0000 !important;
+        background-color: #FFF5F5 !important;
+        color: #D32F2F !important;
+        border-color: #D32F2F !important;
     }
 
-    div[data-testid="stSidebar"] { background-color: #4a0e4e; }
+    /* Sidebar Corporativa */
+    div[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #4A148C 0%, #310A60 100%);
+        border-right: 3px solid #D32F2F;
+    }
     div[data-testid="stSidebar"] * { color: white; }
-    
+    div[data-testid="stSidebar"] img {
+        border-radius: 10px;
+        border: 2px solid rgba(255,255,255,0.25);
+        background: #FFFFFF;
+        padding: 4px;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.25);
+    }
+
+    /* Barra de Navegação Horizontal */
     div[role="radiogroup"] { 
         justify-content: center; 
-        gap: 12px; 
-        padding: 14px; 
-        background-color: #f7f7f7; 
-        border-radius: 10px;
-        border-bottom: 4px solid #4a0e4e;
+        gap: 8px; 
+        padding: 10px 14px; 
+        background-color: #FFFFFF; 
+        border-radius: 12px;
+        border: 1px solid #E2E8F0;
+        border-bottom: 4px solid #6A1B9A;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.03);
     }
-    
     div[role="radiogroup"] > label {
-        background-color: #ffffff;
-        border: 1.5px solid #e2e8f0;
-        padding: 8px 18px;
+        background-color: #F8FAFC;
+        border: 1.5px solid #E2E8F0;
+        padding: 7px 15px;
         border-radius: 8px;
         cursor: pointer;
         transition: 0.2s;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+        font-weight: 600;
     }
-    
     div[role="radiogroup"] > label:hover {
-        border-color: #4a0e4e;
-        background-color: #fafafa;
+        border-color: #6A1B9A;
+        background-color: #F3E5F5;
     }
-    
     div[role="radiogroup"] > label[data-checked="true"] {
-        border-color: #8b0000;
-        background-color: #fff5f5;
+        border-color: #D32F2F;
+        background-color: #FFF5F5;
     }
-    
-    div[data-testid="stExpander"] { border-left: 4px solid #4a0e4e; border-radius: 6px; }
-    
+
+    div[data-testid="stExpander"] {
+        background-color: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-left: 5px solid #6A1B9A;
+        border-radius: 10px;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+    }
+
     .ficha-box { 
-        border: 1.5px solid #e2e8f0; 
-        border-left: 5px solid #4a0e4e; 
+        border: 1px solid #E2E8F0; 
+        border-top: 4px solid #6A1B9A;
+        border-left: 5px solid #D32F2F; 
         padding: 22px; 
-        border-radius: 10px; 
+        border-radius: 12px; 
         background-color: #ffffff; 
         margin-top: 15px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.04);
     }
-    
-    .dash-title { color: #4a0e4e; font-size: 18px; font-weight: 600; text-align: center; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 15px; }
-    .dash-legend { font-size: 13.5px; color: #555; display: flex; justify-content: space-between; padding: 5px 10px; border-bottom: 1px solid #f0f0f0; }
+
+    .dash-box {
+        background: #FFFFFF;
+        border-radius: 12px;
+        padding: 18px;
+        border: 1px solid #E2E8F0;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        margin-bottom: 16px;
+    }
+    .dash-title {
+        color: #4A148C;
+        font-size: 16px;
+        font-weight: 800;
+        text-align: left;
+        border-bottom: 2px solid #F1F5F9;
+        padding-bottom: 10px;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .dash-legend {
+        font-size: 13px;
+        color: #334155;
+        display: flex;
+        justify-content: space-between;
+        padding: 6px 10px;
+        border-bottom: 1px solid #F1F5F9;
+        font-weight: 500;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -249,7 +436,7 @@ def gerar_link_whatsapp(contexto):
     telefone = "5584999305771"
     mensagem = urllib.parse.quote(f"Olá, AD Rastreamento Veicular! Preciso de suporte/ajuda na Central de Operações.\n\n📍 Contexto: {contexto}")
     link = f"https://wa.me/{telefone}?text={mensagem}"
-    return f'<a href="{link}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; width:100%;">💬 Solicitar Suporte via WhatsApp</button></a>'
+    return f'<a href="{link}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 15px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width:100%; box-shadow: 0 2px 6px rgba(0,0,0,0.12);">💬 Solicitar Suporte via WhatsApp</button></a>'
 
 def gerar_relatorio_html(dados_relatorio, empresa_nome):
     detalhes_texto = dados_relatorio['detalhes']
@@ -260,8 +447,8 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
         res_timeline = fetch_data("SELECT data_hora, acao, operador FROM historico_timeline WHERE historico_id = %s ORDER BY id ASC", (dados_relatorio['id'],))
         if res_timeline:
             timeline_html = """
-            <div style="margin-top: 20px; padding: 15px; background-color: #fff8f8; border-left: 4px solid #8b0000; border-radius: 5px;">
-                <h4 style="color: #8b0000; margin-top: 0; margin-bottom: 10px;">⏱️ Linha do Tempo (Ações Táticas)</h4>
+            <div style="margin-top: 20px; padding: 15px; background-color: #fff8f8; border-left: 4px solid #D32F2F; border-radius: 5px;">
+                <h4 style="color: #D32F2F; margin-top: 0; margin-bottom: 10px;">⏱️ Linha do Tempo (Ações Táticas)</h4>
                 <ul style="font-size: 13px; color: #444; padding-left: 20px;">
             """
             for t in res_timeline:
@@ -283,18 +470,18 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
         <title>Relatório de Ocorrência</title>
         <style>
             body {{ font-family: Arial, sans-serif; color: #333; margin: 40px; line-height: 1.4; }}
-            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 15px; margin-bottom: 25px; }}
-            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 24px; }}
-            .header h3 {{ color: #8b0000; margin: 5px 0 0 0; font-size: 16px; }}
+            .header {{ text-align: center; border-bottom: 3px solid #6A1B9A; padding-bottom: 15px; margin-bottom: 25px; }}
+            .header h1 {{ color: #6A1B9A; margin: 0; font-size: 24px; }}
+            .header h3 {{ color: #D32F2F; margin: 5px 0 0 0; font-size: 16px; }}
             .content {{ background: #f9f9f9; border: 1px solid #ddd; padding: 25px; border-radius: 8px; }}
             .field {{ margin-bottom: 12px; font-size: 14px; }}
-            .label {{ font-weight: bold; color: #4a0e4e; }}
+            .label {{ font-weight: bold; color: #6A1B9A; }}
             .footer {{ margin-top: 40px; text-align: center; font-size: 11px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }}
         </style>
     </head>
     <body>
         <div class="header">
-            <h1>🛡️ CENTRAL DE OPERAÇÕES</h1>
+            <h1>🛡️ CENTRAL DE OPERAÇÕES — AD RASTREAMENTO</h1>
             <h3>Relatório Oficial de Atendimento Operacional</h3>
         </div>
         <div class="content">
@@ -317,7 +504,7 @@ def gerar_relatorio_html(dados_relatorio, empresa_nome):
     </html>
     """
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
-    return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; width:100%; margin-top:10px;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
+    return f'<a href="data:text/html;base64,{b64}" download="Relatorio_{dados_relatorio["placa"]}.html" target="_blank"><button style="background-color:#6A1B9A; color:white; padding:10px 15px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width:100%; margin-top:10px;">📄 Baixar Relatório Oficial (HTML/PDF)</button></a>'
 
 def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
     hash_exibicao = dados_aceite.get('hash_assinatura')
@@ -331,13 +518,13 @@ def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
         <title>Certificado de Aceite LGPD</title>
         <style>
             body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; line-height: 1.6; }}
-            .header {{ text-align: center; border-bottom: 3px solid #4a0e4e; padding-bottom: 20px; margin-bottom: 30px; }}
-            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
+            .header {{ text-align: center; border-bottom: 3px solid #6A1B9A; padding-bottom: 20px; margin-bottom: 30px; }}
+            .header h1 {{ color: #6A1B9A; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 1px; }}
             .header h3 {{ color: #555; margin: 10px 0 0 0; font-weight: normal; }}
             .content {{ padding: 20px 40px; text-align: justify; }}
             .clausula {{ margin-bottom: 15px; }}
             .assinatura-box {{ margin-top: 50px; background-color: #f9f9f9; border: 1px solid #ddd; padding: 20px; border-radius: 8px; }}
-            .assinatura-title {{ font-size: 16px; font-weight: bold; color: #4a0e4e; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }}
+            .assinatura-title {{ font-size: 16px; font-weight: bold; color: #6A1B9A; margin-bottom: 15px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }}
             .ass-row {{ margin-bottom: 8px; font-size: 14px; }}
             .ass-label {{ font-weight: bold; color: #555; }}
             .hash-box {{ margin-top: 15px; padding: 10px; background-color: #e8eaf6; border-left: 4px solid #3f51b5; font-family: monospace; font-size: 13px; word-break: break-all; }}
@@ -376,7 +563,7 @@ def gerar_certificado_lgpd_html(dados_aceite, cnpj_parceiro):
     </html>
     """
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
-    return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
+    return f'<a href="data:text/html;base64,{b64}" download="Certificado_LGPD_{dados_aceite["empresa"]}.html" target="_blank"><button style="background-color:#6A1B9A; color:white; padding:10px 15px; border-radius:8px; border:none; font-weight:bold; cursor:pointer;">📄 Visualizar / Imprimir Certificado PDF</button></a>'
 
 def gerar_laudo_mensal_html(empresa, mes, total, campeao, pct_campeao, diag, dados_h, detalhamento_op):
     linhas_tabela = ""
@@ -405,14 +592,14 @@ def gerar_laudo_mensal_html(empresa, mes, total, campeao, pct_campeao, diag, dad
         <title>Relatório Operacional Mensal - {empresa}</title>
         <style>
             body {{ font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #333; margin: 40px; line-height: 1.5; }}
-            .header {{ text-align: center; border-bottom: 4px solid #4a0e4e; padding-bottom: 15px; margin-bottom: 30px; }}
-            .header h1 {{ color: #4a0e4e; margin: 0; font-size: 26px; text-transform: uppercase; }}
-            .header h3 {{ color: #8b0000; margin: 5px 0 0 0; font-size: 16px; font-weight: normal; }}
-            .section-title {{ color: #4a0e4e; font-size: 18px; border-bottom: 2px solid #eee; padding-bottom: 5px; margin-top: 30px; }}
-            .summary-box {{ background: #f9f9f9; border-left: 5px solid #4a0e4e; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
-            .diag-box {{ background: #fff8f8; border-left: 5px solid #8b0000; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+            .header {{ text-align: center; border-bottom: 4px solid #6A1B9A; padding-bottom: 15px; margin-bottom: 30px; }}
+            .header h1 {{ color: #6A1B9A; margin: 0; font-size: 26px; text-transform: uppercase; }}
+            .header h3 {{ color: #D32F2F; margin: 5px 0 0 0; font-size: 16px; font-weight: normal; }}
+            .section-title {{ color: #6A1B9A; font-size: 18px; border-bottom: 2px solid #eee; padding-bottom: 5px; margin-top: 30px; }}
+            .summary-box {{ background: #f9f9f9; border-left: 5px solid #6A1B9A; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
+            .diag-box {{ background: #fff8f8; border-left: 5px solid #D32F2F; padding: 15px; border-radius: 5px; margin-bottom: 20px; }}
             table {{ width: 100%; border-collapse: collapse; margin-top: 15px; }}
-            th {{ background-color: #4a0e4e; color: white; padding: 10px; text-align: left; font-size: 13px; }}
+            th {{ background-color: #6A1B9A; color: white; padding: 10px; text-align: left; font-size: 13px; }}
             .footer {{ margin-top: 50px; text-align: center; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 15px; }}
         </style>
     </head>
@@ -453,7 +640,7 @@ def gerar_laudo_mensal_html(empresa, mes, total, campeao, pct_campeao, diag, dad
     """
     b64 = base64.b64encode(html_content.encode('utf-8')).decode("utf-8")
     nome_arquivo = f"Relatorio_Mensal_{empresa.replace(' ', '_')}_{mes.replace('/', '_')}.html"
-    return f'<a href="data:text/html;base64,{b64}" download="{nome_arquivo}" target="_blank"><button style="background-color:#4a0e4e; color:white; padding:12px 20px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">📥 Baixar Super Relatório Detalhado (HTML/PDF)</button></a>'
+    return f'<a href="data:text/html;base64,{b64}" download="{nome_arquivo}" target="_blank"><button style="background-color:#6A1B9A; color:white; padding:12px 20px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:16px;">📥 Baixar Super Relatório Detalhado (HTML/PDF)</button></a>'
 
 # --- BASE DE CONHECIMENTO (DIAGNÓSTICO TÉCNICO INTELIGENTE) ---
 DIAGNOSTICOS_TECNICOS = {
@@ -553,15 +740,22 @@ if 'flash_msg' in st.session_state:
 # 1. TELA DE LOGIN
 # ==========================================
 if not st.session_state.logged_in:
-    col1, col2, col3 = st.columns([1, 2, 1])
+    col1, col2, col3 = st.columns([1.2, 1.8, 1.2])
     with col2:
-        st.markdown("<h1 style='text-align: center; color: #4a0e4e; font-size: 28px;'>🛡️ Central de Operações de Segurança</h1>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align: center; color: #8b0000; font-weight: bold;'>Administrador: AD Rastreamento Veicular</p>", unsafe_allow_html=True)
+        st.markdown("""
+            <div class="dash-box" style="border-top: 5px solid #6A1B9A; text-align:center; padding: 28px 20px 14px 20px; margin-top: 25px;">
+                <div style="display:inline-block; background:#6A1B9A; color:#fff; font-weight:900; padding:8px 16px; border-radius:10px; font-size:20px; margin-bottom:12px;">
+                    <span style="color:#fff;">A</span><span style="color:#FF5252;">D</span> MONITORAMENTO
+                </div>
+                <h1 style="text-align: center; color: #4A148C; font-size: 24px; margin-bottom: 4px;">🛡️ Central de Operações de Segurança</h1>
+                <p style="text-align: center; color: #D32F2F; font-weight: 800; font-size: 13px; text-transform: uppercase; letter-spacing: 1px;">Telemetria, Geocerca & Pronta Resposta 24h</p>
+            </div>
+        """, unsafe_allow_html=True)
         
         with st.form("login_form"):
             user = st.text_input("Usuário, Login ou Nome da Empresa")
             senha = st.text_input("Senha ou CNPJ", type="password")
-            submit = st.form_submit_button("Entrar no Sistema", type="primary")
+            submit = st.form_submit_button("🔒 Entrar no Sistema Operacional", type="primary", use_container_width=True)
             
             if submit:
                 if user == "AD" and senha == "admin":
@@ -624,7 +818,7 @@ if not st.session_state.logged_in:
                         else:
                             st.error("Acesso Negado: Login não encontrado.")
         
-        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(gerar_link_whatsapp("Tela de Login - Tentativa de acesso / Dúvida com Senha"), unsafe_allow_html=True)
 
 # ==========================================
@@ -645,7 +839,7 @@ else:
             
             **1. Sigilo e Confidencialidade:** O PARCEIRO compromete-se a manter absoluto sigilo sobre quaisquer dados pessoais de clientes (como Nomes, CPFs, Endereços, Placas e Posições de GPS) acessados através desta plataforma, utilizando-os única e exclusivamente para a prestação do serviço de rastreamento e monitoramento.
             
-            **2. Responsabilidade Exclusiva:** O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsibility por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá **exclusivamente sobre a empresa PARCEIRA**, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.
+            **2. Responsabilidade Exclusiva:** O PARCEIRO declara ter ciência de que as credenciais de acesso ao sistema são de uso pessoal e intransferível. A responsabilidade por qualquer vazamento, cópia não autorizada, compartilhamento de telas ou uso indevido de dados de clientes a partir do seu painel recairá **exclusivamente sobre a empresa PARCEIRA**, isentando a AD Rastreamento Veicular de qualquer responsabilidade civil, administrativa ou penal.
             
             **3. Penalidades Legais:** O descumprimento das regras de proteção de dados sujeitará a empresa infratora ao bloqueio imediato do sistema, bem como à responsabilização por perdas e danos e às sanções previstas na Lei Geral de Proteção de Dados (Lei nº 13.709/2018).
             
@@ -670,7 +864,7 @@ else:
             logo_bytes = fetch_logo_cached(st.session_state.nome_empresa)
             if logo_bytes is not None:
                 try:
-                    st.image(io.BytesIO(logo_bytes), width=140)
+                    st.image(io.BytesIO(logo_bytes), width=150)
                 except Exception:
                     pass
 
@@ -695,7 +889,7 @@ else:
                     st.success("Logo atualizada com sucesso!")
                     st.rerun()
 
-        if st.button("🚪 Sair do Sistema", type="secondary"):
+        if st.button("🚪 Sair do Sistema", type="secondary", use_container_width=True):
             st.session_state.logged_in = False
             st.session_state.is_admin = False
             st.session_state.is_subuser = False
@@ -711,18 +905,34 @@ else:
         nome_zap = st.session_state.get('nome_usuario', st.session_state.get('nome_empresa', 'Visitante'))
         st.markdown(gerar_link_whatsapp(f"Menu Sidebar - Usuário Logado: {nome_zap}"), unsafe_allow_html=True)
 
+    # BARRA EXECUTIVA SUPERIOR (PADRÃO MODELO 2 + MODELO 4)
+    st.markdown(f"""
+        <div class="ad-topbar">
+            <div class="ad-topbar-brand">
+                <div class="ad-badge-logo">A<span>D</span> MON</div>
+                <div>
+                    <div style="font-size: 15px; font-weight: 800; letter-spacing: 0.3px;">CENTRAL DE MONITORAMENTO, GEOCERCA & SINISTROS 24H</div>
+                    <div style="font-size: 12px; opacity: 0.9;">Unidade / Operador Ativo: <strong>{st.session_state.get('nome_usuario', st.session_state.get('nome_empresa', ''))}</strong></div>
+                </div>
+            </div>
+            <div style="background: rgba(255,255,255,0.18); padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 700;">
+                🟢 TELEMETRIA ATIVA
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+
     if st.session_state.is_admin:
         alertas = fetch_data("SELECT * FROM notificacoes WHERE lida = FALSE ORDER BY id DESC")
         if alertas:
-            st.markdown("<div style='margin-bottom: 6px;'><span style='font-size: 12px; font-weight: 700; color: #8b0000; letter-spacing: 0.5px;'>🔔 NOTIFICAÇÕES RECENTES</span></div>", unsafe_allow_html=True)
+            st.markdown("<div style='margin-bottom: 6px;'><span style='font-size: 12px; font-weight: 800; color: #D32F2F; letter-spacing: 0.5px;'>🔔 NOTIFICAÇÕES RECENTES</span></div>", unsafe_allow_html=True)
             for alerta in alertas:
                 col_al1, col_al2 = st.columns([6, 1])
                 with col_al1:
                     st.markdown(f"""
-<div style="background: #ffffff; border: 1px solid #fee2e2; border-left: 4px solid #8b0000; border-radius: 6px; padding: 7px 12px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 1px 2px rgba(0,0,0,0.03);">
+<div style="background: #ffffff; border: 1px solid #fee2e2; border-left: 4px solid #D32F2F; border-radius: 8px; padding: 8px 14px; margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 2px 4px rgba(0,0,0,0.03);">
     <div>
         <span style="background: #fef2f2; color: #991b1b; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; margin-right: 8px; text-transform: uppercase;">{alerta['empresa']}</span>
-        <span style="font-size: 13px; color: #374151; font-weight: 500;">{alerta['mensagem']}</span>
+        <span style="font-size: 13px; color: #374151; font-weight: 600;">{alerta['mensagem']}</span>
     </div>
     <span style="font-size: 11px; color: #9ca3af; margin-left: 10px; white-space: nowrap;">🕒 {alerta['data_hora']}</span>
 </div>
@@ -770,26 +980,25 @@ else:
         st.session_state.menu_navegacao = lista_abas[0]
 
     aba_ativa = st.radio("Navegação", lista_abas, format_func=formatar_nome_menu, horizontal=True, label_visibility="collapsed", key="menu_navegacao")
-    st.markdown("---")
+    st.markdown("<div style='margin-bottom: 12px;'></div>", unsafe_allow_html=True)
 
     # =======================================================================
-    # RENDERIZAÇÃO CONDICIONAL - PARTE 1 (DASHBOARD)
+    # RENDERIZAÇÃO CONDICIONAL - PARTE 1 (DASHBOARD ESTILO IMAGEM 2 + 4)
     # =======================================================================
 
     if aba_ativa == "dashboard":
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📊 Painel Executivo (Dashboard)</h2>", unsafe_allow_html=True)
-        st.markdown("<p style='font-size: 14px; color: #666; margin-bottom: 30px;'>Visão executiva e laudos técnicos da operação de telemetria.</p>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>📊 Painel Executivo de Monitoramento & Telemetria</span><span style="font-size:12px; color:#6A1B9A;">VISÃO EM TEMPO REAL</span></div>', unsafe_allow_html=True)
         
         if st.session_state.is_admin:
             empresas_disp_dash = fetch_data("SELECT nome FROM empresas ORDER BY nome")
             opcoes_emp_dash = ["Todas as Frotas (Visão Global)"] + [e['nome'] for e in empresas_disp_dash] if empresas_disp_dash else ["Todas as Frotas (Visão Global)"]
             
-            col_filtro1, col_filtro2, col_filtro3 = st.columns([1, 2, 1])
+            col_filtro1, col_filtro2 = st.columns([2, 1])
             with col_filtro1:
-                empresa_filtro_dash = st.selectbox("Filtrar por Empresa:", opcoes_emp_dash, key=f"dash_emp_{st.session_state.reset_keys['dash_mes']}")
+                empresa_filtro_dash = st.selectbox("🏢 Filtrar por Empresa Parceira:", opcoes_emp_dash, key=f"dash_emp_{st.session_state.reset_keys['dash_mes']}")
             with col_filtro2:
                 mes_atual = get_horario_brasil().strftime("%m/%Y")
-                mes_filtro_dash = st.text_input("Filtrar Período de Análise (Mês/Ano):", value=mes_atual, key=f"dash_m_{st.session_state.reset_keys['dash_mes']}")
+                mes_filtro_dash = st.text_input("📅 Período de Análise (Mês/Ano):", value=mes_atual, key=f"dash_m_{st.session_state.reset_keys['dash_mes']}")
             
             if empresa_filtro_dash == "Todas as Frotas (Visão Global)":
                 q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.status = 'Ativo'"
@@ -807,7 +1016,7 @@ else:
             col_filtro1, col_filtro2, col_filtro3 = st.columns([1, 2, 1])
             with col_filtro2:
                 mes_atual = get_horario_brasil().strftime("%m/%Y")
-                mes_filtro_dash = st.text_input("Filtrar Período de Análise (Mês/Ano):", value=mes_atual, key=f"dash_m_{st.session_state.reset_keys['dash_mes']}")
+                mes_filtro_dash = st.text_input("📅 Filtrar Período de Análise (Mês/Ano):", value=mes_atual, key=f"dash_m_{st.session_state.reset_keys['dash_mes']}")
             
             q_v = "SELECT v.tipo_veic FROM veiculos v JOIN clientes c ON v.cliente_id = c.id WHERE c.empresa = %s AND c.status = 'Ativo'"
             q_h = "SELECT id, data_hora, cliente, placa, tipo, status, detalhes FROM historico WHERE empresa=%s AND data_hora ILIKE %s"
@@ -818,11 +1027,15 @@ else:
         df_frota = pd.DataFrame(dados_v) if dados_v else pd.DataFrame(columns=['tipo_veic'])
         
         eventos_parse = []
+        qtd_sinistros_mes = 0
+        qtd_geocerca_rotina = 0
         if dados_h:
             for row in dados_h:
                 if row['tipo'] in ['Furto', 'Roubo']:
                     eventos_parse.append(row['tipo'])
+                    qtd_sinistros_mes += 1
                 else:
+                    qtd_geocerca_rotina += 1
                     detalhe = str(row.get('detalhes', ''))
                     if "Evento: " in detalhe:
                         evt_extraido = detalhe.split("Evento: ")[1].split(" |")[0]
@@ -831,53 +1044,82 @@ else:
                         eventos_parse.append(row['tipo'])
         
         df_eventos = pd.DataFrame(eventos_parse, columns=['Evento'])
+
+        # CONTADORES SUPERIORES (ESTILO IMAGEM 2 + PRIORIDADES IMAGEM 4)
+        k1, k2, k3, k4 = st.columns(4)
+        k1.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-header"><span class="metric-title">Frota Ativa Monitorada</span><div class="metric-icon">🚗</div></div>
+                <div class="metric-value" style="color: #6A1B9A;">{len(df_frota)}</div>
+            </div>
+        """, unsafe_allow_html=True)
+        k2.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-header"><span class="metric-title">Eventos no Período</span><div class="metric-icon">📡</div></div>
+                <div class="metric-value" style="color: #4A148C;">{len(dados_h) if dados_h else 0}</div>
+            </div>
+        """, unsafe_allow_html=True)
+        k3.markdown(f"""
+            <div class="metric-card red-accent">
+                <div class="metric-header"><span class="metric-title">Alertas Furto / Roubo</span><div class="metric-icon red-bg">🚨</div></div>
+                <div class="metric-value" style="color: #D32F2F;">{qtd_sinistros_mes}</div>
+            </div>
+        """, unsafe_allow_html=True)
+        k4.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-header"><span class="metric-title">Geocerca & Telemetria</span><div class="metric-icon">🛡️</div></div>
+                <div class="metric-value" style="color: #2E7D32;">{qtd_geocerca_rotina}</div>
+            </div>
+        """, unsafe_allow_html=True)
         
         col_graf1, col_graf2 = st.columns(2)
         
         with col_graf1:
-            st.markdown("<div class='dash-title'>🚗 Composição da Frota</div>", unsafe_allow_html=True)
+            st.markdown("<div class='dash-box'><div class='dash-title'><span>🚗 Composição da Frota</span><span style='font-size:11px; color:#6A1B9A;'>ATIVOS</span></div>", unsafe_allow_html=True)
             if not df_frota.empty:
                 contagem_frota = df_frota['tipo_veic'].value_counts().reset_index()
                 contagem_frota.columns = ['Categoria', 'Quantidade']
                 
                 grafico_frota = alt.Chart(contagem_frota).mark_arc(innerRadius=60).encode(
                     theta=alt.Theta(field="Quantidade", type="quantitative"),
-                    color=alt.Color(field="Categoria", type="nominal", scale=alt.Scale(range=['#4a0e4e', '#8b0000', '#6a1b9a', '#b71c1c'])),
+                    color=alt.Color(field="Categoria", type="nominal", scale=alt.Scale(range=['#6A1B9A', '#D32F2F', '#4A148C', '#EF5350'])),
                     tooltip=["Categoria", "Quantidade"]
-                ).properties(height=280)
+                ).properties(height=260)
                 
                 st.altair_chart(grafico_frota, use_container_width=True)
                 
                 st.markdown("<div style='margin-top: 10px;'>", unsafe_allow_html=True)
                 for _, row in contagem_frota.iterrows():
-                    st.markdown(f"<div class='dash-legend'><span><b>{row['Categoria']}</b></span> <span>{row['Quantidade']} unidade(s)</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='dash-legend'><span><b>{row['Categoria']}</b></span> <span style='color:#6A1B9A; font-weight:700;'>{row['Quantidade']} unidade(s)</span></div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.info("Nenhum veículo cadastrado na frota ativa.")
+            st.markdown("</div>", unsafe_allow_html=True)
 
         with col_graf2:
-            st.markdown("<div class='dash-title'>🛠️ Incidência de Atendimentos</div>", unsafe_allow_html=True)
+            st.markdown("<div class='dash-box'><div class='dash-title'><span>🛠️ Incidência de Atendimentos & Alertas</span><span style='font-size:11px; color:#D32F2F;'>TELEMETRIA</span></div>", unsafe_allow_html=True)
             if not df_eventos.empty:
                 contagem_eventos = df_eventos['Evento'].value_counts().reset_index()
                 contagem_eventos.columns = ['Ocorrência', 'Total']
                 
                 grafico_eventos = alt.Chart(contagem_eventos).mark_arc(innerRadius=60).encode(
                     theta=alt.Theta(field="Total", type="quantitative"),
-                    color=alt.Color(field="Ocorrência", type="nominal", scale=alt.Scale(scheme="purples")),
+                    color=alt.Color(field="Ocorrência", type="nominal", scale=alt.Scale(range=['#6A1B9A', '#D32F2F', '#9C27B0', '#B71C1C', '#4A148C', '#AB47BC'])),
                     tooltip=["Ocorrência", "Total"]
-                ).properties(height=280)
+                ).properties(height=260)
                 
                 st.altair_chart(grafico_eventos, use_container_width=True)
                 
                 st.markdown("<div style='margin-top: 10px;'>", unsafe_allow_html=True)
                 for _, row in contagem_eventos.iterrows():
-                    st.markdown(f"<div class='dash-legend'><span><b>{row['Ocorrência']}</b></span> <span>{row['Total']} chamado(s)</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='dash-legend'><span><b>{row['Ocorrência']}</b></span> <span style='color:#D32F2F; font-weight:700;'>{row['Total']} chamado(s)</span></div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
             else:
                 st.info("Nenhum evento operacional registrado para este período.")
+            st.markdown("</div>", unsafe_allow_html=True)
 
-        st.markdown("<br><hr>", unsafe_allow_html=True)
-        st.markdown("<h3 style='color: #4a0e4e; font-size: 20px; text-align: center;'>📄 Sistema de Inteligência Operacional</h3>", unsafe_allow_html=True)
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #4A148C; font-size: 20px; text-align: center;'>📄 Sistema de Inteligência Operacional</h3>", unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666; text-align: center;'>Gere o Relatório Consolidado detalhado baseado na telemetria deste mês.</p>", unsafe_allow_html=True)
         
         col_laudo1, col_laudo2, col_laudo3 = st.columns([1, 2, 1])
@@ -975,7 +1217,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 st.success("Relatório analisado e montado com sucesso!")
                 
                 st.markdown(f"""
-<div style="background-color: #f0f4f8; padding: 20px; border-left: 5px solid #8b0000; border-radius: 5px; font-family: monospace; white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: #333; margin-bottom: 15px;">{texto_laudo_markdown}</div>
+<div style="background-color: #FFFFFF; padding: 20px; border: 1px solid #E2E8F0; border-left: 5px solid #D32F2F; border-radius: 8px; font-family: monospace; white-space: pre-wrap; font-size: 13px; line-height: 1.5; color: #333; margin-bottom: 15px;">{texto_laudo_markdown}</div>
 """, unsafe_allow_html=True)
                 
                 html_btn = gerar_laudo_mensal_html(emp_alvo_rel, mes_filtro_dash, total_geral_chamados, evento_campeao, porcentagem_campeao, dict_diag, dados_h, detalhamento_operacional)
@@ -988,10 +1230,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     st.rerun()
                     # --- TELA: OPERAÇÃO 24H (SÓ ADMIN) - CARDS MODERNIZADOS E ROTEAMENTO SMART ---
     elif aba_ativa == "central" and st.session_state.is_admin:
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🚨 Central de Operações e Ocorrências 24h</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>🚨 Central de Operações e Ocorrências 24h</span><span style="font-size:12px; color:#D32F2F;">TRIAGEM TÁTICA & GEOCERCA</span></div>', unsafe_allow_html=True)
         
         # =====================================================================
-        # 1. PAINEL FIXO DE ALERTA MÁXIMO (ZERO CLIQUES)
+        # 1. PAINEL FIXO DE ALERTA MÁXIMO (ZERO CLIQUES - BLOCO PRIORIDADE IMAGEM 4)
         # =====================================================================
         q_ativos = """
             SELECT h.*, v.modelo, v.cor, v.chassi, v.renavam 
@@ -1003,23 +1245,23 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         ativos_res = fetch_data(q_ativos)
         
         if ativos_res:
-            st.markdown("<div style='background: #c62828; color: white; padding: 10px; border-radius: 6px; text-align: center; font-weight: bold; font-size: 16px; margin-bottom: 15px;'>🚨 ATENÇÃO: SINISTROS EM ANDAMENTO (ACESSO RÁPIDO)</div>", unsafe_allow_html=True)
+            st.markdown("<div style='background: linear-gradient(90deg, #B71C1C 0%, #D32F2F 100%); color: white; padding: 12px 18px; border-radius: 10px; text-align: center; font-weight: 800; font-size: 15px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(211,47,47,0.25); letter-spacing: 0.5px;'>🚨 PRIORIDADE MÁXIMA: SINISTROS EM ANDAMENTO (ACESSO RÁPIDO)</div>", unsafe_allow_html=True)
             
             for inc in ativos_res:
                 with st.container():
                     st.markdown(f"""
-                    <div style="background: #fff8f8; border: 2px solid #e53935; padding: 15px; border-radius: 8px; margin-bottom: 10px; box-shadow: 0 4px 6px rgba(229,57,53,0.1);">
-                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ffcdd2; padding-bottom: 10px; margin-bottom: 10px;">
-                            <h3 style="color: #b71c1c; margin: 0; font-size: 18px;">🔥 {inc['tipo'].upper()} - PLACA: {inc['placa']}</h3>
-                            <span style="background: #b71c1c; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; font-weight: bold;">CHAMADO #{inc['id']}</span>
+                    <div style="background: #FFFFFF; border: 2px solid #D32F2F; border-top: 6px solid #B71C1C; padding: 18px; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 4px 14px rgba(211,47,47,0.1);">
+                        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #FFEBEE; padding-bottom: 10px; margin-bottom: 12px;">
+                            <h3 style="color: #B71C1C; margin: 0; font-size: 18px; font-weight: 900;">🔥 {inc['tipo'].upper()} EM CURSO — PLACA: {inc['placa']}</h3>
+                            <span style="background: #D32F2F; color: white; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 800;">CHAMADO #{inc['id']}</span>
                         </div>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 13px; color: #333; margin-bottom: 15px;">
-                            <div><b>Cliente:</b> {inc['cliente']}</div>
-                            <div><b>Modelo:</b> {inc.get('modelo', 'Não inf.')}</div>
-                            <div><b>Cor:</b> {inc.get('cor', 'Não inf.')}</div>
-                            <div><b>Chassi:</b> {inc.get('chassi', 'Não inf.')}</div>
-                            <div><b>Renavam:</b> {inc.get('renavam', 'Não inf.')}</div>
-                            <div><b>Parceiro:</b> {inc['empresa']}</div>
+                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; font-size: 13px; color: #1E293B; background: #FFF5F5; padding: 12px; border-radius: 8px; margin-bottom: 14px;">
+                            <div><b>👤 Cliente:</b> {inc['cliente']}</div>
+                            <div><b>🚙 Modelo:</b> {inc.get('modelo', 'Não inf.')}</div>
+                            <div><b>🎨 Cor:</b> {inc.get('cor', 'Não inf.')}</div>
+                            <div><b>🔢 Chassi:</b> {inc.get('chassi', 'Não inf.')}</div>
+                            <div><b>📄 Renavam:</b> {inc.get('renavam', 'Não inf.')}</div>
+                            <div><b>🏢 Parceiro:</b> {inc['empresa']}</div>
                         </div>
                     """, unsafe_allow_html=True)
                     
@@ -1047,15 +1289,15 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         txt_ativo_copiar = f"🚨 ALERTA DE SINISTRO - {nome_empresa_ativo} 🚨\n• Tipo: {inc['tipo'].upper()}\n• Veículo: {inc.get('modelo','')}\n• PLACA: {inc['placa']}\n• Chassi: {inc.get('chassi','')}\n• Cliente: {inc['cliente']}\n• Link Tático: {link_extraido}"
                         link_ativo_wpp = f"https://wa.me/{tel_ativo_alvo}?text={urllib.parse.quote(txt_ativo_copiar)}"
                         
-                        st.markdown(f'<a href="{link_ativo_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:8px 12px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; font-size: 13.5px; margin-bottom: 15px; width: 100%; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📲 Reenviar Dossiê para Pronta Resposta (WhatsApp)</button></a>', unsafe_allow_html=True)
+                        st.markdown(f'<a href="{link_ativo_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 14px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; font-size: 13.5px; margin-bottom: 15px; width: 100%; box-shadow: 0 2px 6px rgba(0,0,0,0.12);">📲 Reenviar Dossiê para Pronta Resposta (WhatsApp)</button></a>', unsafe_allow_html=True)
                     
-                    # LINHA DO TEMPO (TIMELINE)
+                    # LINHA DO TEMPO (TIMELINE ESTILO IMAGEM 4)
                     timeline_res = fetch_data("SELECT * FROM historico_timeline WHERE historico_id=%s ORDER BY id ASC", (inc['id'],))
-                    html_tl = "<div style='background: #ffffff; border-left: 4px solid #b71c1c; padding: 12px; border-radius: 4px; margin-bottom: 15px;'>"
-                    html_tl += "<span style='font-weight: bold; color: #b71c1c; font-size: 14px;'>⏱️ LINHA DO TEMPO (AÇÕES TÁTICAS)</span><ul style='font-size: 13px; color: #444; padding-left: 20px; margin-top: 8px; margin-bottom: 0;'>"
+                    html_tl = "<div class='timeline-box'>"
+                    html_tl += "<span style='font-weight: 800; color: #D32F2F; font-size: 13.5px; text-transform: uppercase; letter-spacing: 0.5px;'>⏱️ Linha do Tempo de Tratativas Táticas</span><ul class='timeline-list'>"
                     if timeline_res:
                         for t in timeline_res:
-                            html_tl += f"<li style='margin-bottom: 4px;'><b>{t['data_hora']}</b> - {t['acao']} <i>(Op: {t['operador']})</i></li>"
+                            html_tl += f"<li><b>{t['data_hora']}</b> — {t['acao']} <span style='color:#6A1B9A; font-weight:600;'>(Op: {t['operador']})</span></li>"
                     else:
                         html_tl += "<li><i>Ocorrência aberta. O cronômetro está rodando. Registre as ações abaixo.</i></li>"
                     html_tl += "</ul></div>"
@@ -1118,7 +1360,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             st.session_state.flash_msg = "Ocorrência Tática finalizada e protocolada com sucesso!"
                             st.rerun()
                     st.markdown("</div>", unsafe_allow_html=True)
-            st.markdown("<hr style='border: 2px solid #ccc; margin: 30px 0;'>", unsafe_allow_html=True)
+            st.markdown("<hr style='border: 2px solid #E2E8F0; margin: 25px 0;'>", unsafe_allow_html=True)
 
         # =====================================================================
         # 2. BUSCA NORMAL (ABERTURA DE NOVOS CHAMADOS)
@@ -1180,13 +1422,13 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         renavam_disp = info_veic.get('renavam', '') or "Não inf."
                         
                         st.markdown(f"""
-                        <div style="background: #f4f6f9; border-left: 5px solid #2980b9; padding: 12px; border-radius: 6px; margin-bottom: 15px;">
-                            <span style="font-weight: bold; color: #2c3e50; font-size: 14px;">📋 DOSSIÊ DE IDENTIFICAÇÃO DO VEÍCULO</span>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 8px; font-size: 13px; color: #34495e;">
-                                <div><b>Chassi:</b> {chassi_disp}</div>
-                                <div><b>Renavam:</b> {renavam_disp}</div>
-                                <div><b>Cor:</b> {info_veic['cor']}</div>
-                                <div><b>Tipo:</b> {info_veic['tipo_veic']}</div>
+                        <div style="background: #FFFFFF; border: 1px solid #E2E8F0; border-top: 4px solid #6A1B9A; padding: 14px 18px; border-radius: 10px; margin-bottom: 15px; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+                            <span style="font-weight: 800; color: #4A148C; font-size: 14px;">📋 DOSSIÊ DE IDENTIFICAÇÃO DO VEÍCULO — PLACA: <span style="color:#D32F2F;">{placa_sel}</span></span>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-top: 10px; font-size: 13px; color: #334155;">
+                                <div><b>🔢 Chassi:</b> {chassi_disp}</div>
+                                <div><b>📄 Renavam:</b> {renavam_disp}</div>
+                                <div><b>🎨 Cor:</b> {info_veic['cor']}</div>
+                                <div><b>🚙 Tipo:</b> {info_veic['tipo_veic']}</div>
                             </div>
                         </div>
                         """, unsafe_allow_html=True)
@@ -1226,31 +1468,31 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 palavra_chave_cliente = info_veic.get('palavra_chave') or "NÃO CADASTRADA"
 
                                 st.markdown(f"""
-                                <div style="background: #ffffff; border-left: 5px solid #8b0000; border-radius: 8px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(139,0,0,0.08); margin-bottom: 20px;">
-                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                                        <span style="font-weight: bold; color: #8b0000; font-size: 14px;">🚨 PROTOCOLO TÁTICO DE EMERGÊNCIA — {info_veic['empresa']}</span>
-                                        <span style="background: #ffebee; color: #b71c1c; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">URGÊNCIA</span>
+                                <div style="background: #ffffff; border: 1px solid #FFCDD2; border-left: 6px solid #D32F2F; border-radius: 10px; padding: 16px 20px; box-shadow: 0 4px 12px rgba(211,47,47,0.08); margin-bottom: 20px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                                        <span style="font-weight: 800; color: #D32F2F; font-size: 14.5px;">🚨 PROTOCOLO TÁTICO DE EMERGÊNCIA — {info_veic['empresa']}</span>
+                                        <span style="background: #D32F2F; color: #ffffff; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 12px;">PRIORIDADE CRÍTICA</span>
                                     </div>
                                     <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
-                                        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-                                            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">📞 GESTOR 24H / PLANTÃO</span>
-                                            <strong style="color: #222; font-size: 13px;">{txt_gestor}</strong>
+                                        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 8px 14px; border-radius: 8px;">
+                                            <span style="color: #64748B; font-size: 11px; font-weight: bold; display: block;">📞 GESTOR 24H / PLANTÃO</span>
+                                            <strong style="color: #1E293B; font-size: 13px;">{txt_gestor}</strong>
                                         </div>
-                                        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-                                            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛡️ PRONTA RESPOSTA</span>
-                                            <strong style="color: #222; font-size: 13px;">{txt_pr}</strong>
+                                        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 8px 14px; border-radius: 8px;">
+                                            <span style="color: #64748B; font-size: 11px; font-weight: bold; display: block;">🛡️ PRONTA RESPOSTA</span>
+                                            <strong style="color: #1E293B; font-size: 13px;">{txt_pr}</strong>
                                         </div>
                                     </div>
-                                    <div style="background: #fff8f8; border: 1px dashed #ef9a9a; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333; margin-bottom: 8px;">
-                                        <strong style="color: #8b0000;">🛑 Diretriz Tática:</strong> {txt_dir}
+                                    <div style="background: #FFF5F5; border: 1px dashed #EF9A9A; padding: 10px 12px; border-radius: 8px; font-size: 13px; color: #333; margin-bottom: 8px;">
+                                        <strong style="color: #D32F2F;">🛑 Diretriz Tática:</strong> {txt_dir}
                                     </div>
-                                    <div style="background: #fff3e0; border: 1px dashed #ffb74d; border-left: 5px solid #e65100; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
-                                        <strong style="color: #e65100;">🔑 Palavra-Chave (Contra-senha):</strong> <span style="font-weight: 900; font-size: 15px;">{palavra_chave_cliente}</span>
+                                    <div style="background: #FFF3E0; border: 1px dashed #FFB74D; border-left: 5px solid #E65100; padding: 10px 12px; border-radius: 8px; font-size: 13px; color: #333;">
+                                        <strong style="color: #E65100;">🔑 Palavra-Chave (Contra-senha):</strong> <span style="font-weight: 900; font-size: 15px;">{palavra_chave_cliente}</span>
                                     </div>
                                 </div>
                                 """, unsafe_allow_html=True)
                                 
-                                st.markdown("<h3 style='color: #8b0000; font-size: 18px;'>Abertura de Furto/Roubo (Triagem Inicial)</h3>", unsafe_allow_html=True)
+                                st.markdown("<h3 style='color: #D32F2F; font-size: 18px;'>Abertura de Furto/Roubo (Triagem Inicial)</h3>", unsafe_allow_html=True)
                                 
                                 col_oc1, col_oc2 = st.columns(2)
                                 tipo_oc = col_oc1.selectbox("Natureza", ["Roubo (Com Abordagem)", "Furto (Sem Abordagem)"], key=f"nat_{st.session_state.rk}")
@@ -1262,15 +1504,14 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 st.markdown("**📲 Disparo Rápido de Cerco (Envio Integrado ao WhatsApp)**")
                                 nome_empresa_alerta = str(info_veic.get('empresa', 'EMPRESA')).upper()
                                 txt_copiar = f"""🚨 ALERTA DE SINISTRO - {nome_empresa_alerta} 🚨
-• Tipo: {tipo_oc}
-• Veículo: {info_veic['modelo']} - PLACA: {placa_sel}
-• Chassi: {chassi_disp} | Cor: {info_veic['cor']}
-• Condutor/Cliente: {info_veic['nome']}
-• Ponto do Fato: {local_oc}
-• Link Tático Espelho: {link_rastreio}"""
+- Tipo: {tipo_oc}
+- Veículo: {info_veic['modelo']} - PLACA: {placa_sel}
+- Chassi: {chassi_disp} | Cor: {info_veic['cor']}
+- Condutor/Cliente: {info_veic['nome']}
+- Ponto do Fato: {local_oc}
+- Link Tático Espelho: {link_rastreio}"""
                                 st.code(txt_copiar, language="text")
                                 
-                                # BUSCA INTELIGENTE DO WHATSAPP DA PRONTA RESPOSTA
                                 tel_alvo = ""
                                 num_pr_abertura = re.sub(r'\D', '', str(pop_pr))
                                 emp_tel_res = fetch_data("SELECT telefone FROM empresas WHERE nome=%s", (info_veic['empresa'],))
@@ -1284,12 +1525,11 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     if not tel_alvo.startswith('55'):
                                         tel_alvo = f"55{tel_alvo}"
                                     link_alerta_wpp = f"https://wa.me/{tel_alvo}?text={urllib.parse.quote(txt_copiar)}"
-                                    st.markdown(f'<a href="{link_alerta_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 15px; border-radius:6px; border:none; font-weight:bold; cursor:pointer; width:100%; margin-bottom:15px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">📲 Enviar Alerta Direto no WhatsApp da Pronta Resposta</button></a>', unsafe_allow_html=True)
+                                    st.markdown(f'<a href="{link_alerta_wpp}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:10px 15px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width:100%; margin-bottom:15px; box-shadow: 0 2px 6px rgba(0,0,0,0.12);">📲 Enviar Alerta Direto no WhatsApp da Pronta Resposta</button></a>', unsafe_allow_html=True)
                                 else:
                                     st.warning("⚠️ Não foi possível gerar o botão do WhatsApp porque a empresa não possui telefone válido cadastrado.")
 
-                                # --- CHECKLIST TÁTICO ---
-                                st.markdown("<div style='background-color: #fef8f8; border-left: 4px solid #d32f2f; padding: 15px; border-radius: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
+                                st.markdown("<div style='background-color: #FFF5F5; border-left: 5px solid #D32F2F; padding: 15px; border-radius: 8px; margin-bottom: 15px;'>", unsafe_allow_html=True)
                                 st.markdown("**☑️ Checklist Operacional Anti-Pânico** (Obrigatório para iniciar o chamado)")
                                 st.markdown("<span style='font-size: 11px; color: #777;'>Marque as opções para destravar o botão de abertura. Toda confirmação ficará salva na Linha do Tempo oficial.</span>", unsafe_allow_html=True)
                                 chk1 = st.checkbox("🔑 Contra-senha solicitada e confirmada (Ou senha de coação validada).", key="chk1")
@@ -1320,35 +1560,35 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                         limpar_tela()
                                         st.rerun()
 
-                        # --- CARD MODERNO DE MONITORAMENTO & ROTINA ---
+                        # --- CARD MODERNO DE MONITORAMENTO, GEOCERCA & ROTINA (BLOCO ROXO IMAGEM 4) ---
                         elif tipo_servico == "Monitoramento Técnico":
                             txt_mon = pop_mon if pop_mon else "Nenhuma regra de triagem cadastrada pelo parceiro."
                             txt_w_fin = pop_wpp_fin if pop_wpp_fin else "Usar telefone geral da empresa"
                             txt_w_tec = pop_wpp_tec if pop_wpp_tec else "Usar telefone geral da empresa"
 
                             st.markdown(f"""
-                            <div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 2px 8px rgba(74,14,78,0.08); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
-                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-                                    <span style="font-weight: bold; color: #4a0e4e; font-size: 14px;">📡 DIRETRIZES DE MONITORAMENTO — {info_veic['empresa']}</span>
-                                    <span style="background: #f3e5f5; color: #4a0e4e; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">TRIAGEM</span>
+                            <div style="background: #ffffff; border: 1px solid #E1BEE7; border-left: 6px solid #6A1B9A; border-radius: 10px; padding: 16px 20px; box-shadow: 0 4px 12px rgba(106,27,154,0.08); margin-bottom: 20px;">
+                                <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                                    <span style="font-weight: 800; color: #6A1B9A; font-size: 14.5px;">📡 DIRETRIZES DE MONITORAMENTO & GEOCERCA — {info_veic['empresa']}</span>
+                                    <span style="background: #6A1B9A; color: #FFFFFF; font-size: 11px; font-weight: 800; padding: 3px 10px; border-radius: 12px;">ROTINA / TELEMETRIA</span>
                                 </div>
                                 <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
-                                    <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-                                        <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">💰 WPP FINANCEIRO</span>
-                                        <strong style="color: #222; font-size: 13px;">{txt_w_fin}</strong>
+                                    <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 8px 14px; border-radius: 8px;">
+                                        <span style="color: #64748B; font-size: 11px; font-weight: bold; display: block;">💰 WPP FINANCEIRO</span>
+                                        <strong style="color: #1E293B; font-size: 13px;">{txt_w_fin}</strong>
                                     </div>
-                                    <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-                                        <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛠️ WPP SUPORTE TÉCNICO</span>
-                                        <strong style="color: #222; font-size: 13px;">{txt_w_tec}</strong>
+                                    <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 8px 14px; border-radius: 8px;">
+                                        <span style="color: #64748B; font-size: 11px; font-weight: bold; display: block;">🛠️ WPP SUPORTE TÉCNICO</span>
+                                        <strong style="color: #1E293B; font-size: 13px;">{txt_w_tec}</strong>
                                     </div>
                                 </div>
-                                <div style="background: #fdfaff; border: 1px dashed #ce93d8; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
-                                    <strong style="color: #4a0e4e;">📋 Regra de Triagem / Contato:</strong> {txt_mon}
+                                <div style="background: #FDFAFF; border: 1px dashed #CE93D8; padding: 10px 12px; border-radius: 8px; font-size: 13px; color: #333;">
+                                    <strong style="color: #4A148C;">📋 Regra de Triagem / Geocerca / Contato:</strong> {txt_mon}
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
                             
-                            st.markdown("<h3 style='color: #4a0e4e; font-size: 18px;'>Monitoramento Técnico / Transferência</h3>", unsafe_allow_html=True)
+                            st.markdown("<h3 style='color: #4A148C; font-size: 18px;'>Monitoramento Técnico / Geocerca / Transferência</h3>", unsafe_allow_html=True)
                             
                             lista_eventos = [
                                 "Registro - Desconexão de Bateria", 
@@ -1438,7 +1678,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: GESTÃO DE PENDÊNCIAS ---
     elif aba_ativa == "pendencias":
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🛠️ Gestão de Chamados e Pendências</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>🛠️ Gestão de Chamados e Pendências</span><span style="font-size:12px; color:#6A1B9A;">FILA DE RESOLUÇÃO</span></div>', unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel de transferências financeiras e técnicas aguardando resolução pela empresa parceira. Finalizar um chamado encerra o documento e o transfere para os Relatórios.</p>", unsafe_allow_html=True)
         
         q_pend = "SELECT * FROM historico WHERE tipo='Transferência' AND status='PENDENTE' ORDER BY id DESC"
@@ -1475,7 +1715,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             
     # --- TELA: CLIENTES E FROTAS ---
     elif aba_ativa == "clientes":
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>👤 Gerenciamento de Clientes e Frotas Multi-Veículos</span><span style="font-size:12px; color:#6A1B9A;">BASE DE ATIVOS</span></div>', unsafe_allow_html=True)
         
         opcoes_acao = ["Listar", "Incluir Novo", "Importação em Lote", "Editar"]
         if st.session_state.is_admin:
@@ -1527,22 +1767,18 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         titulo_pasta += f" ({total_encontrados_emp} encontrado{'s' if total_encontrados_emp > 1 else ''})"
                     
                     with st.expander(titulo_pasta, expanded=tem_busca_ativa):
-                        
-                        # --- CARDS DE MÉTRICAS COM TRAVA DE SEGURANÇA ---
                         total_veiculos_emp = int(df_emp['qtd_veiculos'].sum())
                         
                         if st.session_state.get('is_subuser'):
-                            # Se for OPERADOR (funcionário), vê apenas a quantidade de veículos
                             st.markdown(f"""
                             <div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;'>
-                                <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
-                                    <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>🚗 Base Apurada (Veículos)</p>
-                                    <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>{total_veiculos_emp}</h3>
+                                <div style='flex: 1; min-width: 120px; padding: 14px; background: #FFFFFF; border-radius: 10px; border: 1px solid #E2E8F0; border-top: 4px solid #6A1B9A;'>
+                                    <p style='margin: 0; font-size: 12px; color: #64748B; font-weight: bold;'>🚗 Base Apurada (Veículos)</p>
+                                    <h3 style='margin: 5px 0 0 0; color: #6A1B9A; font-size: 22px;'>{total_veiculos_emp}</h3>
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
                         else:
-                            # Se for ADMIN ou GESTOR TITULAR, calcula e mostra o faturamento projetado
                             valor_unitario = 3.00
                             for e in empresas_disp:
                                 if e['nome'] == emp_ativa:
@@ -1554,21 +1790,20 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             
                             st.markdown(f"""
                             <div style='display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;'>
-                                <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
-                                    <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>🚗 Base Apurada (Veículos)</p>
-                                    <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>{total_veiculos_emp}</h3>
+                                <div style='flex: 1; min-width: 120px; padding: 14px; background: #FFFFFF; border-radius: 10px; border: 1px solid #E2E8F0; border-top: 4px solid #6A1B9A;'>
+                                    <p style='margin: 0; font-size: 12px; color: #64748B; font-weight: bold;'>🚗 Base Apurada (Veículos)</p>
+                                    <h3 style='margin: 5px 0 0 0; color: #6A1B9A; font-size: 22px;'>{total_veiculos_emp}</h3>
                                 </div>
-                                <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #4a0e4e; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
-                                    <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>💵 Valor Unitário (Contrato)</p>
-                                    <h3 style='margin: 5px 0 0 0; color: #4a0e4e; font-size: 20px;'>R$ {valor_unitario:.2f}</h3>
+                                <div style='flex: 1; min-width: 120px; padding: 14px; background: #FFFFFF; border-radius: 10px; border: 1px solid #E2E8F0; border-top: 4px solid #6A1B9A;'>
+                                    <p style='margin: 0; font-size: 12px; color: #64748B; font-weight: bold;'>💵 Valor Unitário (Contrato)</p>
+                                    <h3 style='margin: 5px 0 0 0; color: #4A148C; font-size: 22px;'>R$ {valor_unitario:.2f}</h3>
                                 </div>
-                                <div style='flex: 1; min-width: 120px; padding: 12px; background: #fdfdfd; border-radius: 6px; border-left: 4px solid #8b0000; box-shadow: 0 1px 3px rgba(0,0,0,0.05);'>
-                                    <p style='margin: 0; font-size: 12px; color: #666; font-weight: bold;'>💳 Faturamento Projetado</p>
-                                    <h3 style='margin: 5px 0 0 0; color: #8b0000; font-size: 20px;'>R$ {faturamento_projetado:.2f}</h3>
+                                <div style='flex: 1; min-width: 120px; padding: 14px; background: #FFFFFF; border-radius: 10px; border: 1px solid #E2E8F0; border-top: 4px solid #D32F2F;'>
+                                    <p style='margin: 0; font-size: 12px; color: #64748B; font-weight: bold;'>💳 Faturamento Projetado</p>
+                                    <h3 style='margin: 5px 0 0 0; color: #D32F2F; font-size: 22px;'>R$ {faturamento_projetado:.2f}</h3>
                                 </div>
                             </div>
                             """, unsafe_allow_html=True)
-                        # --------------------------------------------------
 
                         df_display = df_emp[['nome', 'documento', 'telefone', 'data_cadastro', 'qtd_veiculos', 'status']].copy()
                         df_display.columns = ['Cliente', 'CPF/CNPJ', 'Telefone', 'Data de Cadastro', 'Qtd. Veículos', 'Status']
@@ -1607,7 +1842,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
                             st.markdown(f"""
 <div class="ficha-box">
-    <h3 style="color:#4a0e4e; margin-top:0;">📋 Ficha Cadastral Completa</h3>
+    <h3 style="color:#4A148C; margin-top:0;">📋 Ficha Cadastral Completa</h3>
     <p><b>Data/Hora de Cadastro:</b> {dados_cli_ficha.get('data_cadastro') or 'Não registrada'}</p>
     <p><b>Nome do Cliente:</b> {dados_cli_ficha['nome']}</p>
     <p><b>CPF / CNPJ:</b> {dados_cli_ficha['documento']}</p>
@@ -1615,13 +1850,13 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
     <p><b>Telefone:</b> {dados_cli_ficha['telefone']}</p>
     <p><b>Empresa Responsável:</b> {dados_cli_ficha['empresa']}</p>
     <p><b>Status:</b> {dados_cli_ficha['status']}</p>
-    <div style="background-color: #fff3e0; border-left: 5px solid #e65100; padding: 12px; border-radius: 5px; margin: 15px 0;">
-        <span style="color: #e65100; font-size: 13px; font-weight: bold; text-transform: uppercase; display: block;">🔑 Palavra-Chave de Segurança (Contra-senha)</span>
+    <div style="background-color: #FFF3E0; border-left: 5px solid #E65100; padding: 12px; border-radius: 8px; margin: 15px 0;">
+        <span style="color: #E65100; font-size: 13px; font-weight: bold; text-transform: uppercase; display: block;">🔑 Palavra-Chave de Segurança (Contra-senha)</span>
         <span style="color: #222; font-size: 18px; font-weight: 900; letter-spacing: 1px;">{dados_cli_ficha.get('palavra_chave') or 'NÃO CADASTRADA'}</span>
         <p style="font-size: 11px; color: #777; margin: 5px 0 0 0;">Exigir esta palavra antes de realizar desbloqueios ou repassar informações.</p>
     </div>
-    <hr style="border: 0; border-top: 2px solid #4a0e4e; margin: 15px 0;">
-    <h4 style="color:#8b0000;">🚗 Veículos / Frotas Vinculadas ({len(veiculos_cli_ficha)})</h4>
+    <hr style="border: 0; border-top: 2px solid #6A1B9A; margin: 15px 0;">
+    <h4 style="color:#D32F2F;">🚗 Veículos / Frotas Vinculadas ({len(veiculos_cli_ficha)})</h4>
 </div>
 """, unsafe_allow_html=True)
                             
@@ -1635,7 +1870,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                             if ultimos_atendimentos:
                                 st.markdown("""
 <hr style="border: 0; border-top: 1px solid #e0e0e0; margin: 15px 0 10px 0;">
-<span style="font-size: 13px; font-weight: bold; color: #4a0e4e; display: block; margin-bottom: 8px;">🕒 Último Atendimento Registrado</span>
+<span style="font-size: 13px; font-weight: bold; color: #4A148C; display: block; margin-bottom: 8px;">🕒 Último Atendimento Registrado</span>
 """, unsafe_allow_html=True)
                                 df_ult = pd.DataFrame(ultimos_atendimentos)[['placa', 'data_hora', 'tipo', 'status', 'detalhes']]
                                 df_ult.columns = ['Placa', 'Data/Hora', 'Último Evento', 'Status', 'Detalhes / Ação da Central']
@@ -1809,7 +2044,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                 cli_id = cli_res['id']
                                 tel_db = str(cli_res.get('telefone', '')).strip()
                                 
-                                # Atualiza apenas se o telefone no banco estiver vazio e a planilha tiver telefone
                                 if not tel_db and tel:
                                     cur.execute("UPDATE clientes SET telefone=%s WHERE id=%s", (tel, cli_id))
                                     atualizados_clientes += 1
@@ -2025,9 +2259,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         elif acao_clientes == "Solicitar Exclusão":
             st.info("Para remover um cliente ou excluir uma placa da sua base, clique no botão abaixo para solicitar a exclusão junto ao suporte oficial informando a placa e o motivo.")
             st.markdown(gerar_link_whatsapp(f"Solicitação de Exclusão de Cadastro - Parceiro: {st.session_state.nome_empresa}"), unsafe_allow_html=True)
-            # --- TELA: RELATÓRIOS ---
+
+    # --- TELA: RELATÓRIOS ---
     elif aba_ativa == "relatorios":
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📖 Relatórios Operacionais</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>📖 Relatórios Operacionais & Histórico</span><span style="font-size:12px; color:#6A1B9A;">AUDITORIA DE OCORRÊNCIAS</span></div>', unsafe_allow_html=True)
         
         if st.session_state.is_admin:
             servico_atual = "Ambos (Furto/Roubo + Monitoramento)"
@@ -2075,13 +2310,11 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     
                     if res_fr:
                         df_fr = pd.DataFrame(res_fr)
-                        # ATUALIZAÇÃO: Inclusão da coluna Empresa no DataFrame de exibição
                         df_fr_visual = df_fr[['id', 'data_hora', 'empresa', 'cliente', 'placa', 'tipo', 'status']].copy()
                         df_fr_visual.columns = ['ID', 'Data/Hora', 'Empresa', 'Cliente', 'Placa', 'Tipo', 'Status']
                         st.dataframe(df_fr_visual, use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha de Ocorrência Tática")
-                        # ATUALIZAÇÃO: Inclusão do nome da empresa no seletor
                         lista_sel_fr = [""] + [f"{h['id']} - {h['empresa']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_fr]
                         
                         k_rel_fr = st.session_state.reset_keys['rel_fr']
@@ -2098,18 +2331,17 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     st.rerun()
                             
                             timeline_res = fetch_data("SELECT * FROM historico_timeline WHERE historico_id=%s ORDER BY id ASC", (id_r,))
-                            html_tl = "<hr><p><b>⏱️ Linha do Tempo (Ações Táticas):</b></p><ul>"
+                            html_tl = "<div class='timeline-box' style='margin-top:15px;'><span style='font-weight:800; color:#D32F2F; font-size:13px;'>⏱️ Linha do Tempo (Ações Táticas):</span><ul class='timeline-list'>"
                             if timeline_res:
                                 for t in timeline_res:
-                                    html_tl += f"<li><b>{t['data_hora']}</b> - {t['acao']} <i>(Op: {t['operador']})</i></li>"
+                                    html_tl += f"<li><b>{t['data_hora']}</b> — {t['acao']} <span style='color:#6A1B9A;'>(Op: {t['operador']})</span></li>"
                             else:
                                 html_tl += "<li><i>Sem histórico tático gravado.</i></li>"
-                            html_tl += "</ul>"
+                            html_tl += "</ul></div>"
                             
-                            # ATUALIZAÇÃO: Inclusão do campo Empresa na Ficha
                             st.markdown(f'''
 <div class="ficha-box">
-    <h4 style="color:#8b0000; text-align:center;">Ficha de Ocorrência nº {dados_fr['id']} ({dados_fr['tipo']})</h4>
+    <h4 style="color:#D32F2F; text-align:center;">Ficha de Ocorrência nº {dados_fr['id']} ({dados_fr['tipo']})</h4>
     <hr>
     <p><b>Empresa Parceira:</b> {dados_fr['empresa']}</p>
     <p><b>Data/Hora de Abertura:</b> {dados_fr['data_hora']}</p>
@@ -2123,7 +2355,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 </div>
 ''', unsafe_allow_html=True)
                             
-                            # --- BLOCO DE EDIÇÃO (EXCLUSIVO ADMIN) ---
                             if st.session_state.is_admin:
                                 st.markdown("---")
                                 with st.expander("🛠️ Editar Ocorrência (Acesso Exclusivo Admin)", expanded=False):
@@ -2214,13 +2445,11 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     
                     if res_mon:
                         df_mon = pd.DataFrame(res_mon)
-                        # ATUALIZAÇÃO: Inclusão da coluna Empresa no DataFrame de exibição
                         df_mon_visual = df_mon[['id', 'data_hora', 'empresa', 'cliente', 'placa', 'tipo', 'status']].copy()
                         df_mon_visual.columns = ['ID', 'Data/Hora', 'Empresa', 'Cliente', 'Placa', 'Tipo', 'Status']
                         st.dataframe(df_mon_visual, use_container_width=True)
                         
                         st.markdown("### 🔎 Ficha de Relatório")
-                        # ATUALIZAÇÃO: Inclusão do nome da empresa no seletor
                         lista_sel_mon = [""] + [f"{h['id']} - {h['empresa']} - Placa: {h['placa']} - Cliente: {h['cliente']} ({h['data_hora']})" for h in res_mon]
                         
                         k_rel_mon = st.session_state.reset_keys['rel_mon']
@@ -2236,10 +2465,9 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                                     limpar_tela()
                                     st.rerun()
 
-                            # ATUALIZAÇÃO: Inclusão do campo Empresa na Ficha
                             st.markdown(f'''
 <div class="ficha-box">
-    <h4 style="color:#4a0e4e; text-align:center;">Ficha de Monitoramento / Transferência nº {dados_mon['id']}</h4>
+    <h4 style="color:#4A148C; text-align:center;">Ficha de Monitoramento / Transferência nº {dados_mon['id']}</h4>
     <hr>
     <p><b>Empresa Parceira:</b> {dados_mon['empresa']}</p>
     <p><b>Data/Hora:</b> {dados_mon['data_hora']}</p>
@@ -2252,7 +2480,6 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 </div>
 ''', unsafe_allow_html=True)
                             
-                            # --- BLOCO DE EDIÇÃO (EXCLUSIVO ADMIN) ---
                             if st.session_state.is_admin:
                                 st.markdown("---")
                                 with st.expander("🛠️ Editar Registro (Acesso Exclusivo Admin)", expanded=False):
@@ -2285,10 +2512,9 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     else:
                         st.info("Nenhum registro encontrado.")
                 idx_sub += 1
-
-    # --- TELA: FECHAMENTO DO MÊS (DISPARO DE RELATÓRIOS B2B) ---
+                # --- TELA: FECHAMENTO DO MÊS (DISPARO DE RELATÓRIOS B2B) ---
     elif aba_ativa == "fechamento" and not st.session_state.get('is_subuser'):
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>📆 Fechamento do Mês (Relatórios B2B)</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>📆 Fechamento do Mês (Relatórios B2B)</span><span style="font-size:12px; color:#6A1B9A;">CONSOLIDAÇÃO MENSAL</span></div>', unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Gere os resumos executivos mensais estruturados e dispare via WhatsApp para os gestores das frotas parceiras com um único clique.</p>", unsafe_allow_html=True)
         
         mes_atual = get_horario_brasil().strftime("%m/%Y")
@@ -2400,11 +2626,10 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         link_wpp_fech = f"https://wa.me/{tel_limpo}?text={urllib.parse.quote(msg_wpp)}"
                         html_wpp_btn = f'<a href="{link_wpp_fech}" target="_blank" style="text-decoration:none;"><button style="background-color:#25D366; color:white; padding:12px 20px; border-radius:8px; border:none; font-weight:bold; cursor:pointer; width:100%; font-size:15px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">📲 Passo 2: Disparar Resumo Tático no WhatsApp</button></a>'
                     else:
-                        html_wpp_btn = "<div style='color:#c62828; font-weight:bold; font-size:13px; margin-bottom:10px; background:#ffebee; padding:10px; border-radius:5px;'>⚠️ O Telefone ou número de WhatsApp do Gestor desta empresa está vazio ou inválido no cadastro.</div>"
+                        html_wpp_btn = "<div style='color:#D32F2F; font-weight:bold; font-size:13px; margin-bottom:10px; background:#FFEBEE; padding:10px; border-radius:8px;'>⚠️ O Telefone ou número de WhatsApp do Gestor desta empresa está vazio ou inválido no cadastro.</div>"
 
                     st.markdown("<p style='font-size: 13px; color: #444;'><b>Instruções:</b> Primeiro baixe o Laudo Analítico Oficial em seu computador. Em seguida, clique em disparar no WhatsApp e anexe o arquivo baixado na conversa para o cliente.</p>", unsafe_allow_html=True)
                     
-                    # Gerador do PDF / HTML no botão
                     detalhamento_operacional = ""
                     for _, row in df_ev['Evento'].value_counts().reset_index().iterrows():
                         evt = row['Evento']
@@ -2424,7 +2649,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: MEU FATURAMENTO ---
     elif aba_ativa == "faturamento" and not st.session_state.is_admin and not st.session_state.get('is_subuser'):
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>💰 Meu Faturamento e Frotas Ativas</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>💰 Meu Faturamento e Frotas Ativas</span><span style="font-size:12px; color:#6A1B9A;">EXTRATO DO PARCEIRO</span></div>', unsafe_allow_html=True)
         
         res_emp_info = fetch_data("SELECT servicos, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
         
@@ -2444,13 +2669,13 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         status_visual = calcular_status_fatura(status_pag, dia_venc)
 
         if status_visual == "🔴 Vencida / Atrasada":
-            msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #ffebee; color: #c62828; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>ATENÇÃO - FATURA ATRASADA:</b> Sua fatura venceu e encontra-se em atraso. Serviços temporariamente suspensos até a quitação.</div>"
+            msg_html = f"<div style='padding: 12px 16px; border-radius: 8px; background-color: #FFEBEE; border-left: 5px solid #D32F2F; color: #B71C1C; font-size: 13.5px; margin-bottom: 12px; font-weight: 600;'>⚠️ <b>ATENÇÃO - FATURA ATRASADA:</b> Sua fatura venceu e encontra-se em atraso. Serviços temporariamente suspensos até a quitação.</div>"
         elif status_visual == "🟠 Vence Hoje":
-            msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fff3e0; color: #e65100; font-size: 13px; margin-bottom: 10px;'>⚠️ <b>AVISO FINANCEIRO:</b> Sua fatura referente ao fechamento do último mês vence hoje. Evite bloqueios realizando o pagamento.</div>"
+            msg_html = f"<div style='padding: 12px 16px; border-radius: 8px; background-color: #FFF3E0; border-left: 5px solid #E65100; color: #E65100; font-size: 13.5px; margin-bottom: 12px; font-weight: 600;'>⚠️ <b>AVISO FINANCEIRO:</b> Sua fatura referente ao fechamento do último mês vence hoje. Evite bloqueios realizando o pagamento.</div>"
         elif status_visual == "🟡 Fatura Fechada (Próxima ao Vencimento)":
-            msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #fffde7; color: #f57f17; font-size: 13px; margin-bottom: 10px;'>🔔 <b>Aviso Financeiro:</b> Sua fatura foi fechada (corte de 2 dias antes do vencimento dia {dia_venc}). Fique atento.</div>"
+            msg_html = f"<div style='padding: 12px 16px; border-radius: 8px; background-color: #FFFDE7; border-left: 5px solid #F57F17; color: #F57F17; font-size: 13.5px; margin-bottom: 12px; font-weight: 600;'>🔔 <b>Aviso Financeiro:</b> Sua fatura foi fechada (corte de 2 dias antes do vencimento dia {dia_venc}). Fique atento.</div>"
         else:
-            msg_html = f"<div style='padding: 10px; border-radius: 5px; background-color: #e8f5e9; color: #2e7d32; font-size: 13px; margin-bottom: 10px;'>✅ <b>Situação Financeira Regularizada:</b> Suas faturas encontram-se em dia. Obrigado por manter sua parceria conosco!</div>"
+            msg_html = f"<div style='padding: 12px 16px; border-radius: 8px; background-color: #E8F5E9; border-left: 5px solid #2E7D32; color: #1B5E20; font-size: 13.5px; margin-bottom: 12px; font-weight: 600;'>✅ <b>Situação Financeira Regularizada:</b> Suas faturas encontram-se em dia. Obrigado por manter sua parceria conosco!</div>"
         
         st.markdown(msg_html, unsafe_allow_html=True)
         st.markdown(f"<p style='font-size: 13px; color: #555; margin-bottom: 20px;'>ℹ️ <b>Pacote Contratado:</b> {servico_emp} | <b>Vencimento:</b> Todo dia {dia_venc} do mês</p>", unsafe_allow_html=True)
@@ -2463,21 +2688,21 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         
         html_kpis = f"""
 <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
-    <div style="flex: 1; min-width: 150px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #4a0e4e;">
-        <p style="margin: 0; font-size: 13px; color: #666;">🚗 Veículos Ativos</p>
-        <h3 style="margin: 5px 0 0 0; color: #333; font-size: 22px;">{total_veiculos}</h3>
+    <div style="flex: 1; min-width: 150px; padding: 16px; background: #FFFFFF; border-radius: 12px; border: 1px solid #E2E8F0; border-top: 4px solid #6A1B9A; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <p style="margin: 0; font-size: 12px; color: #64748B; font-weight: 700; text-transform: uppercase;">🚗 Veículos Ativos</p>
+        <h3 style="margin: 6px 0 0 0; color: #6A1B9A; font-size: 24px;">{total_veiculos}</h3>
     </div>
-    <div style="flex: 1; min-width: 150px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #4a0e4e;">
-        <p style="margin: 0; font-size: 13px; color: #666;">💵 Valor Unitário</p>
-        <h3 style="margin: 5px 0 0 0; color: #333; font-size: 22px;">R$ {valor_por_veiculo:.2f}</h3>
+    <div style="flex: 1; min-width: 150px; padding: 16px; background: #FFFFFF; border-radius: 12px; border: 1px solid #E2E8F0; border-top: 4px solid #6A1B9A; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <p style="margin: 0; font-size: 12px; color: #64748B; font-weight: 700; text-transform: uppercase;">💵 Valor Unitário</p>
+        <h3 style="margin: 6px 0 0 0; color: #4A148C; font-size: 24px;">R$ {valor_por_veiculo:.2f}</h3>
     </div>
-    <div style="flex: 1; min-width: 150px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #4a0e4e;">
-        <p style="margin: 0; font-size: 13px; color: #666;">💳 Faturamento Previsto</p>
-        <h3 style="margin: 5px 0 0 0; color: #333; font-size: 22px;">R$ {valor_total_fatura:.2f}</h3>
+    <div style="flex: 1; min-width: 150px; padding: 16px; background: #FFFFFF; border-radius: 12px; border: 1px solid #E2E8F0; border-top: 4px solid #6A1B9A; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <p style="margin: 0; font-size: 12px; color: #64748B; font-weight: 700; text-transform: uppercase;">💳 Faturamento Previsto</p>
+        <h3 style="margin: 6px 0 0 0; color: #1E293B; font-size: 24px;">R$ {valor_total_fatura:.2f}</h3>
     </div>
-    <div style="flex: 1; min-width: 150px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #8b0000;">
-        <p style="margin: 0; font-size: 13px; color: #666;">📌 Status da Fatura</p>
-        <h3 style="margin: 5px 0 0 0; color: #8b0000; font-size: 18px;">{status_visual}</h3>
+    <div style="flex: 1; min-width: 150px; padding: 16px; background: #FFFFFF; border-radius: 12px; border: 1px solid #E2E8F0; border-top: 4px solid #D32F2F; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <p style="margin: 0; font-size: 12px; color: #64748B; font-weight: 700; text-transform: uppercase;">📌 Status da Fatura</p>
+        <h3 style="margin: 6px 0 0 0; color: #D32F2F; font-size: 18px;">{status_visual}</h3>
     </div>
 </div>
 """
@@ -2508,7 +2733,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: MEU CADASTRO ---
     elif aba_ativa == "cadastro" and not st.session_state.is_admin and not st.session_state.get('is_subuser'):
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>⚙️ Meu Cadastro Profissional</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>⚙️ Meu Cadastro Profissional & POP</span><span style="font-size:12px; color:#6A1B9A;">DIRETRIZES OPERACIONAIS</span></div>', unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Mantenha seus dados de contato e endereço atualizados para garantir a comunicação correta com a Central.</p>", unsafe_allow_html=True)
         
         res_emp = fetch_data("SELECT nome, cnpj, servicos, valor_veiculo, dia_vencimento, responsavel, telefone, email, endereco, pop_gestor, pop_pronta_resposta, pop_diretriz_bloqueio, pop_monitoramento, pop_wpp_financeiro, pop_wpp_tecnico FROM empresas WHERE nome=%s", (st.session_state.nome_empresa,))
@@ -2524,27 +2749,27 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
             st.markdown("### 🔒 Informações Contratuais")
             
             html_readonly = f"""
-<div style="background-color: #fafafa; border-left: 4px solid #4a0e4e; border-radius: 4px; padding: 15px; margin-bottom: 20px; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">
+<div style="background-color: #FFFFFF; border: 1px solid #E2E8F0; border-left: 5px solid #6A1B9A; border-radius: 10px; padding: 16px; margin-bottom: 20px; box-shadow: 0 2px 6px rgba(0,0,0,0.03);">
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px;">
         <div>
-            <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">Empresa / Login</span><br>
-            <span style="color: #333; font-size: 14px; font-weight: 500;">{dados_emp['nome']}</span>
+            <span style="color: #D32F2F; font-size: 11px; font-weight: 800; text-transform: uppercase;">Empresa / Login</span><br>
+            <span style="color: #1E293B; font-size: 14px; font-weight: 700;">{dados_emp['nome']}</span>
         </div>
         <div>
-            <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">CNPJ</span><br>
-            <span style="color: #333; font-size: 14px; font-weight: 500;">{dados_emp['cnpj']}</span>
+            <span style="color: #D32F2F; font-size: 11px; font-weight: 800; text-transform: uppercase;">CNPJ</span><br>
+            <span style="color: #1E293B; font-size: 14px; font-weight: 700;">{dados_emp['cnpj']}</span>
         </div>
         <div>
-            <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">Serviços</span><br>
-            <span style="color: #333; font-size: 14px; font-weight: 500;">{dados_emp['servicos']}</span>
+            <span style="color: #D32F2F; font-size: 11px; font-weight: 800; text-transform: uppercase;">Serviços</span><br>
+            <span style="color: #1E293B; font-size: 14px; font-weight: 700;">{dados_emp['servicos']}</span>
         </div>
         <div>
-            <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">Valor por Veículo</span><br>
-            <span style="color: #333; font-size: 14px; font-weight: 500;">R$ {val_veic:.2f}</span>
+            <span style="color: #D32F2F; font-size: 11px; font-weight: 800; text-transform: uppercase;">Valor por Veículo</span><br>
+            <span style="color: #1E293B; font-size: 14px; font-weight: 700;">R$ {val_veic:.2f}</span>
         </div>
         <div>
-            <span style="color: #8b0000; font-size: 11px; font-weight: bold; text-transform: uppercase;">Dia de Vencimento</span><br>
-            <span style="color: #333; font-size: 14px; font-weight: 500;">Dia {dia_v}</span>
+            <span style="color: #D32F2F; font-size: 11px; font-weight: 800; text-transform: uppercase;">Dia de Vencimento</span><br>
+            <span style="color: #1E293B; font-size: 14px; font-weight: 700;">Dia {dia_v}</span>
         </div>
     </div>
 </div>
@@ -2558,9 +2783,9 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 txt_end = dados_emp.get('endereco') or 'Não informado'
                 
                 st.markdown(f"""
-<div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+<div style="background: #ffffff; border: 1px solid #E2E8F0; border-left: 5px solid #6A1B9A; border-radius: 10px; padding: 14px 18px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); margin-bottom: 20px;">
     <div style="margin-bottom: 10px;">
-        <span style="font-weight: bold; color: #4a0e4e; font-size: 15px;">👤 CONTATOS ADMINISTRATIVOS GERAIS</span>
+        <span style="font-weight: 800; color: #4A148C; font-size: 15px;">👤 CONTATOS ADMINISTRATIVOS GERAIS</span>
     </div>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; font-size: 13px; color: #444;">
         <div><b>Responsável:</b> {txt_resp}</div>
@@ -2577,23 +2802,23 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     txt_db = dados_emp.get('pop_diretriz_bloqueio') or 'Nenhuma diretriz de bloqueio cadastrada.'
                     
                     st.markdown(f"""
-<div style="background: #ffffff; border-left: 5px solid #8b0000; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(139,0,0,0.06); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+<div style="background: #ffffff; border: 1px solid #FFCDD2; border-left: 5px solid #D32F2F; border-radius: 10px; padding: 14px 18px; box-shadow: 0 2px 6px rgba(211,47,47,0.06); margin-bottom: 20px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-        <span style="font-weight: bold; color: #8b0000; font-size: 15px;">🚨 POP - EMERGÊNCIA (FURTO E ROUBO)</span>
-        <span style="background: #ffebee; color: #b71c1c; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">🔒 BLOQUEADO P/ EDIÇÃO</span>
+        <span style="font-weight: 800; color: #D32F2F; font-size: 15px;">🚨 POP - EMERGÊNCIA (FURTO E ROUBO)</span>
+        <span style="background: #FFEBEE; color: #B71C1C; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">🔒 BLOQUEADO P/ EDIÇÃO</span>
     </div>
     <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
-        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">📞 GESTOR 24H / PLANTÃO</span>
-            <strong style="color: #222; font-size: 13px;">{txt_gestor}</strong>
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 6px 12px; border-radius: 6px;">
+            <span style="color: #64748B; font-size: 11px; font-weight: bold; display: block;">📞 GESTOR 24H / PLANTÃO</span>
+            <strong style="color: #1E293B; font-size: 13px;">{txt_gestor}</strong>
         </div>
-        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛡️ PRONTA RESPOSTA</span>
-            <strong style="color: #222; font-size: 13px;">{txt_pr}</strong>
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 6px 12px; border-radius: 6px;">
+            <span style="color: #64748B; font-size: 11px; font-weight: bold; display: block;">🛡️ PRONTA RESPOSTA</span>
+            <strong style="color: #1E293B; font-size: 13px;">{txt_pr}</strong>
         </div>
     </div>
-    <div style="background: #fff8f8; border: 1px dashed #ef9a9a; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
-        <strong style="color: #8b0000;">🛑 Diretriz Tática de Bloqueio:</strong> {txt_db}
+    <div style="background: #FFF5F5; border: 1px dashed #EF9A9A; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
+        <strong style="color: #D32F2F;">🛑 Diretriz Tática de Bloqueio:</strong> {txt_db}
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2604,23 +2829,23 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     txt_mon = dados_emp.get('pop_monitoramento') or 'Nenhuma instrução de triagem cadastrada.'
                     
                     st.markdown(f"""
-<div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(74,14,78,0.06); margin-bottom: 25px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+<div style="background: #ffffff; border: 1px solid #E1BEE7; border-left: 5px solid #6A1B9A; border-radius: 10px; padding: 14px 18px; box-shadow: 0 2px 6px rgba(106,27,154,0.06); margin-bottom: 25px;">
     <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
-        <span style="font-weight: bold; color: #4a0e4e; font-size: 15px;">📡 POP - MONITORAMENTO & ROTEAMENTO DE SETORES</span>
-        <span style="background: #f3e5f5; color: #4a0e4e; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">🔒 BLOQUEADO P/ EDIÇÃO</span>
+        <span style="font-weight: 800; color: #4A148C; font-size: 15px;">📡 POP - MONITORAMENTO & ROTEAMENTO DE SETORES</span>
+        <span style="background: #F3E5F5; color: #4A148C; font-size: 11px; font-weight: bold; padding: 2px 8px; border-radius: 10px;">🔒 BLOQUEADO P/ EDIÇÃO</span>
     </div>
     <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px;">
-        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">💰 WPP FINANCEIRO</span>
-            <strong style="color: #222; font-size: 13px;">{txt_w_fin}</strong>
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 6px 12px; border-radius: 6px;">
+            <span style="color: #64748B; font-size: 11px; font-weight: bold; display: block;">💰 WPP FINANCEIRO</span>
+            <strong style="color: #1E293B; font-size: 13px;">{txt_w_fin}</strong>
         </div>
-        <div style="background: #fafafa; border: 1px solid #eee; padding: 6px 12px; border-radius: 6px;">
-            <span style="color: #777; font-size: 11px; font-weight: bold; display: block;">🛠️ WPP SUPORTE TÉCNICO</span>
-            <strong style="color: #222; font-size: 13px;">{txt_w_tec}</strong>
+        <div style="background: #F8FAFC; border: 1px solid #E2E8F0; padding: 6px 12px; border-radius: 6px;">
+            <span style="color: #64748B; font-size: 11px; font-weight: bold; display: block;">🛠️ WPP SUPORTE TÉCNICO</span>
+            <strong style="color: #1E293B; font-size: 13px;">{txt_w_tec}</strong>
         </div>
     </div>
-    <div style="background: #fdfaff; border: 1px dashed #ce93d8; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
-        <strong style="color: #4a0e4e;">📋 Instruções de Contato / Triagem:</strong> {txt_mon}
+    <div style="background: #FDFAFF; border: 1px dashed #CE93D8; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: #333;">
+        <strong style="color: #4A148C;">📋 Instruções de Contato / Triagem:</strong> {txt_mon}
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -2631,9 +2856,9 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
                 st.markdown("---")
                 st.markdown("""
-<div style="background: #ffffff; border-left: 5px solid #4a0e4e; border-radius: 8px; padding: 14px 18px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); margin-bottom: 20px; border-top: 1px solid #f1f1f1; border-right: 1px solid #f1f1f1; border-bottom: 1px solid #f1f1f1;">
+<div style="background: #ffffff; border: 1px solid #E2E8F0; border-left: 5px solid #6A1B9A; border-radius: 10px; padding: 14px 18px; box-shadow: 0 2px 6px rgba(0,0,0,0.04); margin-bottom: 20px;">
     <div style="margin-bottom: 10px;">
-        <span style="font-weight: bold; color: #4a0e4e; font-size: 16px;">👥 GESTÃO DE USUÁRIOS (OPERADORES)</span>
+        <span style="font-weight: 800; color: #4A148C; font-size: 16px;">👥 GESTÃO DE USUÁRIOS (OPERADORES)</span>
     </div>
     <p style='font-size: 13px; color: #555; margin: 0;'>Crie logins para a sua equipe. Eles terão acesso ao painel de veículos, histórico e auditoria, mas <b>não verão o faturamento nem poderão alterar seus dados contratuais.</b></p>
 </div>
@@ -2720,7 +2945,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                 st.markdown("### 📝 Atualização de Dados e POP")
                 
                 with st.form("form_atualizacao_cadastral"):
-                    st.markdown("<h4 style='color: #4a0e4e;'>Contatos Administrativos Gerais</h4>", unsafe_allow_html=True)
+                    st.markdown("<h4 style='color: #4A148C;'>Contatos Administrativos Gerais</h4>", unsafe_allow_html=True)
                     c1, c2 = st.columns(2)
                     c_resp = c1.text_input("Nome do Responsável", value=dados_emp.get('responsavel', ''))
                     c_tel = c2.text_input("Telefone Corporativo Geral", value=dados_emp.get('telefone', ''))
@@ -2729,7 +2954,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                     
                     if tem_fr_cad:
                         st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-                        st.markdown("<h4 style='color: #8b0000;'>🚨 POP - Emergência (Furto e Roubo)</h4>", unsafe_allow_html=True)
+                        st.markdown("<h4 style='color: #D32F2F;'>🚨 POP - Emergência (Furto e Roubo)</h4>", unsafe_allow_html=True)
                         c_pop1, c_pop2 = st.columns(2)
                         c_pop_g = c_pop1.text_input("Contato do Gestor 24h / Plantão", value=dados_emp.get('pop_gestor', ''))
                         c_pop_pr = c_pop2.text_input("Contato da Equipe de Pronta Resposta", value=dados_emp.get('pop_pronta_resposta', ''))
@@ -2741,7 +2966,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         
                     if tem_mon_cad:
                         st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
-                        st.markdown("<h4 style='color: #4a0e4e;'>📡 POP - Monitoramento & Roteamento de Setores</h4>", unsafe_allow_html=True)
+                        st.markdown("<h4 style='color: #4A148C;'>📡 POP - Monitoramento & Roteamento de Setores</h4>", unsafe_allow_html=True)
                         c_wpp1, c_wpp2 = st.columns(2)
                         c_wpp_fin = c_wpp1.text_input("WhatsApp do Setor Financeiro (Faturas/Cobranças)", value=dados_emp.get('pop_wpp_financeiro', ''))
                         c_wpp_tec = c_wpp2.text_input("WhatsApp do Setor Técnico (Suporte/Manutenção)", value=dados_emp.get('pop_wpp_tecnico', ''))
@@ -2772,7 +2997,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: GERENCIAMENTO DE EMPRESAS (ADMIN) ---
     elif aba_ativa == "empresas" and st.session_state.is_admin:
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🏢 Gerenciamento de Empresas Parceiras e Precificação</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>🏢 Gerenciamento de Empresas Parceiras e Precificação</span><span style="font-size:12px; color:#6A1B9A;">GESTÃO B2B</span></div>', unsafe_allow_html=True)
         
         acao_parceiros = st.radio("Ação Empresas:", ["Listar", "Incluir Nova", "Editar", "Excluir"], horizontal=True)
         st.markdown("---")
@@ -2808,8 +3033,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         tem_mon_list = "Monitoramento" in servico_vinculado or "Ambos" in servico_vinculado
 
                         st.markdown(f"""
-<div style="background: #fafafa; border-left: 4px solid #4a0e4e; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
-    <span style="font-weight: bold; color: #4a0e4e; font-size: 14px; display: block; margin-bottom: 8px;">🏢 IDENTIFICAÇÃO & CONTRATO</span>
+<div style="background: #F8FAFC; border: 1px solid #E2E8F0; border-left: 5px solid #6A1B9A; padding: 14px 16px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
+    <span style="font-weight: 800; color: #4A148C; font-size: 14px; display: block; margin-bottom: 8px;">🏢 IDENTIFICAÇÃO & CONTRATO</span>
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; color: #333;">
         <div><b>CNPJ:</b> {cnpj_disp}</div>
         <div><b>Responsável:</b> {resp_disp}</div>
@@ -2827,8 +3052,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         
                         if tem_fr_list:
                             st.markdown(f"""
-<div style="background: #fff8f8; border-left: 4px solid #8b0000; padding: 12px 16px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
-    <span style="font-weight: bold; color: #8b0000; font-size: 14px; display: block; margin-bottom: 8px;">🚨 POP DE EMERGÊNCIA (FURTO / ROUBO)</span>
+<div style="background: #FFF5F5; border: 1px solid #FFCDD2; border-left: 5px solid #D32F2F; padding: 14px 16px; border-radius: 8px; margin-bottom: 15px; font-size: 13px;">
+    <span style="font-weight: 800; color: #D32F2F; font-size: 14px; display: block; margin-bottom: 8px;">🚨 POP DE EMERGÊNCIA (FURTO / ROUBO)</span>
     <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 6px;">
         <div><b>📞 Gestor 24h:</b> {pop_g_disp}</div>
         <div><b>🛡️ Pronta Resposta:</b> {pop_pr_disp}</div>
@@ -2839,8 +3064,8 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
                         
                         if tem_mon_list:
                             st.markdown(f"""
-<div style="background: #fdfaff; border-left: 4px solid #6a1b9a; padding: 12px 16px; border-radius: 6px; font-size: 13px;">
-    <span style="font-weight: bold; color: #6a1b9a; font-size: 14px; display: block; margin-bottom: 8px;">📡 DIRETRIZES DE MONITORAMENTO & SETORES</span>
+<div style="background: #FDFAFF; border: 1px solid #E1BEE7; border-left: 5px solid #6A1B9A; padding: 14px 16px; border-radius: 8px; font-size: 13px;">
+    <span style="font-weight: 800; color: #6A1B9A; font-size: 14px; display: block; margin-bottom: 8px;">📡 DIRETRIZES DE MONITORAMENTO & SETORES</span>
     <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 6px;">
         <div><b>💰 WPP Financeiro:</b> {pop_fin_disp}</div>
         <div><b>🛠️ WPP Suporte Técnico:</b> {pop_tec_disp}</div>
@@ -2947,7 +3172,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: FINANCEIRO GLOBAL ---
     elif aba_ativa == "financeiro" and st.session_state.is_admin:
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>💰 Controle Financeiro Global</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>💰 Controle Financeiro Global</span><span style="font-size:12px; color:#6A1B9A;">RECEITA & INADIMPLÊNCIA</span></div>', unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666;'>Painel executivo financeiro com o faturamento acumulado de todas as frotas ativas na base.</p>", unsafe_allow_html=True)
         
         empresas_cad = fetch_data("SELECT id, nome, cnpj, valor_veiculo, dia_vencimento, status_pagamento, valor_pago FROM empresas ORDER BY nome")
@@ -2994,17 +3219,17 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
         
         html_kpis_adm = f"""
 <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 20px;">
-    <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #4a0e4e;">
-        <p style="margin: 0; font-size: 13px; color: #666;">💵 Faturamento Previsto (Ativos)</p>
-        <h3 style="margin: 5px 0 0 0; color: #333; font-size: 22px;">R$ {total_faturamento_previsto:.2f}</h3>
+    <div style="flex: 1; min-width: 200px; padding: 16px; background: #FFFFFF; border-radius: 12px; border: 1px solid #E2E8F0; border-top: 4px solid #6A1B9A; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <p style="margin: 0; font-size: 12px; color: #64748B; font-weight: 700; text-transform: uppercase;">💵 Faturamento Previsto (Ativos)</p>
+        <h3 style="margin: 6px 0 0 0; color: #6A1B9A; font-size: 24px;">R$ {total_faturamento_previsto:.2f}</h3>
     </div>
-    <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #c62828;">
-        <p style="margin: 0; font-size: 13px; color: #666;">🔴 Valor Atrasado / Vencido</p>
-        <h3 style="margin: 5px 0 0 0; color: #c62828; font-size: 22px;">R$ {total_atrasado:.2f}</h3>
+    <div style="flex: 1; min-width: 200px; padding: 16px; background: #FFFFFF; border-radius: 12px; border: 1px solid #E2E8F0; border-top: 4px solid #D32F2F; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <p style="margin: 0; font-size: 12px; color: #64748B; font-weight: 700; text-transform: uppercase;">🔴 Valor Atrasado / Vencido</p>
+        <h3 style="margin: 6px 0 0 0; color: #D32F2F; font-size: 24px;">R$ {total_atrasado:.2f}</h3>
     </div>
-    <div style="flex: 1; min-width: 200px; padding: 15px; background: #f9f9f9; border-radius: 8px; border-left: 4px solid #2e7d32;">
-        <p style="margin: 0; font-size: 13px; color: #666;">🟢 Valor Pago Registrado</p>
-        <h3 style="margin: 5px 0 0 0; color: #2e7d32; font-size: 22px;">R$ {total_pago:.2f}</h3>
+    <div style="flex: 1; min-width: 200px; padding: 16px; background: #FFFFFF; border-radius: 12px; border: 1px solid #E2E8F0; border-top: 4px solid #2E7D32; box-shadow: 0 2px 8px rgba(0,0,0,0.03);">
+        <p style="margin: 0; font-size: 12px; color: #64748B; font-weight: 700; text-transform: uppercase;">🟢 Valor Pago Registrado</p>
+        <h3 style="margin: 6px 0 0 0; color: #2E7D32; font-size: 24px;">R$ {total_pago:.2f}</h3>
     </div>
 </div>
 """
@@ -3099,7 +3324,7 @@ Gerado pelo Sistema de Inteligência AD Rastreamento
 
     # --- TELA: AUDITORIA E BACKUP DE BASE ---
     elif aba_ativa == "auditoria":
-        st.markdown("<h2 style='color: #4a0e4e; font-size: 22px;'>🕵️ Auditoria e Registros de Atividades</h2>", unsafe_allow_html=True)
+        st.markdown('<div class="section-banner"><span>🕵️ Auditoria, LGPD e Exportação de Base</span><span style="font-size:12px; color:#6A1B9A;">SEGURANÇA JURÍDICA</span></div>', unsafe_allow_html=True)
         st.markdown("<p style='font-size: 13px; color: #666; margin-bottom: 15px;'>🔒 <b>Blindagem Jurídica Ativa:</b> Todos os registros do sistema são inalteráveis e não podem ser apagados, servindo como documento comprobatório oficial da Central de Operações de acordo com a LGPD e Marco Civil da Internet.</p>", unsafe_allow_html=True)
         
         mes_atual_padrao = datetime.now().strftime("%m/%Y")
